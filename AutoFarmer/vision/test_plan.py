@@ -191,6 +191,12 @@ class BotBlades(unittest.TestCase):
         pet = C("Stormblade", "blade", 0, 35, boosts={"storm": 35}, tid=304, item=True)
         plain = [("storm/blade", {"storm": 35.0})]
         self.assertEqual(S.bot_blades(plain, [tc, pet]), plain)
+        # (v1.7.0: a treasure / item card's copy named after such a card of its own kind - <name>@tc stacks with the
+        # deck's copy, as the bot counts it)
+        self.assertEqual(S.bot_blades([("storm/blade@tc", {"storm": 35.0})], [tc]),
+                         [("Stormblade@tc", {"storm": 35.0})])
+        self.assertEqual(S.bot_blades([("storm/blade@item", {"storm": 35.0})], [tc, pet]),
+                         [("Stormblade@item", {"storm": 35.0})])
 
     def test_junk_never_raises(self):
         self.assertEqual(S.bot_blades(None, None), [])
@@ -490,6 +496,53 @@ class PlanLinesFor(unittest.TestCase):
                        battle=boss)
         self.assertNotIn("note|1 card in hand not tried (on already)", out)
         self.assertIn("Stormblade", [g[10] for g in lines(out)], out)
+
+    def spy_ask(self, q, **kw):
+        """ask, the State, Opts and plan plan_round got kept"""
+        got = {}
+        real = S.plan_round
+
+        def spy(state, me, foes, opts=None, **k):
+            got.update(state=state, opts=opts, plan=real(state, me, foes, opts, **k))
+            return got["plan"]
+        with mock.patch.object(S, "plan_round", spy):
+            got["out"] = self.ask(dict({"seed": "1", "budget": "2000", "n": "20"}, **q), **kw)
+        return got
+
+    def test_used_flags_and_draws_reach_the_state(self):
+        """v1.7.0: Planner.ahk's used= (PlannerUsed - the bot's used flags), draws= (DrawsBattle), drawoff=1,
+        pshield=1"""
+        got = self.spy_ask({"used": "storm/blade~storm~35", "draws": "2", "drawoff": "1", "pshield": "1"})
+        self.assertTrue(got["out"][0].startswith("plan|"), got["out"])
+        st = got["state"]
+        self.assertEqual((st.boosts_used, st.draws, st.drawoff, st.pshield_used),
+                         ([("blade", "", {"storm": 35.0})], 2, True, True))
+        self.assertNotIn("Stormblade", [p["name"] for p in got["plan"]["plays"]])
+        # (a treasure copy's flag holds back only a treasure Stormblade in hand - the deck's copy is still tried)
+        tcb = hand_card("Card5", 210, "Stormblade", "blade", value=35, vtext="35%", tid=104, boosts="storm:35",
+                        treasure=True)
+        got = self.spy_ask({"used": "storm/blade@tc~storm~35"}, hand=HAND + [tcb])
+        self.assertIn("note|1 card in hand not tried (used this battle)", got["out"])
+        tried = [p["i"] for p in got["plan"]["plays"] if p["name"] == "Stormblade"]
+        self.assertTrue(tried and all(not got["state"].hand[i].tc for i in tried), tried)
+        # ("-": none used, unlike no used= at all - an older AutoFarmer: None, the blades on taken as cast)
+        self.assertEqual(self.spy_ask({"used": "-"})["state"].boosts_used, [])
+        st = self.spy_ask({})["state"]
+        self.assertEqual((st.boosts_used, st.draws, st.drawoff, st.pshield_used), (None, 0, False, False))
+        for q in ({"draws": "x", "used": "~~|junk|a~b~c|storm/blade~storm~nan"}, {"draws": "inf", "used": "|||"},
+                  {"draws": "-5", "drawoff": "maybe", "pshield": "[1]", "used": "storm/blade+~storm~45"}):
+            got = self.spy_ask(q)
+            self.assertTrue(got["out"][0].startswith("plan|"), (q, got["out"]))
+            self.assertEqual((got["state"].boosts_used, got["state"].draws, got["state"].drawoff), ([], 0, False), q)
+
+    def test_settings_reach_the_opts(self):
+        got = self.spy_ask({"vals": "reboost:1,drawenchant:1,drawneed:175,drawround:2,drawmax:4,enemyspells:0"})
+        o = got["opts"]
+        self.assertEqual((o.reboost, o.drawenchant, o.drawneed, o.drawround, o.drawmax, o.enemyspells),
+                         (True, True, 175.0, 2, 4, False))
+        o = self.spy_ask({})["opts"]
+        self.assertEqual((o.reboost, o.drawenchant, o.drawneed, o.drawround, o.drawmax, o.enemyspells),
+                         (False, False, 100.0, 3, 6, True))
 
     def test_place_in_hand_counts_every_card(self):
         """review fix: i (plan|'s field 1) is the card's place among every card read - one with no name read before it
@@ -794,6 +847,27 @@ class SimOnGameDecks(unittest.TestCase):
         self.assertTrue(spare[0].startswith("sim|"), spare)
         self.assertIn("deck|def|Spare", spare)
 
+    def test_sim_settings_reach_the_opts(self):
+        """v1.7.0: /sim's vals (Decks.ahk DeckSimVals) - reboost and the rest reach the simulator; none: its defaults,
+        the bot's"""
+        class Wiki:
+            def creature(self, name):
+                return {"missing": True}
+        seen = []
+        real = S.simulate
+
+        def spy(cards, me, foes, opts=None, **kw):
+            seen.append(opts)
+            return real(cards, me, foes, opts, **kw)
+        with mock.patch.object(self.V, "decks_reading", lambda fresh, out=False: (self.reading(), "")), \
+                mock.patch.object(self.V, "sim_book", lambda: (S.FoeBook(battles=[]), FACTS)), \
+                mock.patch.object(self.V, "enemy_state", lambda: (Wiki(), None)), mock.patch.object(S, "simulate", spy):
+            for vals in ("reboost:1,drawenchant:1,drawneed:175,enemyspells:0", "reboost:0", ""):
+                out = self.V.sim_lines_for({"foes": "Rat~500", "n": "10", "vals": vals})
+                self.assertTrue(out[0].startswith("sim|"), out)
+        self.assertEqual([(o.reboost, o.drawenchant, o.drawneed, o.enemyspells) for o in seen],
+                         [(True, True, 175.0, False), (False, False, 100.0, True), (False, False, 100.0, True)])
+
     def test_decks_lines_learns_decks_with_item_cards(self):
         fake = types.ModuleType("deckmem")
         fake.deck_lines = lambda r: ["decks|%d" % len(r.get("decks") or [])]
@@ -1095,6 +1169,47 @@ class DeckFor(unittest.TestCase):
             # (foes= instead of the book's groups)
             out = self.V.deckfor_lines_for(dict(q, zone="Z/Nowhere", foes="Rat~Rat|Rat"), self.ctx(), wait=True)
             self.assertTrue(out[0].startswith("deckfor|abc|"), out)
+        finally:
+            self.V.DECKFOR["cache"].clear()
+            self.V.DECKFOR["cache"].update(keep)
+
+    def test_profiles_settings_per_deck(self):
+        """v1.7.0: vals= your settings, dvals= each in-game deck's bot deck profile's own (Decks.ahk DeckForZone) - a
+        deck with a profile plays its values over yours and no learn_deck guess; one with none: learn_deck's on top"""
+        c = self.ctx()
+        plain = dict(deckmem_deck(), gid=0xA1, display="Plain", sets=[3],
+                     cards=[x for x in deckmem_deck()["cards"] if x["kind"] != "blade"])
+        decks = [plain] + [d for d in c["decks"]["decks"] if d["gid"] == 0xDEF]
+        c["decks"] = {"decks": decks}
+        specs = {}
+        real = S.best_decks
+
+        def spy(ds, *a, **kw):
+            specs.clear()
+            specs.update({key: o for key, _n, _c, o in ds})
+            return real(ds, *a, **kw)
+        keep = dict(self.V.DECKFOR["cache"])
+        try:
+            self.V.DECKFOR["cache"].clear()
+            q = {"zone": "Z/Graveyard", "school": "storm", "n": "10", "vals": "reboost:0,cardlogic:2",
+                 "dvals": "A1~reboost:1,cardlogic:1"}
+            with mock.patch.object(S, "best_decks", spy):
+                out = self.V.deckfor_lines_for(q, c, wait=True)
+                self.assertTrue(out[0].startswith("deckfor|"), out)
+                a, b = specs["a1"], specs["def"]
+                # (the profile's own beat yours; no learn_deck guess - its useblades 0 for a deck with no blade)
+                self.assertEqual((a.reboost, a.cardlogic, a.useblades), (True, 1, True))
+                want = S.learn_deck(decks[1], FACTS, 2)["vals"].get("cardlogic", 2)
+                self.assertEqual((b.reboost, b.cardlogic), (False, want))                  # (learn_deck's on top)
+                self.V.deckfor_lines_for(dict(q, dvals="a1~"), c, wait=True)
+                a = specs["a1"]
+                self.assertEqual((a.reboost, a.cardlogic, a.useblades), (False, 2, True))  # (yours alone)
+                self.assertEqual(len(self.V.DECKFOR["cache"]), 2)                         # (another dvals: its own)
+                self.V.deckfor_lines_for(dict(q, vals="reboost:1"), c, wait=True)
+                self.assertEqual(len(self.V.DECKFOR["cache"]), 3)
+                for junk in ("~", "x", "|||", "a~b:c", "~~~|a1~~:", "a1~reboost:nan,:5,cardlogic"):
+                    out = self.V.deckfor_lines_for(dict(q, dvals=junk), c, wait=True)
+                    self.assertTrue(out[0].startswith("deckfor|"), (junk, out))
         finally:
             self.V.DECKFOR["cache"].clear()
             self.V.DECKFOR["cache"].update(keep)

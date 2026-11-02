@@ -19,22 +19,35 @@ THE MODEL (one battle, round by round, until every enemy is dead, the wizard is,
   block rating, level, accuracy %, incoming resist %, power pip chance. Pips: +1 each round (a power pip - worth 2 for a
   card of the wizard's school and for X-pip cards - at power_pip chance), at most 7 pips (power pips counted as 1 pip
   each). Starts at round 1 with that first pip.
-  The deck (Card): the main side and the treasure cards shuffled together (the draw pile - see NOT modelled), the hand
-  refilled to 7 at each round's start; item cards (the gear's, the pet's) only with their kind known (cards.jsonl facts
-  by template id). Copies: count each. A card that leaves the hand - cast (a fizzle too) or discarded - goes to the
-  spent pile (a treasure card is used up); a Reshuffle puts the spent pile back in the draw pile, shuffled (itself not -
-  one use a copy; the game's own rule not checked yet). No card left in hand or draw pile: the battle's over - a timeout
-  unless it's won (the bot flees only with no card in hand; one it holds and never plays keeps it passing).
+  The deck (Card): the main side shuffled (the draw pile), the hand refilled to 7 at each round's start - the game
+  deals only the main deck; the treasure cards are a pile of their own, never dealt, drawn only the bot's way
+  (drawenchant, below); item cards (the gear's, the pet's) only with their kind known (cards.jsonl facts by template
+  id). Copies: count each. A card that leaves the hand - cast (a fizzle too) or discarded - goes to the spent pile (a
+  treasure card is used up); a Reshuffle puts the spent pile back in the draw pile, shuffled (itself not - one use a
+  copy; never a treasure card; the game's own rule not checked yet). No card left in hand or draw pile: the battle's
+  over - a timeout unless it's won (the bot flees only with no card in hand; one it holds and never plays keeps it
+  passing; the treasure pile keeps nothing going).
   The bot's way (Opts - the deck's settings), in Autofarmer.ahk's chain order: cards it doesn't play discarded
   (discardunused, at most discardmax a round - never any damage enchant, a Reshuffle, or a Tower Shield or absorb while
   they're on); the kill check - the cheapest hit that kills its target(s) at its least damage
-  with the boosts on (killmargin % to spare), first with no enchant, then with the best enchant in hand; the defend
-  check - the chance this round's enemy hits kill you is defendat % or more (worked out at the round's start as the
+  with the boosts on (killmargin % to spare), first with no enchant, then with the best enchant in hand; (drawenchant -
+  Draw.ahk) no kill found and no bot enchant in hand, but a payable hit - not an item card's, not enchanted - would
+  kill with +drawneed: treasure cards drawn at random till a bot enchant comes, each needing room in a full hand first
+  (one card discarded: never a treasure or item card, an enchant, the kill hit - any copy - or one it can't pay for; one
+  that isn't a hit before one that is, the first in hand), at most drawround a round and drawmax a battle; the treasure
+  pile empty: no more this battle (empty at the start: none - the bot's 30 minutes without); an enchant came: the kill
+  check with it, else none again this round; the other cards drawn now not played till the next round (the bot doesn't
+  look at the hand again); a treasure card in hand is never discarded; the defend check (enemyspells - off: none) - the
+  chance this round's enemy hits kill you is defendat % or more (worked out at the round's start as the
   bot's enemies.py does: the wiki's spells, each enemy's pips, your health; an enemy the wiki hasn't counts nothing):
   a heal on yourself under 90 % health, else Tower Shield on yourself (usetower), else an absorb whatever it costs
   (useabsorb); a heal under healat %; else, boost first (cardlogic 1, or 3 against a boss): a blade, trap or aura that
   fits a head of the planned hit - the hit dealing the most to the enemies left, an enchant in hand counted - while
-  fewer than boostmax boosts went on since the last hit (0: no limit); then the planned hit once its pips are there;
+  fewer than boostmax boosts went on since the last hit (0: no limit) - each blade and trap once a battle (reboost off -
+  the bot's used flags, one a slot: its kind and schools, an every-school one by its %; marked at the click, a fizzle
+  too; a treasure or item card's copy once more, on top of the deck's - it stacks; a used copy held in hand; a hitter's
+  Reshuffle lets them go again - the ones on stay on; reboost 1: the ones a hit fits - a fizzled one too - go again
+  after it, one cast of each between hits); then the planned hit once its pips are there;
   else a payable hit with nothing better coming; else the filler: Tower Shield on yourself, else an absorb that costs
   no pips, else Reshuffle (usereshuffle); else a pass (pips build). Hit first (cardlogic 2, or 3 against mobs): the
   planned hit as soon as it's paid for, boosts only while waiting for pips.
@@ -70,18 +83,22 @@ THE MODEL (one battle, round by round, until every enemy is dead, the wizard is,
   (-50 % on the next hit, any school) and absorbs as cast go on there too; stacked ones stack.
   Who goes first: either side, alike (the game's initiative), the same all battle.
   NOT modelled (yet): the stuns, minions and pure damage over time cards you could cast (the bot doesn't play them
-  either - CardLearn.ahk's played:0 kinds); each blade and trap once a battle (reboost off - the simulator casts one
-  again once a hit used it up, so a Reshuffle's reset of them has nothing to do); Sharpen and Potent; treasure cards
-  are dealt with the main deck here, while the game deals only the main deck and the bot draws treasure cards itself
-  (Draw.ahk) - not modelled yet (so the bot never discards a treasure card - it only holds ones it drew - while the
-  simulator discards a dealt one it doesn't play like any other card, as before); a Tower Shield the bot knows only by
-  its slot or its "-N% to next spell" text, not its name; useabsorb and enemyspells (never sent to the helper: both
-  taken as on); the defend check's own blind spots (vision helper or enemyspells off, health unread: the bot then
-  doesn't defend, the simulator does); the enchant's +N the bot's own kill check counts (its enchantN settings - the
-  simulator takes the card's number: the same unless you changed them); the enemies' cheats. So the numbers lean
-  optimistic against an enemy that shields or heals and has no battle recorded - verdict() says which ones. The party's
-  other wizards: the team model (below) - the planner's; simulate() plays one wizard (team splits the enemies' single
-  hits).
+  either - CardLearn.ahk's played:0 kinds); Sharpen and Potent (the bot's second, sharpened cast of a blade or trap, and
+  its throwing away a blade both casts of which went - here each goes once and a used copy is held); an item card of a
+  kind the simulator doesn't play is discarded (the bot never discards one - lavender, as a treasure card); a Tower
+  Shield the bot knows only by its slot or its "-N% to next spell" text, not its name; the kill check's and the draw's
+  reach (the bot's looks at its hit slots and the wand only and needs the enemies' health read - healthocr or
+  memclicks -; the simulator's at every hit in hand, a treasure card drawn in an earlier round too); a treasure card
+  drawn now waits for the next round, an enchant excepted (the bot's card flags were set before the draw - but it can
+  cast a drawn learned hit in no slot at once); a Draw that ends the turn (the bot then stops drawing till it's
+  restarted - the AHK sends drawenchant 0 once it has seen one); the defend check's blind spot: your health unread (the
+  bot then doesn't defend, the simulator does); the enchant's +N the bot's own kill check counts (its enchantN settings
+  - the simulator takes the card's number: the same unless you changed them); a blade or trap of two schools other than
+  Elemental's or Spirit's (the bot has no slot for it and never casts it; the simulator does); with reboost on, the
+  bot's count of traps follows one enemy (one on an earlier enemy it never casts again); the enemies' cheats. So the
+  numbers lean optimistic against an enemy that shields or heals and has no battle recorded - verdict() says which ones.
+  The party's other wizards: the team model (below) - the planner's; simulate() plays one wizard (team splits the
+  enemies' single hits).
 
 THE TEAM MODEL (v1.0.0, batch 3 - TODO goal 3 step 15: the leader plans the team's round)
   State.mates: the party's other wizards on my side (Mate), each its own hand, draw pile, pips, health and blades, my
@@ -91,30 +108,38 @@ THE TEAM MODEL (v1.0.0, batch 3 - TODO goal 3 step 15: the leader plans the team
   own hand; a blader or healer the support's (choose_support - the bot's chain for its role: the kill check, the defend
   check, a healer's heal on the one of us lowest under healat %, its own heal, a healer's Tower Shield on the ally
   lowest under twice healat % else on the hitter, a blade for the hitter's planned hit on the hitter - a trap on the
-  enemy it goes for -, a blader's Tower Shield on the hitter (each support's once a battle: Party.ahk PartyShield -
-  taken as not gone yet when the planner starts unless State / Mate pshield_used say so: Planner.ahk doesn't send the
-  bot's used19 yet), else a hit, else the filler on itself). Each wizard's defend check on its own health. A mate's
-  Tower Shield, Reshuffle or enchant is known by its name in cards.jsonl's facts (an enchantment on a mate's card
-  isn't). A mate whose hand isn't known: its role's way (a hitter the generic hitter, a support nothing). plan_team: a
-  play for each wizard whose hand is known by coordinate descent over plan_round's candidates (team_lines: /plan's
-  order| lines).
+  enemy it goes for -, a blader's Tower Shield on the hitter (each support's once till the side's hitter hits again:
+  Party.ahk PartyShield, used19 - taken as not gone yet when the planner starts unless State / Mate pshield_used say
+  so: Planner.ahk sends mine, a mate's isn't known), else a hit, else the filler on itself). Each wizard's defend check
+  on its own health. A support's blades and traps each once till the hitter's hit that fits them (Party.ahk
+  PartyReblade - whatever its reboost); a mate's used ones aren't known (none taken as used); a mate draws no treasure
+  card. A mate's Tower Shield, Reshuffle or enchant is known by its name in cards.jsonl's facts (an enchantment on a
+  mate's card isn't). A mate whose hand isn't known: its role's way (a hitter the generic hitter, a support nothing).
+  plan_team: a play for each wizard whose hand is known by coordinate descent over plan_round's candidates
+  (team_lines: /plan's order| lines).
 
 DECKS FOR A ZONE (best_decks - vision.py /deckfor, Decks.ahk DeckForZone): each deck simulated against the enemy groups
   fought most in a zone (FoeBook.groups), weighted by how often each was fought - the best first; every deck on the same
-  dice against a group (common random numbers: the same cards score the same).
+  dice against a group (common random numbers: the same main deck scores the same - a treasure side changes nothing
+  while drawenchant is off); each group played as the bot plays it - a boss in it: a boss fight (cardlogic 3).
 
 THE PLANNER (TODO goal 3, step 3 - vision.py /plan, Planner.ahk: advice only)
-  State: a battle in the middle - the hand as dealt, the draw pile (the deck less the hand), pips, my health and each
-  enemy's, the blades (by their cards' names - bot_blades turns the bot's keys into them), traps and aura on, the round,
-  boosts since the last hit, who goes first; _Battle.from_state starts there and run_from plays it on: the round now
-  with a play forced (force: a card at an enemy, or a pass - no pip, no draw: they're this round's), then the bot's
+  State: a battle in the middle - the hand as dealt, the draw pile (the main deck less the hand), the treasure pile (the
+  deck's treasure side less the hand's; the ones drawn this battle - draws - taken off at random), pips, my health and
+  each enemy's, the blades (by their cards' names - bot_blades turns the bot's keys into them), traps and aura on, the
+  round, boosts since the last hit, who goes first, the blades and traps cast this battle (the bot's used flags - not
+  sent: the blades on taken as cast); _Battle.from_state starts there and run_from plays it on: the round now with a
+  play forced (force: a card at an enemy, or a pass - no pip, no draw, no Draw: they're this round's), then the bot's
   chain (choose - my_round's picks) each round. plan_round tries every card that can go now (and a pass) in rollouts on
   common random numbers within a time budget and ranks them (win %, then the sooner, then health left; a rollout still
   going at the horizon valued by the enemies' health it took); a learned prior (battlelearn.Plays.prior_fn) only nudges
   near-equal plays. plan_lines is /plan's answer. An enchant is no play of its own: the hits' rollouts carry it (the bot
-  puts the best one on its next hit); Tower Shield, an absorb and a Reshuffle are, while on. The round now has no
-  defend check of mine (the bot asks the planner only after its own defend declined) - each mate's chain has its own
-  (its bot runs its chain, defend first); the rounds after, every wizard's.
+  puts the best one on its next hit); Tower Shield, an absorb and a Reshuffle are, while on. The round now has no defend
+  check of mine (the bot asks the planner only after its own defend declined) - each mate's chain has its own (its bot
+  runs its chain, defend first); the rounds after, every wizard's. The round now after a Draw that brought no enchant:
+  the bot's own pick skips the kill check and leaves the treasure cards drawn that round in hand (my_round's kill=False
+  and hold) - the planner isn't told which cards came this round, so its chain pick (your settings' way) runs the kill
+  check on the whole hand, a card just drawn too.
 
 RESULTS  simulate() -> {n, won, lost, timeout (fractions), rounds (median rounds of the battles won), rounds_p90, hp_left
   (the wizard's mean health % left in won battles), dmg_in (mean damage taken a round), first_kill (median round of the
@@ -124,6 +149,7 @@ FAILS SOFT: nothing here raises out of the public functions on bad input - a car
 why), a foe with nothing known gets the generic hitter."""
 import argparse
 import collections
+import copy
 import json
 import math
 import random
@@ -203,19 +229,24 @@ def crit_chance(crit, block, level=100):
 
 
 def school_of(s):
-    s = (s or "").strip().lower()
+    """a school's name as SCHOOLS has it - '' none (junk: a non-str too)"""
+    s = s.strip().lower() if isinstance(s, str) else ""
     return s if s in SCHOOLS else ""
 
 
 def parse_pairs(text):
-    """'fire:230,ice:230' -> {'fire': 230, 'ice': 230}; '' / '?' / junk -> {}"""
+    """'fire:230,ice:230' -> {'fire': 230, 'ice': 230}; '' / '?' / junk -> {} (a non-str read as its str(); a value that
+    isn't a finite number, or is past 1e9, left out - so no sum of them overflows later)"""
     out = {}
-    for part in (text or "").split(","):
+    text = "" if text is None else text if isinstance(text, str) else str(text)
+    for part in text.split(","):
         k, _, v = part.partition(":")
         k = k.strip().lower()
         try:
             v = float(v)
         except ValueError:
+            continue
+        if not math.isfinite(v) or abs(v) > 1e9:
             continue
         if k == "all" or k in SCHOOLS:
             out[k] = out.get(k, 0) + v
@@ -224,22 +255,71 @@ def parse_pairs(text):
 
 def value_of(v):
     """(number, top, per_pip) of a card's value - a number as it is, or handmem's value_text: '295-335' (295, 335),
-    '100/pip' (100, None, True), '35%', '+75', '+10%' - (None, None, False) none"""
+    '100/pip' (100, None, True), '35%', '+75', '+10%' - (None, None, False) none (a value that isn't a finite number, or
+    is past 1e9, too; a top past 1e9: None)"""
     if isinstance(v, bool) or v is None:
         return None, None, False
     if isinstance(v, (int, float)):
-        return float(v), None, False
+        try:
+            f = float(v)
+        except OverflowError:
+            return None, None, False
+        return (f, None, False) if math.isfinite(f) and abs(f) <= 1e9 else (None, None, False)
     m = re.match(r"\s*\+?(-?\d+(?:\.\d+)?)\s*(?:-\s*(\d+(?:\.\d+)?))?", str(v))
     if not m:
         return None, None, False
     lo = float(m.group(1))
+    if abs(lo) > 1e9:
+        return None, None, False
     hi = float(m.group(2)) if m.group(2) else None
+    hi = hi if hi is not None and hi <= 1e9 else None
     return lo, (hi if hi is not None and hi > lo else None), "/pip" in str(v)
 
 
 def fits(boosts, school):
     """the % a boost ({school: %}, 'all') adds to a head of school - 0 none"""
     return boosts.get(school, boosts.get("all", 0)) if boosts else 0
+
+
+def _fits_any(b, heads):
+    """boost b fits one of heads (a hit's heads - {school: damage} or its schools)"""
+    return any(fits(b, s) for s in heads)
+
+
+# (the bot's used flags key a blade or trap by its slot, not its name - KillCalc.ahk BoostKey / BoostSlotFor /
+# BoostSchools / BoostPct: (kind, schools, copy) - "storm", "fire,ice,storm", "all/<%>" for an every-school one (blade3
+# from blade4, trap3 from feint), and the copy kind: "" the deck's, "tc" a treasure card's, "item" an item card's)
+def _src(c):
+    """a card's copy kind as the bot's BoostSrcOf has it, item first: 'item' an item card's, 'tc' a treasure card's,
+    '' the deck's (vision.py can read a hand card as both - it counts as the item card's)"""
+    return "item" if c.item else "tc" if c.tc else ""
+
+
+def _slot(kind, b):
+    """the bot's slot of a blade's or trap's boosts b ({school: %}): (kind, its schools with a % above 0 as a sorted
+    comma list) - an every-school one (kind, 'all/<its %>'); never raises (junk or None: (kind, ''))"""
+    try:
+        s = sorted(k for k, v in b.items() if isinstance(v, (int, float)) and not isinstance(v, bool)
+                   and math.isfinite(v) and v > 0)
+        if "all" in s:
+            return kind, "all/%g" % round(float(b["all"]), 1)
+        return kind, ",".join(s)
+    except Exception:  # noqa: BLE001 - no slot then
+        return kind, ""
+
+
+def _bkey(c):
+    """a blade's or trap's used key: its slot and its copy kind (the bot's used flag - a treasure / item card's copy
+    BoostSrcUsed's own)"""
+    return _slot(c.kind, c.boosts) + (_src(c),)
+
+
+def _on_name(c):
+    """a blade's name while it's on: its card's, a treasure / item card's copy '<name>@tc' / '<name>@item' - one of each
+    name on (identical blades don't stack; the copy stacks with the deck's, as the bot counts it - KillCalc.ahk
+    AddBoost)"""
+    s = _src(c)
+    return c.name + ("@" + s if s else "")
 
 
 # ============================================================================ the cards
@@ -257,6 +337,10 @@ class Card:
 
     def __init__(self, name, kind, school="", pips=0, x=False, value=0, heads=None, boosts=None, acc=None, tid=None,
                  tc=False, item=False, top=None, dot=None, ench=0, names=""):
+        # (a name or kind that isn't text - junk read off a deck - as its str(); int(pips) junk raises: card_of leaves
+        # the card out)
+        name = str(name) if name and not isinstance(name, str) else name
+        kind = str(kind) if kind and not isinstance(kind, str) else kind
         self.name, self.kind, self.school, self.tid = name or "?", kind or "", school_of(school), tid
         num, rtop, per = value_of(value)
         self.pips, self.x, self.value = int(pips or 0), bool(x) or per, num or 0.0
@@ -276,9 +360,11 @@ class Card:
         self.resh = bool(RESH_RE.search(txt))
         m = ENCHANT_RE.search(txt) if self.kind == "enchant" else None
         self.bot_ench = m.group(1).lower() if m else ""
-        # (a deck card carries no accuracy: a ward, an absorb and a Reshuffle never miss in the game - a fact's acc wins)
-        self.acc = acc if acc else (100 if (self.kind in ("ward", "absorb") or self.resh)
-                                    else SCHOOL_ACC.get(self.school, 85))
+        # (a deck card carries no accuracy: a ward, an absorb and a Reshuffle never miss in the game - a fact's acc
+        # wins; one that isn't a finite number - junk - the default too)
+        ok = isinstance(acc, (int, float)) and not isinstance(acc, bool) and math.isfinite(acc)
+        self.acc = acc if ok and acc else (100 if (self.kind in ("ward", "absorb") or self.resh)
+                                           else SCHOOL_ACC.get(self.school, 85))
         self.tc, self.item = bool(tc), bool(item)
         dv = value_of(dot)[0]
         self.dot = dv if dv and dv > 0 and self.kind in ("damage", "aoe") else 0.0
@@ -309,59 +395,75 @@ def _enchant_rank(c):
 def card_of(c, facts=None):
     """a Card from a deckmem / handmem card dict (kind, school, pips, x_pips, value, heads_text, boosts_text...) - its
     template's facts (cards.jsonl's: kind, value - handmem's value_text there, heads, boosts, acc) fill what it lacks;
-    a hit's enchantment already on it from handmem's ench_effect ('kModifyCardDamage +175'). None: no kind known"""
-    f = (facts or {}).get(c.get("template_id") or c.get("tid")) or {}
-    kind = c.get("kind") or f.get("kind")
-    if not kind:
+    a hit's enchantment already on it from handmem's ench_effect ('kModifyCardDamage +175'). None: no kind known, or a
+    card it can't read (never raises)"""
+    try:
+        f = (facts if isinstance(facts, dict) else {}).get(c.get("template_id") or c.get("tid")) or {}
+        if not isinstance(f, dict):
+            f = {}
+        kind = c.get("kind") or f.get("kind")
+        if not kind:
+            return None
+        names = " ".join(str(x) for x in (c.get("name"), c.get("display"), f.get("name"), f.get("display")) if x)
+        ench = 0
+        ee = c.get("ench_effect")
+        if ee:
+            m = re.search(r"kModifyCardDamage\s*\+?(\d+)", str(ee))
+            ench = float(m.group(1)) if m else 0
+        elif isinstance(c.get("ench"), (int, float)) and not isinstance(c.get("ench"), bool):
+            ench = c["ench"]
+        heads = parse_pairs(c.get("heads_text") or f.get("heads") or "")
+        boosts = parse_pairs(c.get("boosts_text") or f.get("boosts") or "")
+        value = c.get("value") if c.get("value") is not None else f.get("value")
+        # (the range's top: the card's value_text, else the fact's)
+        _lo, top, _per = value_of(c.get("value_text") if c.get("value_text") else f.get("value"))
+        return Card(c.get("display") or c.get("name") or f.get("display") or f.get("name"), kind,
+                    c.get("school") or f.get("school"), c.get("pips") if c.get("pips") is not None else f.get("pips"),
+                    c.get("x_pips") if c.get("x_pips") is not None else f.get("x"), value, heads, boosts,
+                    c.get("accuracy") or f.get("acc"), c.get("template_id") or c.get("tid"),
+                    tc=c.get("side") == "treasure", item=bool(c.get("item")), top=top,
+                    dot=c.get("dot") if c.get("dot") is not None else f.get("dot"), ench=ench, names=names)
+    except Exception:  # noqa: BLE001 - a card it can't read: left out (counted by the caller)
         return None
-    names = " ".join(str(x) for x in (c.get("name"), c.get("display"), f.get("name"), f.get("display")) if x)
-    ench = 0
-    ee = c.get("ench_effect")
-    if ee:
-        m = re.search(r"kModifyCardDamage\s*\+?(\d+)", str(ee))
-        ench = float(m.group(1)) if m else 0
-    elif isinstance(c.get("ench"), (int, float)) and not isinstance(c.get("ench"), bool):
-        ench = c["ench"]
-    heads = parse_pairs(c.get("heads_text") or f.get("heads") or "")
-    boosts = parse_pairs(c.get("boosts_text") or f.get("boosts") or "")
-    value = c.get("value") if c.get("value") is not None else f.get("value")
-    # (the range's top: the card's value_text, else the fact's)
-    _lo, top, _per = value_of(c.get("value_text") if c.get("value_text") else f.get("value"))
-    return Card(c.get("display") or c.get("name") or f.get("display") or f.get("name"), kind,
-                c.get("school") or f.get("school"), c.get("pips") if c.get("pips") is not None else f.get("pips"),
-                c.get("x_pips") if c.get("x_pips") is not None else f.get("x"), value, heads, boosts,
-                c.get("accuracy") or f.get("acc"), c.get("template_id") or c.get("tid"),
-                tc=c.get("side") == "treasure", item=bool(c.get("item")), top=top,
-                dot=c.get("dot") if c.get("dot") is not None else f.get("dot"), ench=ench, names=names)
 
 
 def deck_cards(deck, facts=None, why=None):
     """[Card] of a deckmem deck: each main / treasure card count times, its item cards whose kind facts know (count
-    times); why (a list) gets what was left out"""
+    times); why (a list) gets what was left out. Never raises: a deck it can't read gives [], an entry it can't read
+    is left out and counted"""
+    if not isinstance(deck, dict):
+        if why is not None:
+            why.append("the deck couldn't be read")
+        return []
+    facts = facts if isinstance(facts, dict) else {}
     out, left = [], 0
-    for c in (deck or {}).get("cards") or []:
-        card = card_of(c, facts)
-        if card is None:
-            left += int(c.get("count") or 1)
-            continue
-        out.extend(_copies(card, c.get("count")))
-    for c in (deck or {}).get("item_cards") or []:
-        card = card_of(dict(c, item=True), facts)
-        if card is None:
-            left += int(c.get("count") or 1)
-            continue
-        out.extend(_copies(card, c.get("count")))
+    for key, item in (("cards", False), ("item_cards", True)):
+        lst = deck.get(key)
+        for c in lst if isinstance(lst, (list, tuple)) else []:
+            if not isinstance(c, dict):
+                left += 1
+                continue
+            card = card_of(dict(c, item=True) if item else c, facts)
+            if card is None:
+                left += _count(c.get("count"))
+                continue
+            out.extend(_copies(card, c.get("count")))
     if left and why is not None:
         why.append("%d card%s with no kind known left out" % (left, "" if left == 1 else "s"))
     return out
 
 
-def _copies(card, n):
+def _count(v):
+    """a deck entry's count as int() reads it - 1 when it can't (junk, NaN, an infinity: json.loads reads 1e400 as
+    one)"""
     try:
-        n = max(1, min(int(n or 1), 60))
-    except (TypeError, ValueError):
-        n = 1
-    return [card] * n
+        return int(v or 1)
+    except (TypeError, ValueError, OverflowError):
+        return 1
+
+
+def _copies(card, n):
+    return [card] * max(1, min(_count(n), 60))
 
 
 def load_facts(path):
@@ -402,43 +504,67 @@ class Me:
 
 
 class Opts:
-    """the bot's settings that shape a round (a deck's own - Decks.ahk DeckKeys - else the Settings'): cardlogic (1 boost
-    first, 2 hit first, 3 boss: boost first, mobs: hit first), boostmax (0 no limit), healat %, killmargin %, useblades,
-    usetraps, useaura, useheal, usehit (False: no hits - a support), discardunused, discardmax, boss (the fight is a boss's
-    - cardlogic 3), role (the party battle role the wizard plays - hitter: the chain; blader / healer: the team model's
-    support chain, its boosts on the side's hitter); usetower (Tower Shield played: the defend check's, the filler's, a
-    support's on the hitter - Settings.ahk, a DeckKey), useabsorb (absorbs played, with usetower - KillCalc.ahk AbsorbOn;
-    a hidden PlayerStats key the helper is never sent: on), defendat (the defend check's % chance to die this round - 0
-    never; Settings.ahk, a DeckKey), usereshuffle (Reshuffle played when nothing else goes - Settings.ahk, a DeckKey)"""
+    """the bot's settings that shape a round (a deck's own - Decks.ahk DeckKeys - else the Settings'): cardlogic (1
+    boost first, 2 hit first, 3 boss: boost first, mobs: hit first), boostmax (0 no limit), healat %, killmargin %,
+    useblades, usetraps, useaura, useheal, usehit (False: no hits - a support), discardunused, discardmax, boss (the
+    fight is a boss's - cardlogic 3), role (the party battle role the wizard plays - hitter: the chain; blader / healer:
+    the team model's support chain, its boosts on the side's hitter); usetower (Tower Shield played: the defend check's,
+    the filler's, a support's on the hitter - Settings.ahk, a DeckKey), useabsorb (absorbs played, with usetower -
+    KillCalc.ahk AbsorbOn; a hidden PlayerStats key with no default: sent when PlayerStats.txt has it, else on),
+    defendat (the defend check's % chance to die this round - 0 never; Settings.ahk, a DeckKey), usereshuffle (Reshuffle
+    played when nothing else goes - Settings.ahk, a DeckKey); reboost (on only at exactly 1 - KillCalc.ahk
+    `Stat("reboost") == 1`: a blade's or trap's used flag freed by a hit it fits, else each once a battle - a DeckKey,
+    off), drawenchant (treasure cards drawn for an enchant that makes the kill - Draw.ahk, a DeckKey, off), drawneed
+    (the enchant's +N that draw counts on - 0 or less: 100), drawround / drawmax (draws at most a round / a battle -
+    KillCalc.ahk's 3 and 6), enemyspells (the defend check's danger foreseen - off: no defend; Settings.ahk, on)"""
     KEYS = ("cardlogic", "boostmax", "healat", "killmargin", "useblades", "usetraps", "useaura", "useheal",
-            "discardunused", "discardmax", "usetower", "useabsorb", "defendat", "usereshuffle")
+            "discardunused", "discardmax", "usetower", "useabsorb", "defendat", "usereshuffle", "reboost",
+            "drawenchant", "drawneed", "drawround", "drawmax", "enemyspells")
 
     def __init__(self, cardlogic=1, boostmax=0, healat=40, killmargin=15, useblades=1, usetraps=1, useaura=1, useheal=1,
                  discardunused=1, discardmax=3, boss=False, usehit=True, role="hitter", usetower=1, useabsorb=1,
-                 defendat=30, usereshuffle=1):
+                 defendat=30, usereshuffle=1, reboost=0, drawenchant=0, drawneed=100, drawround=3, drawmax=6,
+                 enemyspells=1):
         self.role = role if role in ("hitter", "blader", "healer") else "hitter"
-        self.cardlogic, self.boostmax, self.healat, self.killmargin = int(cardlogic), int(boostmax), float(healat), \
-            float(killmargin)
+        # (a number it can't read - NaN, an infinity, junk - the default: never raises)
+        self.cardlogic, self.boostmax, self.healat, self.killmargin = _int(cardlogic, 1), _int(boostmax, 0), \
+            _fnum(healat, 40.0), _fnum(killmargin, 15.0)
         self.useblades, self.usetraps, self.useaura, self.useheal = bool(useblades), bool(usetraps), bool(useaura), \
             bool(useheal)
-        self.discardunused, self.discardmax, self.boss, self.usehit = bool(discardunused), int(discardmax), bool(boss), \
-            bool(usehit)
+        self.discardunused, self.discardmax, self.boss, self.usehit = bool(discardunused), _int(discardmax, 3), \
+            bool(boss), bool(usehit)
         # (the chain's defend check, filler and Reshuffle - Settings.ahk's defaults; a NaN defendat: the default)
         self.usetower, self.useabsorb, self.usereshuffle = bool(usetower), bool(useabsorb), bool(usereshuffle)
         d = float(defendat)
         self.defendat = d if d == d else 30.0
+        # (the bot's defaults - KillCalc.ahk reboost:0, drawneed / drawround / drawmax 100 / 3 / 6, Settings.ahk
+        # drawenchant 0, enemyspells 1: reboost on only at exactly 1, drawenchant and enemyspells at any number but 0)
+        self.reboost = _fnum(reboost, 0.0) == 1
+        self.drawenchant = _fnum(drawenchant, 0.0) != 0
+        self.drawneed = _fnum(drawneed, 100.0)
+        if self.drawneed <= 0:
+            self.drawneed = 100.0       # (Draw.ahk: 0 or less counts as 100)
+        self.drawround, self.drawmax = max(0, _int(drawround, 3)), max(0, _int(drawmax, 6))
+        self.enemyspells = _fnum(enemyspells, 1.0) != 0
 
     @classmethod
     def of(cls, vals, boss=False):
-        """from {key: value} (a deck's vals / the settings) - unknown keys ignored, bad numbers the default"""
+        """from {key: value} (a deck's vals / the settings) - unknown keys ignored, a value that isn't a finite number
+        the default; never raises (vals that isn't a dict: all the defaults)"""
+        vals = vals if isinstance(vals, dict) else {}
         kw = {}
         for k in cls.KEYS:
-            if k in (vals or {}):
+            if k in vals:
                 try:
-                    kw[k] = float(vals[k])
-                except (TypeError, ValueError):
-                    pass
-        return cls(boss=boss, **kw)
+                    v = float(vals[k])
+                except (TypeError, ValueError, OverflowError):
+                    continue
+                if math.isfinite(v):
+                    kw[k] = v
+        try:
+            return cls(boss=boss, **kw)
+        except Exception:  # noqa: BLE001 - the defaults then
+            return cls(boss=bool(boss))
 
     @property
     def boost_first(self):
@@ -753,7 +879,8 @@ class State:
     """a battle in the middle - the round the planner looks at (vision.py /plan builds it from the game's memory and the
     bot's own bookkeeping):
       hand        [Card] as dealt now, left to right (the bot's discards this round already made)
-      pile        [Card] the draw pile: the deck less the hand (of_deck) - its order not known: shuffled each rollout
+      pile        [Card] the draw pile: the deck less the hand - its treasure cards a pile of their own (of_deck) - its
+                  order not known: shuffled each rollout
       used        cards drawn from the pile before this round besides the hand (taken off it; None: round - 1, about one
                   a round - a shuffled pile's mix is the same whatever is taken off, only its size counts); they're the
                   spent pile a Reshuffle brings back (a guess: discards aren't counted)
@@ -778,14 +905,20 @@ class State:
       mates       [Mate] the party's other wizards on my side (the team model: each its own hand, pips and health, its
                   role's way; the enemies' single hits on one of us at random); seat my place in my side's cast order
                   (4-7: the lowest casts first; None - before the mates)
-      pshield_used  my PartyShield (a support's Tower Shield on an ally, once a battle - Party.ahk used19) went already
-                  this battle (False: not known to have - Planner.ahk doesn't send used19 yet)
+      pshield_used  my PartyShield (a support's Tower Shield on an ally) went already - once till the side's hitter's
+                  next hit - Party.ahk used19 (Planner.ahk sends it: pshield=1; False: not known to have)
+      draws       treasure cards drawn this battle (Draw.ahk DrawsBattle); drawoff: drawing off now (DrawOff,
+                  DrawBroken, DrawEmptyAt)
+      boosts_used [(kind, src, {school: %})] the blades and traps cast this battle that the bot's used flags hold back -
+                  by slot: kind and schools, an every-school one by its %; src "" the deck's, "tc" / "item" a treasure /
+                  item card's copy (None: not sent - the blades on taken as cast)
     charms_from (battlerec.charms_now's result) fills blades, traps, shields... from the game's log
     Never raises on junk: a value it can't read is the default"""
 
     def __init__(self, hand, pile=None, pips=0, power=0, hp=None, fhp=None, blades=None, traps=None, aura=None, rnd=1,
                  boosts_run=0, me_first=None, fpips=None, used=None, shields=None, mytraps=None, myweak=None, absorb=0,
-                 fshields=None, fblades=None, stun=0, mates=None, seat=None, pshield_used=False):
+                 fshields=None, fblades=None, stun=0, mates=None, seat=None, pshield_used=False, draws=0, drawoff=False,
+                 boosts_used=None):
         self.hand = [c for c in (hand or []) if isinstance(c, Card)]
         self.pile = [c for c in (pile or []) if isinstance(c, Card)]
         self.pips, self.power = _int(pips), _int(power)
@@ -807,6 +940,20 @@ class State:
         self.mates = [m for m in (mates or []) if isinstance(m, Mate)] if isinstance(mates, (list, tuple)) else []
         self.seat = _int(seat) if seat is not None else None
         self.pshield_used = pshield_used is True or _int(pshield_used) > 0
+        self.draws = max(0, _int(draws))
+        self.drawoff = drawoff is True or _int(drawoff) > 0
+        self.boosts_used = None
+        if isinstance(boosts_used, (list, tuple)):
+            self.boosts_used = []
+            for e in boosts_used:
+                try:
+                    k, s, b = e
+                except (TypeError, ValueError):
+                    continue
+                if k not in ("blade", "trap") or not isinstance(b, dict):
+                    continue
+                self.boosts_used.append((k, s if s in ("", "tc", "item") else "",
+                                         {sk: _fnum(v) for sk, v in b.items() if _fnum(v, None) is not None}))
 
     def charms_from(self, ch, my_sc=None, foe_scs=None):
         """the charms the game's log says are on (battlerec.charms_now's {by: {sc: {blades, traps, shields, weak,
@@ -855,10 +1002,16 @@ class State:
     @classmethod
     def of_deck(cls, hand, deck, **kw):
         """the State with its pile the deck's cards ([Card] - deck_cards) less the hand's: each hand card takes one copy
-        of its template id (else its name) out - one the deck hasn't (a pet's card) takes nothing"""
+        of its template id (else its name) out - of its own side first (a treasure card in hand a treasure copy, a main
+        one a main copy), so the main pile keeps its size -, one the deck hasn't (a pet's card) takes nothing"""
         pile = list(deck or [])
         for c in hand or []:
-            k = next((j for j, d in enumerate(pile) if c.tid is not None and d.tid == c.tid), None)
+            k = next((j for j, d in enumerate(pile) if c.tid is not None and d.tid == c.tid and d.tc == c.tc), None)
+            if k is None:
+                k = next((j for j, d in enumerate(pile) if d.name == c.name and d.kind == c.kind and d.tc == c.tc),
+                         None)
+            if k is None:
+                k = next((j for j, d in enumerate(pile) if c.tid is not None and d.tid == c.tid), None)
             if k is None:
                 k = next((j for j, d in enumerate(pile) if d.name == c.name and d.kind == c.kind), None)
             if k is not None:
@@ -893,8 +1046,8 @@ class Mate:
     a heal on the one of us lowest under healat %; a hit only to kill or with nothing else to go), hand ([Card]; None not
     known - its role's way without its cards: a hitter the generic hitter's 100 a pip every other round, a support
     nothing), pile, pips / power, hp (None: its max; 0: down - it casts nothing and takes no hit), blades on it, opts
-    (its settings - None: the role's own: a support plays no hit but a kill), pshield_used (its PartyShield went this
-    battle - Party.ahk used19; False: not known to have). Never raises on junk"""
+    (its settings - None: the role's own: a support plays no hit but a kill), pshield_used (its PartyShield went since
+    the side's hitter's last hit - Party.ahk used19; False: not known to have). Never raises on junk"""
 
     def __init__(self, name="", seat=None, me=None, role="hitter", hand=None, pile=None, pips=0, power=0, hp=None,
                  blades=None, opts=None, pshield_used=False):
@@ -917,25 +1070,20 @@ def bot_blades(blades, cards):
     """the blades on as the bot counts them (vision.py /plan's blades=: KillCalc.ahk AppliedBlades' keys - BoostKey's
     "storm/blade", "blade3", "elementalblade"..., "@tc" / "@item" after it a treasure or item card's copy, "+" a
     sharpened cast) in the simulator's names, which are its cards' (a blade on is one of each name - _Battle.cast,
-    pick_boost, _plannable): the deck's own plain cast named as the blade card of cards (the hand, then the draw pile -
-    not a treasure or item card) that boosts the same schools, the nearest % of them; so another copy of it in hand is
-    'on already' and never stacks in the rollouts - the bot's used flags never cast it plain again while it's on
-    (Autofarmer.ahk UseBlade's Use2; sharpened only with a Sharpen, which the simulator doesn't play). A sharpened cast
-    or a treasure / item card's copy keeps the bot's key - no card has it: the bot counts it on top of the deck's plain
-    one and still casts that (KillCalc.ahk AddBoost, BoostCopyCanGo - the user, 2026-10-24); (the simulator's names
-    don't tell a hand card's copies apart: a treasure / item card's in hand goes as the deck's does). A key no card fits
-    keeps it too. [(name, {school: %})] in blades' order; never raises (junk as it came)"""
-    def schools(b):
-        s = {k for k, v in b.items() if isinstance(v, (int, float)) and v > 0}
-        return frozenset(SCHOOLS) if "all" in s else frozenset(s)
-
-    def pct(b):
-        return max([v for v in b.values() if isinstance(v, (int, float))] or [0])
+    _plannable): the deck's own plain cast named as the blade card of cards (the hand, then the draw pile - not a
+    treasure or item card) that boosts the same schools, the nearest % of them; so another copy of it in hand is 'on
+    already' and never stacks in the rollouts - the bot's used flags never cast it plain again while it's on
+    (Autofarmer.ahk UseBlade's Use2; sharpened only with a Sharpen, which the simulator doesn't play). A treasure / item
+    card's copy ("@tc" / "@item") is named "<card>@tc" / "<card>@item" after such a card of its own kind (_on_name - it
+    stacks with the deck's copy: the bot counts it on top of the deck's plain one and still casts that - KillCalc.ahk
+    AddBoost, BoostCopyCanGo - the user, 2026-10-24); none: the bot's key. A sharpened cast keeps the bot's key - no
+    card has it. A key no card fits keeps it too. [(name, {school: %})] in blades' order; never raises (junk as it
+    came)"""
     out = []
     try:
-        own = [c for c in cards or [] if isinstance(c, Card) and c.kind == "blade" and not c.tc and not c.item]
+        cards = [c for c in cards or [] if isinstance(c, Card)]
     except TypeError:
-        own = []
+        cards = []
     for nb in blades or []:
         try:
             n, b = nb
@@ -943,13 +1091,56 @@ def bot_blades(blades, cards):
             out.append(nb)
             continue
         try:
-            m = re.match(r"(.*?)(@[a-z]+)?(\+)?$", str(n))
-            fit = [c for c in own if schools(c.boosts) == schools(b)] if b and not (m.group(2) or m.group(3)) else []
-            if fit:
-                n = min(fit, key=lambda c: abs(pct(c.boosts) - pct(b))).name
+            m = re.match(r"(.*?)(?:@([a-z]+))?(\+)?$", str(n))
+            src = m.group(2) or ""
+            if b and not m.group(3) and src in ("", "tc", "item"):
+                c = _bot_card(src, "blade", b, cards)
+                if c is not None:
+                    n = _on_name(c)
         except Exception:  # noqa: BLE001 - that one as it came
             pass
         out.append((n, b))
+    return out
+
+
+def _schools_of(b):
+    """the schools a boost {school: %} fits ('all': every school) - bot_blades' match"""
+    s = {k for k, v in b.items() if isinstance(v, (int, float)) and v > 0}
+    return frozenset(SCHOOLS) if "all" in s else frozenset(s)
+
+
+def _pct_of(b):
+    return max([v for v in b.values() if isinstance(v, (int, float))] or [0])
+
+
+def _bot_card(src, kind, b, cards):
+    """the card of cards a bot key of copy src stands for: one of kind, of that copy kind (_src), boosting the same
+    schools as b ('all' every school), the nearest % of them (the first such) - None none fits"""
+    fit = [c for c in cards if c.kind == kind and _src(c) == src and _schools_of(c.boosts) == _schools_of(b)]
+    return min(fit, key=lambda c: abs(_pct_of(c.boosts) - _pct_of(b))) if fit else None
+
+
+def bot_boosts_used(used):
+    """the bot's used flags as /plan's used= sends them (vision.py's boosts(): [(bot key, {school: %})] - Planner.ahk
+    PlannerUsed: each key's schools and % - BoostSchools, BoostPctFor) -> State.boosts_used's [(kind, src, boosts)]:
+    kind 'trap' for a trap's or feint's key, else 'blade'; src the key's '@tc' / '@item' ('' none); boosts the finite %
+    above 0. A sharpened cast's key ('+': the plain one may still go) and junk left out; never raises"""
+    out = []
+    for e in used if isinstance(used, (list, tuple)) else []:
+        try:
+            k, b = e
+            if not isinstance(k, str) or not isinstance(b, dict) or k.endswith("+"):
+                continue
+            m = re.match(r"(.*?)(?:@([a-z]+))?$", k.strip())
+            base, src = m.group(1), m.group(2) or ""
+            if not base or src not in ("", "tc", "item"):
+                continue
+            bb = {str(s): float(v) for s, v in b.items()
+                  if isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) and v > 0}
+            if bb:
+                out.append(("trap" if re.search(r"trap|feint", base) else "blade", src, bb))
+        except Exception:  # noqa: BLE001 - that one left out
+            continue
     return out
 
 
@@ -958,6 +1149,15 @@ def _int(v, d=0):
         return int(float(v))
     except (TypeError, ValueError, OverflowError):
         return d
+
+
+def _fnum(v, d=0.0):
+    """v as a float - d when it isn't a finite number"""
+    try:
+        f = float(v)
+    except (TypeError, ValueError, OverflowError):
+        return d
+    return f if math.isfinite(f) else d
 
 
 # ============================================================================ the defend check's danger (EnemySpells.ahk)
@@ -1055,7 +1255,8 @@ def _lethal(outs, hp):
 # ============================================================================ one battle
 # (a wizard's own part of a battle: the team model keeps the others' in a _Wiz each and swaps one in to play its round)
 WIZ_FIELDS = ("me", "opts", "hand", "pile", "pips", "power", "hp", "blades", "aura", "boosts_run", "shields", "mytraps",
-              "myweak", "absorb", "mydots", "stun", "role", "nohand", "seat", "name", "spent", "danger_hp", "pshield_used")
+              "myweak", "absorb", "mydots", "stun", "role", "nohand", "seat", "name", "spent", "danger_hp",
+              "pshield_used", "tcs", "draws", "draw_off", "boosts_used")
 
 
 class _Wiz:
@@ -1065,7 +1266,9 @@ class _Wiz:
 class _Battle:
     def __init__(self, cards, me, foes, opts, rng):
         self.me, self.opts, self.rng = me, opts, rng
-        self.pile = list(cards)
+        # (the game deals the main deck only: the draw pile its main side, shuffled - a deck with no treasure side the
+        # same list and the same random numbers as ever)
+        self.pile = [c for c in cards if not c.tc]
         rng.shuffle(self.pile)
         self.hand = []
         self.hp = me.hp
@@ -1074,8 +1277,8 @@ class _Battle:
         self.pips = 0           # pips (power pips counted as 1)
         self.power = 0          # of which power pips
         self.fpips = [rng.choice(ENEMY_START_PIPS) for _ in foes]
-        self.blades = []        # [(name, {school: %})] on the wizard - one of each name (the game doesn't stack
-                                # identical blades; traps it does)
+        self.blades = []        # [(name, {school: %})] on the wizard - one of each name (identical blades don't stack;
+                                # traps do) - a treasure / item copy named name@tc / name@item, which stacks
         self.traps = [[] for _ in foes]
         self.aura = None        # ({school: %}, rounds left)
         self.boosts_run = 0     # boosts since the last hit
@@ -1105,19 +1308,29 @@ class _Battle:
         self.cur = 0
         self.role, self.nohand, self.seat, self.name = "hitter", False, None, "me"
         self.blade_to = self.heal_to = None     # (a support's: the wizard its blade / heal goes on)
-        # (the bot's whole chain - each draws no random number) spent: the cards that left the hand for good - cast (a
-        # fizzle too) or discarded; never a treasure card (used up) or a Reshuffle cast - a Reshuffle puts them back in
-        # the draw pile. danger_hp: my health at this round's start, the defend check's (None: no defend); danger_foes
-        # (the battle's, not a wizard's): ((enemy, the pips it casts with this round)...) alive at the round's start -
-        # None: no defend this round. pshield_used: a support's PartyShield went this battle (Party.ahk used19).
-        # ench_plain: the next cast hit goes without an enchant (the kill check's pass-1 kill); shield_to: the wizard a
-        # support's Tower Shield goes on (None: itself)
+        # (the bot's whole chain - each draws no random number but a Draw's) spent: the cards that left the hand for
+        # good - cast (a fizzle too) or discarded; never a treasure card (used up) or a Reshuffle cast - a Reshuffle
+        # puts them back in the draw pile. danger_hp: my health at this round's start, the defend check's (None: no
+        # defend); danger_foes (the battle's, not a wizard's): ((enemy, the pips it casts with this round)...) alive at
+        # the round's start - None: no defend this round. pshield_used: a support's PartyShield went since the side's
+        # hitter's last hit (Party.ahk used19). ench_plain: the next cast hit goes without an enchant (the kill check's
+        # pass-1 kill); shield_to: the wizard a support's Tower Shield goes on (None: itself). tcs: the treasure pile -
+        # never shuffled, a card drawn from it at random only when a Draw happens (draw_for_kill); draws: drawn this
+        # battle (Draw.ahk DrawsBattle); draw_off: no more draws this battle (DrawOff - the pile empty at the start:
+        # none at all); boosts_used: {(kind, schools, src): boosts} the blades and traps cast that the bot's used flags
+        # hold back (_bkey - reboost); drawn_now: the treasure cards draw_for_kill drew in this call (my_round's - not a
+        # wizard's)
         self.spent = []
         self.danger_hp = None
         self.danger_foes = None
         self.pshield_used = False
         self.ench_plain = False
         self.shield_to = None
+        self.tcs = [c for c in cards if c.tc]
+        self.draws = 0
+        self.draw_off = not self.tcs
+        self.boosts_used = {}
+        self.drawn_now = []
 
     # ---------------------------------------------------------------- my side (the team model)
     def _wiz(self, k):
@@ -1318,9 +1531,10 @@ class _Battle:
     def _defend(self):
         """the card the defend check casts (EnemySpells.ahk EnemyDefend, the danger defendat % or more): a heal on me under
         90 % health, else Tower Shield on me (usetower), else an absorb on me whatever it costs (usetower and useabsorb) -
-        None: nothing to defend with, no danger, or no snapshot (the chain goes on)"""
+        None: nothing to defend with, no danger, no snapshot or enemyspells off (EnemyDanger: no danger foreseen - the
+        chain goes on)"""
         o = self.opts
-        if o.defendat <= 0 or self.danger_foes is None or self.danger_hp is None:
+        if o.defendat <= 0 or not o.enemyspells or self.danger_foes is None or self.danger_hp is None:
             return None
         if not any(c.kind in ("heal", "absorb") or c.tower for c in self.hand):
             return None
@@ -1344,19 +1558,19 @@ class _Battle:
 
     def discard(self):
         """the bot's discards (discardunused): the cards it never plays, at most discardmax a round - each to the spent
-        pile (a treasure card used up)"""
+        pile; a treasure card in hand (one drawn) never (Draw.ahk DiscardIsTc, CardLearn.ahk DiscardUnused)"""
         if not self.opts.discardunused:
             return
         n = 0
         keep = []
+        # (the hits the deck holds: the hand's and the draw pile's - the treasure pile is never dealt)
         hit_schools = {s for c in self.hand + self.pile if c.hit for s in c.heads}
         if self.role != "hitter":
             hit_schools = set(SCHOOLS)      # (a support's boosts are for the hitter's hits, not its own)
         for c in self.hand:
-            if n < self.opts.discardmax and self._useless(c, hit_schools):
+            if n < self.opts.discardmax and not c.tc and self._useless(c, hit_schools):
                 n += 1
-                if not c.tc:
-                    self.spent.append(c)        # (a treasure card thrown away is used up: no Reshuffle brings it back)
+                self.spent.append(c)
                 continue
             keep.append(c)
         self.hand = keep
@@ -1366,8 +1580,8 @@ class _Battle:
         enchant (CardLearn.ahk skips a learned card of type enchant whatever its name - one the bot never finds, a
         Primordial, stays in hand all battle, never played), a Reshuffle while usereshuffle, a Tower Shield while
         usetower, an absorb while usetower and useabsorb; else a kind the simulator doesn't play, one switched off, a
-        blade or trap that fits none of the hits. A treasure card goes by the same rules: the simulator deals it with the
-        main deck (the bot holds only ones it drew itself and never discards those - see NOT modelled)"""
+        blade or trap that fits none of the hits. A treasure card in hand (one drawn - Draw.ahk) is never discarded:
+        discard() keeps it, as the bot does"""
         o = self.opts
         if c.resh:
             return not o.usereshuffle
@@ -1383,10 +1597,66 @@ class _Battle:
             or (c.kind == "trap" and (not o.usetraps or not any(fits(c.boosts, s) for s in hit_schools))) \
             or (c.kind == "aura" and not o.useaura)
 
+    def _room_card(self, keep):
+        """the card DrawMakeRoom discards to make room for a Draw (Draw.ahk): the first in hand that isn't a treasure or
+        item card (lavender), an enchant, keep (any copy - by name) or one it can't pay for now; one that isn't a hit
+        before one that is - None none"""
+        best, rank = None, 3
+        for c in self.hand:
+            if c.tc or c.item or c.kind == "enchant" or c.name == keep.name or not self.pay(c)[0]:
+                continue
+            r = 2 if c.hit else 1
+            if r < rank:
+                best, rank = c, r
+        return best
+
+    def draw_for_kill(self):
+        """drawenchant (Draw.ahk DrawWouldKill + DrawForKill, after the kill check found nothing - Autofarmer.ahk): no
+        payable hit kills now and no bot enchant is in hand, but one - not an item card's, not enchanted - would with
+        +drawneed: treasure cards drawn at random till a bot enchant comes, each after one card discarded to make room
+        in a full hand (_room_card - none: no draw, tried again next round), at most drawround now and drawmax a battle;
+        the treasure pile empty: drawing off for the battle (a room card discarded for it is gone). True: it drew and no
+        enchant came - the bot's kill check isn't run again this round. The cards drawn: self.drawn_now. One random
+        number a draw - none without one"""
+        self.drawn_now = []
+        o = self.opts
+        if not o.drawenchant or self.draw_off or self._best_ench() is not None:
+            return False
+        # (the hits the kill check looks at: choose's - usehit -, a support's any)
+        payable = [c for c in self.hand if c.hit and (o.usehit or self.role != "hitter") and self.pay(c)[0]]
+        if not payable or any(self._kills(c) for c in payable):
+            return False
+        need = [c for c in payable if not c.item and c.ench <= 0 and self._kills(c, o.drawneed)]
+        if not need:
+            return False
+        # (the hit the kill check would pick with that enchant: the cheapest - never the room card, nor a copy of it)
+        keep = min(need, key=lambda c: (c.pips if not c.x else MAX_PIPS, -self.value(c)))
+        tries, drew = 0, False
+        while tries < o.drawround and self.draws < o.drawmax:
+            tries += 1
+            if len(self.hand) >= HAND:
+                room = self._room_card(keep)
+                if room is None:
+                    return drew             # (nothing to spare: no DrawOff - tried again next round)
+                self.hand.remove(room)
+                self.spent.append(room)     # (a main card - a Reshuffle brings it back; not a cast, not a discardmax)
+            if not self.tcs:
+                self.draw_off = True        # (Draw greyed out with room: off for the battle, the room card gone)
+                return drew
+            self.hand.append(self.tcs.pop(self.rng.randrange(len(self.tcs))))
+            self.drawn_now.append(self.hand[-1])
+            self.draws += 1
+            drew = True
+            if self._best_ench() is not None:
+                return False                # (an enchant came: the kill check runs again with it)
+        return drew
+
     def cast(self, card):
         """card out of the hand and cast - False nothing went (not paid for, or a fizzle: the card's gone, the pips
         kept). A hit takes the best bot enchant in hand once it's paid for (Autofarmer.ahk UseHit) - not an item card's,
-        not one enchanted already, not a kill the kill check found without one (ench_plain); a fizzle loses both"""
+        not one enchanted already, not a kill the kill check found without one (ench_plain); a fizzle loses both. A
+        blade or trap marked used (the bot's flags - its slot, _bkey), a hitter's Reshuffle frees them, a hit frees what
+        it fits with reboost (and a support's at the hitter's hit) - each once it's paid for, a fizzle too"""
         plain, self.ench_plain = self.ench_plain, False
         self.hand.remove(card)
         self.casts[card.name] = self.casts.get(card.name, 0) + 1
@@ -1395,6 +1665,16 @@ class _Battle:
         ok, _ = self.pay(card)
         if not ok:
             return False
+        # (the used flags - no random number: set at the click, before the accuracy roll)
+        if card.kind in ("blade", "trap"):
+            self.boosts_used[_bkey(card)] = card.boosts            # (marked at the click - a fizzle too)
+        elif card.resh and self.role == "hitter":
+            self.boosts_used = {}                                  # (a hitter's Reshuffle: every key again - ResetUsed)
+        elif card.hit:
+            if self.opts.reboost and self.role == "hitter":
+                # (reboost 1: the keys it fits go again - a fizzle too; KillCalc.ahk ConsumeBoosts)
+                self.boosts_used = {k: b for k, b in self.boosts_used.items() if not _fits_any(b, card.heads)}
+            self._party_hit(card.heads)
         add = 0.0
         if card.hit and not plain and not card.item and card.ench <= 0:
             e = self._best_ench()
@@ -1421,7 +1701,7 @@ class _Battle:
             w.hp = min(w.me.maxhp, w.hp + card.value)
         elif card.tower:
             # (Tower Shield - the only ward the chain casts: -N % on the next enemy hit, any school; a support's
-            # PartyShield on the one it picked - shield_to, once a battle - else on itself)
+            # PartyShield on the one it picked - shield_to, once till the side's hitter's next hit - else on itself)
             w = self._wiz(self.shield_to) if self.shield_to is not None else self
             w.shields.append((card.value if card.value > 0 else TOWER_PCT, None))
             if self.shield_to is not None:
@@ -1430,10 +1710,12 @@ class _Battle:
             # (on itself - UseOnSelf; an X-pip one's N a pip)
             self.absorb += int(card.value * per)
         elif card.kind == "blade":
-            # (a support's on the side's hitter - blade_to; else on itself)
+            # (a support's on the side's hitter - blade_to; else on itself. One of each name: a treasure / item copy's
+            # name@tc / name@item stacks with the deck's)
             w = self._wiz(self.blade_to) if self.blade_to is not None else self
-            if all(n != card.name for n, _b in w.blades):
-                w.blades.append((card.name, card.boosts))
+            nm = _on_name(card)
+            if all(n != nm for n, _b in w.blades):
+                w.blades.append((nm, card.boosts))
             self.boosts_run += 1
         elif card.kind == "trap":
             t = self.targets(Card("", "damage", heads={"balance": 1}))
@@ -1514,8 +1796,10 @@ class _Battle:
 
     def my_round(self, fresh=True):
         """the bot's round: the draw and its discards (fresh - False: the hand as dealt, the bot's own discards made: the
-        planner's round now), then the card its chain picks (choose) cast - False nothing cast. Stunned: nothing cast. A
-        teammate's: its role's way (a support's choose_support; one whose hand isn't known: generic_round)"""
+        planner's round now), treasure cards drawn for a kill (draw_for_kill, fresh only - those drawn now not played
+        till the next round, an enchant excepted), then the card its chain picks (choose) cast - False nothing cast.
+        Stunned: nothing cast (and no draw). A teammate's: its role's way (a support's choose_support; one whose hand
+        isn't known: generic_round)"""
         if self.nohand:
             return self.generic_round()
         if fresh:
@@ -1524,15 +1808,26 @@ class _Battle:
         if self.stun > 0:
             self.stun -= 1
             return False
-        card = self.choose() if self.role == "hitter" else self.choose_support()
-        return self.cast(card) if card is not None else False
+        self.drawn_now = []
+        drew = self.draw_for_kill() if fresh else False
+        # (the treasure cards drawn now aren't looked at again this round - the bot's card flags were set before the
+        # draw, Draw.ahk / Autofarmer.ahk FindCards: an enchant only, which the kill check and cast() use)
+        held = [c for c in self.drawn_now if c.kind != "enchant"]
+        for c in held:
+            self.hand.remove(c)
+        try:
+            card = self.choose(kill=not drew) if self.role == "hitter" else self.choose_support(kill=not drew)
+            return self.cast(card) if card is not None else False
+        finally:
+            self.hand.extend(held)
 
-    def choose(self):
+    def choose(self, kill=True):
         """the card the bot's chain plays now, Autofarmer.ahk's order: the kill check (no enchant, then with the best one
         in hand), the defend check (a heal under 90 %, else Tower Shield, else an absorb - defendat), a heal under
         healat %, the planned hit and its boosts (boost first or hit first), a payable hit with nothing better coming,
-        the filler (Tower Shield, else an absorb costing no pips, else Reshuffle) - None a pass. Draws no random number
-        (the planner asks it what the bot would play)"""
+        the filler (Tower Shield, else an absorb costing no pips, else Reshuffle) - None a pass. kill False: no kill
+        check (a round the bot drew for an enchant and none came - Autofarmer.ahk). Draws no random number (the planner
+        asks it what the bot would play)"""
         o = self.opts
         self.ench_plain = False
         self.shield_to = None
@@ -1540,7 +1835,7 @@ class _Battle:
         payable = [c for c in hits if self.pay(c)[0]]
         # (the kill check: the cheapest hit that kills its target(s) at its least, killmargin to spare - no enchant, then
         # the best one in hand)
-        k = self._kill_check(payable)
+        k = self._kill_check(payable) if kill else None
         if k is not None:
             return k
         d = self._defend()
@@ -1598,38 +1893,39 @@ class _Battle:
         """a hit in hand worth waiting for: the plan not paid yet but within reach of pips (a pass builds them)"""
         return any(c.hit and not self.pay(c)[0] and self.value(c) > 1.5 * self.value(best) for c in self.hand)
 
-    def pick_boost(self, plan, on=None):
-        """a blade, trap or aura in hand that fits a head of the planned hit (the biggest %), payable - None. on: the
-        blades on the wizard it's for (a support's: the hitter's; None mine)"""
+    def pick_boost(self, plan):
+        """a blade, trap or aura in hand that fits a head of the planned hit (the biggest %), payable, and not one cast
+        this battle (the bot's used flags - reboost) - None"""
         if plan is None:
             return None
         o = self.opts
-        on = self.blades if on is None else on
         best, best_pct = None, 0
         for c in self.hand:
             if c.kind == "blade" and not o.useblades or c.kind == "trap" and not o.usetraps \
                     or c.kind == "aura" and (not o.useaura or self.aura) or c.kind not in ("blade", "trap", "aura"):
                 continue
-            # (that blade's on already: another copy adds nothing)
-            if c.kind == "blade" and any(n == c.name for n, _b in on):
+            # (its slot cast this battle: the bot's used flag holds it - a blade still on is cast again once freed)
+            if c.kind in ("blade", "trap") and _bkey(c) in self.boosts_used:
                 continue
             pct = max((fits(c.boosts, s) for s in plan.heads), default=0)
             if pct > best_pct and self.pay(c)[0]:
                 best, best_pct = c, pct
         return best
 
-    def choose_support(self):
-        """a blader's or healer's card now (the team model - the bot's chain run by a support, Autofarmer.ahk / Party.ahk):
-        the kill check (no enchant, then with the best one in hand); the defend check (on itself); a healer's heal on the
-        one of us lowest under healat % (heal_to); its own heal under healat %; a healer's Tower Shield (PartyShield -
-        shield_to); a blade for the hitter's planned hit on the hitter (blade_to) or a trap on the enemy it goes for (no
-        aura: an aura is on its caster); a blader's Tower Shield (PartyShield); a payable hit (the best enchant in hand on
-        it); the filler on itself - None a pass. Draws no random number"""
+    def choose_support(self, kill=True):
+        """a blader's or healer's card now (the team model - the bot's chain run by a support, Autofarmer.ahk /
+        Party.ahk): the kill check (no enchant, then with the best one in hand); the defend check (on itself); a
+        healer's heal on the one of us lowest under healat % (heal_to); its own heal under healat %; a healer's Tower
+        Shield (PartyShield - shield_to); a blade for the hitter's planned hit on the hitter (blade_to) or a trap on the
+        enemy it goes for (no aura: an aura is on its caster) - not one its own used flags hold (Party.ahk: they come
+        back at the hitter's hit that fits them); a blader's Tower Shield (PartyShield); a payable hit (the best enchant
+        in hand on it); the filler on itself - None a pass. kill False: no kill check (a round the bot drew for an
+        enchant and none came). Draws no random number"""
         o = self.opts
         self.blade_to = self.heal_to = self.shield_to = None
         self.ench_plain = False
         payable = [c for c in self.hand if c.hit and self.pay(c)[0]]
-        k = self._kill_check(payable)
+        k = self._kill_check(payable) if kill else None
         if k is not None:
             return k
         d = self._defend()
@@ -1661,7 +1957,9 @@ class _Battle:
                 if c.kind not in ("blade", "trap") or (c.kind == "blade" and not o.useblades) \
                         or (c.kind == "trap" and not o.usetraps) or not self.pay(c)[0]:
                     continue
-                if c.kind == "blade" and any(n == c.name for n, _b in hw.blades):
+                # (its own used flags - not the hitter's blades on: a blade still on is cast again, wasted, as the
+                # bot's blader does)
+                if _bkey(c) in self.boosts_used:
                     continue
                 pct = max((fits(c.boosts, s) for s in plan.heads), default=0)
                 if pct > 0 and (boost is None or pct > max(fits(boost.boosts, s) for s in plan.heads)):
@@ -1692,9 +1990,24 @@ class _Battle:
         h = self.hitter()
         return h if h is not None and h != self.cur else None
 
+    def _party_hit(self, heads):
+        """the side's hitter's hit (cast - a fizzle too - or the generic hitter's): each blader's and healer's used
+        blades and traps that fit it go again (heads None: not known - all), and its PartyShield (Party.ahk
+        PartyReblade, used19) - whatever its reboost"""
+        if self.side is None or self.cur != self.hitter():
+            return
+        for k in self.wizards():
+            if k == self.cur:
+                continue
+            w = self._wiz(k)
+            if w.role in ("blader", "healer"):
+                w.boosts_used = {key: b for key, b in w.boosts_used.items()
+                                 if heads is not None and not _fits_any(b, heads)}
+                w.pshield_used = False
+
     def _party_shield(self):
-        """a support's PartyShield: its Tower Shield for the one _party_shield_target picks (shield_to), once a battle
-        (Party.ahk used19 - reset only out of battle) - None none"""
+        """a support's PartyShield: its Tower Shield for the one _party_shield_target picks (shield_to), once till the
+        side's hitter's next hit (Party.ahk used19 - PartyReblade frees it) - None none"""
         if not self.opts.usetower or self.pshield_used:
             return None
         t = next((c for c in self.hand if c.tower and self.pay(c)[0]), None)
@@ -1724,6 +2037,7 @@ class _Battle:
         dmg = GENERIC_PER_PIP * max(1, self.pips + self.power) * self.rng.uniform(0.85, 1.15) * \
             self.foes[i].resist_mult(self.me.school, self.me.pierce)
         self.pips = self.power = 0
+        self._party_hit(None)           # (its hit's schools not known: every support's used flags go again)
         before = self.fhp[i]
         self.fhp[i] = max(0, self.fhp[i] - int(dmg))
         if before > 0 and self.fhp[i] == 0 and self.first_kill is None:
@@ -1981,16 +2295,19 @@ class _Battle:
     # ---------------------------------------------------------------- a battle in the middle (the planner's)
     @classmethod
     def from_state(cls, st, me, foes, opts, rng):
-        """a battle started from State st (the round now) instead of round 1 with a shuffled deck: its hand as dealt, its
-        draw pile shuffled (the cards drawn before it - st.used - taken off: the spent pile), pips, health (mine and each
-        enemy's), blades, traps, aura, boosts since my last hit; the enemies' pips st.fpips (not known: 1-3 as a battle's
-        start); who goes first st.me_first (not known: a coin - for a whole rollout, as the game's initiative); the
-        shields, traps and weaknesses on me and the enemies, a stun; the mates (the team model: each its own hand - its pile
-        shuffled - pips and health, in cast order by seat). Each support's PartyShield is taken as not gone yet this
-        battle unless State / Mate pshield_used say so (Planner.ahk doesn't send the bot's used19 yet). The random numbers
-        it draws come first and are the same for every play the planner tries (one rng a rollout)"""
+        """a battle started from State st (the round now) instead of round 1 with a shuffled deck: its hand as dealt,
+        its draw pile shuffled (the cards drawn before it - st.used - taken off: the spent pile), pips, health (mine and
+        each enemy's), blades, traps, aura, boosts since my last hit; the enemies' pips st.fpips (not known: 1-3 as a
+        battle's start); who goes first st.me_first (not known: a coin - for a whole rollout, as the game's initiative);
+        the shields, traps and weaknesses on me and the enemies, a stun; the mates (the team model: each its own hand -
+        its pile shuffled - pips and health, in cast order by seat). Each support's PartyShield is taken as not gone yet
+        unless State / Mate pshield_used say so (Planner.ahk sends mine: pshield=1). The treasure pile: the State's
+        pile's treasure cards (never shuffled), the ones drawn this battle and not in hand (st.draws) taken off at
+        random; draws and drawoff as st has them. The blades and traps cast this battle: st.boosts_used (None - an older
+        AutoFarmer: the blades on taken as cast). The random numbers it draws come first and are the same for every play
+        the planner tries (one rng a rollout) - the treasure pile's last, none when nothing was drawn"""
         b = cls([], me, foes, opts, rng)        # (no cards: nothing shuffled; the enemies' starting pips drawn)
-        b.pile = list(st.pile)
+        b.pile = [c for c in st.pile if not c.tc]
         rng.shuffle(b.pile)
         if st.used:
             # (the cards drawn before: spent - a Reshuffle brings them back; a treasure card's used up)
@@ -2023,6 +2340,20 @@ class _Battle:
         b.fblades = [list(st.fblades[i]) if i < len(st.fblades) else [] for i in range(len(foes))]
         b.role = getattr(opts, "role", "hitter") or "hitter"
         b.pshield_used = bool(getattr(st, "pshield_used", False))
+        # (the blades and traps cast this battle - the bot's used flags, keyed as _bkey keys a card; not sent - an older
+        # AutoFarmer -: the blades on taken as cast, today's "on already" - a sharpened cast's ("+") plain flag may
+        # still be free: not that one)
+        bu = getattr(st, "boosts_used", None)
+        if bu is not None:
+            b.boosts_used = {_slot(k, bb) + (s,): dict(bb) for k, s, bb in bu}
+        else:
+            b.boosts_used = {}
+            for n, bb in st.blades or []:
+                if str(n).endswith("+"):
+                    continue
+                m = re.search(r"@(tc|item)", str(n))
+                b.boosts_used[_slot("blade", bb) + (m.group(1) if m else "",)] = dict(bb)
+        b.drawn_now = []
         if st.mates:
             b.seat = st.seat
             b.side = [_Wiz()]
@@ -2031,8 +2362,11 @@ class _Battle:
                 w.me, w.opts, w.role, w.name, w.seat = m.me, m.opts, m.role, m.name, m.seat
                 w.nohand = m.hand is None
                 w.hand = list(m.hand or [])
-                w.pile = list(m.pile)
+                w.pile = [c for c in m.pile if not c.tc]
                 rng.shuffle(w.pile)
+                # (a mate's used flags aren't known - the party's beat carries none: none taken as used; it draws no
+                # treasure card)
+                w.tcs, w.draws, w.draw_off, w.boosts_used = [], 0, True, {}
                 w.pips, w.power = m.pips, min(m.pips, m.power)
                 w.hp = int(m.hp) if m.hp is not None else m.me.hp
                 w.blades = list(m.blades)
@@ -2044,6 +2378,15 @@ class _Battle:
             b.order = sorted(range(len(b.side)), key=lambda k: (
                 (b.seat if b.seat is not None else 0) if k == 0 else (b.side[k].seat if b.side[k].seat is not None
                                                                       else 99), k))
+        # (the treasure pile - LAST, after every random number drawn above: the ones drawn this battle and not in hand
+        # now are gone, one at random each - none drawn: no random number, every rollout as before)
+        b.tcs = [c for c in st.pile if c.tc]
+        draws = max(0, _int(getattr(st, "draws", 0)))
+        gone = max(0, min(len(b.tcs), draws - sum(1 for c in st.hand if c.tc)))
+        for _ in range(gone):
+            b.tcs.pop(rng.randrange(len(b.tcs)))
+        b.draws = draws
+        b.draw_off = bool(getattr(st, "drawoff", False)) or not b.tcs
         return b
 
     def force(self, card, aim=None):
@@ -2153,6 +2496,8 @@ def simulate(cards, me, foes, opts=None, n=400, seed=None):
             return out
         if not any(c.hit for c in cards):
             out["why"].append("no hit in the deck")
+        elif not any(c.hit and not c.tc for c in cards):
+            out["why"].append("no hit in the main deck (its treasure cards are never dealt)")
         rng = random.Random(seed)
         res = {"won": 0, "lost": 0, "timeout": 0}
         rounds, hp_left, dmg_in, fk, casts = [], [], [], [], {}
@@ -2202,8 +2547,9 @@ def situation(state, me, foes):
 
 def _plannable(c, o, b):
     """'' card c is a play to try now, else why not: a kind the simulator doesn't play, switched off, a blade of its
-    name already on, an aura up; an enchant is no play of its own - the bot's goes on a hit (the hits' rollouts carry
-    it), one it never finds (a Primordial) isn't simulated; Tower Shield, an absorb and a Reshuffle are, while on"""
+    name already on, a blade or trap cast this battle (the bot's used flags hold it - reboost), an aura up; an enchant
+    is no play of its own - the bot's goes on a hit (the hits' rollouts carry it), one it never finds (a Primordial)
+    isn't simulated; Tower Shield, an absorb and a Reshuffle are, while on"""
     if c.resh:
         return "" if o.usereshuffle else "switched off"
     if c.kind == "enchant":
@@ -2217,8 +2563,10 @@ def _plannable(c, o, b):
     if (c.hit and not o.usehit) or (c.kind == "heal" and not o.useheal) or (c.kind == "blade" and not o.useblades) \
             or (c.kind == "trap" and not o.usetraps) or (c.kind == "aura" and not o.useaura):
         return "switched off"
-    if c.kind == "blade" and any(n == c.name for n, _b in b.blades):
+    if c.kind == "blade" and any(n == _on_name(c) for n, _b in b.blades):
         return "on already"
+    if c.kind in ("blade", "trap") and _bkey(c) in b.boosts_used:
+        return "used this battle"
     if c.kind == "aura" and b.aura:
         return "on already"
     # (a heal with my health high: wasted - and in the simulator it would only free a hand slot for the next draw)
@@ -2243,16 +2591,18 @@ def _rollout(r, b, total0, horizon):
 def plan_round(state, me, foes, opts=None, n=PLAN_N, horizon=None, budget_ms=PLAN_BUDGET_MS, seed=None,
                prior=None):
     """the plays for the round now (State), best first. Tried: every card in hand that can go now - a kind the simulator
-    plays (PLAYED), paid for, not switched off in opts, not a blade already on, an aura while one's up or a heal that
-    half goes to waste (my health high); copies once - a single-target hit or a trap at each enemy left, anything else
-    once; and a pass. Each in up to n rollouts (from_state, then run_from: this round with that play, then the bot's
-    chain - choose - till the battle's decided or horizon rounds - None: PLAN_HORIZON, PLAN_HORIZON_BOSS with a boss
-    among foes), every play on the same random numbers (rollout k's rng is the same for each: the gaps are the plays',
-    not luck's), round robin till budget_ms is spent (always one round of them; the worse half dropped at PLAN_PRUNE -
-    the bot's own pick and the pass kept). A rollout's value: won 1 + up to 0.2 the sooner + up to 0.05 my health left; lost
-    0.05 x the share of the enemies' health it took; cut at the horizon or out of cards 0.7 x that share x (0.5 + half
-    my health left). prior: a callable (battlelearn.Plays.prior_fn) situation(...) -> ({kind: -1..1}, why) - x PRIOR_W
-    added to each play of that kind.
+    plays (PLAYED), paid for, not switched off in opts, not a blade already on or a blade or trap cast this battle, an
+    aura while one's up or a heal that half goes to waste (my health high); copies once (a deck copy and a treasure
+    card's apart: a treasure card is used up; an item card's copy goes with the deck's - one whose deck copy is on or
+    used is still tried on its own) - a single-target hit or a trap at each enemy left, anything else once; and a pass.
+    Each in up to n rollouts (from_state, then run_from: this round with that play, then the bot's chain - choose - till
+    the battle's decided or horizon rounds - None: PLAN_HORIZON, PLAN_HORIZON_BOSS with a boss among foes), every play
+    on the same random numbers (rollout k's rng is the same for each: the gaps are the plays', not luck's), round robin
+    till budget_ms is spent (always one round of them; the worse half dropped at PLAN_PRUNE - the bot's own pick and the
+    pass kept). A rollout's value: won 1 + up to 0.2 the sooner + up to 0.05 my health left; lost 0.05 x the share of
+    the enemies' health it took; cut at the horizon or out of cards 0.7 x that share x (0.5 + half my health left).
+    prior: a callable (battlelearn.Plays.prior_fn) situation(...) -> ({kind: -1..1}, why) - x PRIOR_W added to each play
+    of that kind.
     -> {plays: [{i (in state.hand; None the pass), name, tid, kind ('pass'), aim (the enemy's index in foes; None not
     aimed), n (rollouts), won, lost, kill (won this very round) - shares -, rounds (median rounds of the won: 1 this
     one), hp_left (my health % in the won), value, bonus, score, chain (the bot's own pick, as the simulator plays your
@@ -2281,7 +2631,7 @@ def plan_round(state, me, foes, opts=None, n=PLAN_N, horizon=None, budget_ms=PLA
                 left[no] += 1
                 continue
             key = (c.name, c.kind, c.school, c.pips, c.x, c.value, tuple(sorted(c.heads.items())),
-                   tuple(sorted(c.boosts.items())), c.ench)
+                   tuple(sorted(c.boosts.items())), c.ench, c.tc)
             if key in seen:
                 rep[i] = seen[key]
                 continue
@@ -2308,7 +2658,8 @@ def plan_round(state, me, foes, opts=None, n=PLAN_N, horizon=None, budget_ms=PLA
                     cands.append(chain)
         if state.me_first is None:
             out["why"].append("who goes first isn't known - each way in half the rollouts")
-        if not state.pile:
+        if not any(not c.tc for c in state.pile):
+            # (the draw pile: its main cards - a treasure card is never dealt)
             out["why"].append("no draw pile known - the rollouts play the hand only")
         total0 = float(sum(probe.fhp[i] for i in alive)) or 1.0
         base = seed if seed is not None else random.randrange(1 << 30)
@@ -2433,15 +2784,16 @@ def plan_lines(plan, foes, ids=None, top=3):
 # ============================================================================ the team's round (the team model)
 def _team_cands(b, w, alive):
     """[(index in wizard w's hand or None - the pass -, aim)] its plays to try now - plan_round's way: a kind the
-    simulator plays, paid for, not switched off, not on already; copies once; a single-target hit or a trap at each
-    enemy left. b: a battle from_state (w swapped in and back here)"""
+    simulator plays, paid for, not switched off, not on already or cast this battle; copies once (a deck copy and a
+    treasure card's apart); a single-target hit or a trap at each enemy left. b: a battle from_state (w swapped
+    in and back here)"""
     b._swap(w)
     try:
         out, seen = [(None, None)], set()
         for i, c in enumerate(b.hand):
             if _plannable(c, b.opts, b) or not b.pay(c)[0]:
                 continue
-            key = (c.name, c.kind, c.school, c.pips, c.x, c.value, c.ench)
+            key = (c.name, c.kind, c.school, c.pips, c.x, c.value, c.ench, c.tc)
             if key in seen:
                 continue
             seen.add(key)
@@ -2571,16 +2923,16 @@ def team_lines(tp, foes):
 # ============================================================================ can this deck beat it
 def best_hit(cards, me, foe, opts=None):
     """(name, damage, boosts) - the deck's strongest hit on foe at its least with every blade and trap the deck holds
-    that fits it (each kind once - Decks.ahk DeckDamage's way), its resist and your pierce, no critical; (None, 0, [])
-    no hit"""
+    that fits it (each kind once - Decks.ahk DeckDamage's way), its resist and your pierce, no critical - its main side
+    only (the treasure cards are never dealt); (None, 0, []) no hit"""
     opts = opts or Opts()
     best = (None, 0.0, [])
-    for c in {id(c): c for c in cards if c.hit}.values():
+    for c in {id(c): c for c in cards if c.hit and not c.tc}.values():
         per = MAX_PIPS if c.x else 1
         total, used = 0.0, set()
         for sch, v in c.heads.items():
             m = damage_multiplier(me.damage) * foe.resist_mult(sch, me.pierce)
-            for b in {(x.name, x.kind): x for x in cards if x.kind in ("blade", "trap", "aura")}.values():
+            for b in {(x.name, x.kind): x for x in cards if x.kind in ("blade", "trap", "aura") and not x.tc}.values():
                 if (b.kind == "blade" and not opts.useblades) or (b.kind == "trap" and not opts.usetraps) \
                         or (b.kind == "aura" and not opts.useaura):
                     continue
@@ -2633,20 +2985,28 @@ def verdict(res, cards, me, foes, opts=None):
                 "%s %s" % kv for kv in seen.items()))
         missing = [f.name for f in foes if not f.acts]
         out["notes"].append("not modelled: the stuns, minions and damage-over-time-only cards (the bot doesn't play "
-                            "them), each blade and trap once a battle (reboost), treasure cards dealt with the main deck "
-                            "(the game deals the main deck; the bot draws them), a party's other wizards (the team model "
-                            "is the planner's)" + (
+                            "them), Sharpen and Potent (a blade's or trap's second, sharpened cast), a party's other "
+                            "wizards (the team model is the planner's)" + (
                                 "; nothing learned yet of what %s does besides hitting (shields, heals, blades, traps, "
                                 "stuns) - against one that does, it's optimistic" % ", ".join(sorted(set(missing)))
                                 if missing else ""))
-        # (the defend check foresees only the wiki's spells - as the bot's does)
         o = opts or Opts()
-        defends = any((c.kind == "heal" and o.useheal) or (c.tower and o.usetower)
-                      or (c.kind == "absorb" and o.usetower and o.useabsorb) for c in cards or [])
+        # (the treasure side: never dealt - drawn only the bot's way, drawenchant)
+        tcs = sum(1 for c in cards or [] if c.tc)
+        if tcs:
+            out["notes"].append("treasure cards (%d): never dealt - the game deals only the main deck; " % tcs + (
+                "drawn for an enchant that makes the kill (drawenchant)" if o.drawenchant
+                else "drawenchant is off: never drawn"))
+        # (the defend check foresees only the wiki's spells - as the bot's does; enemyspells off: none at all)
+        could = any((c.kind == "heal" and o.useheal) or (c.tower and o.usetower)
+                    or (c.kind == "absorb" and o.usetower and o.useabsorb) for c in cards or [])
+        defends = could and o.enemyspells
         blind = sorted({f.name for f in foes if not f.spells})
         if defends and o.defendat > 0 and blind:
             out["notes"].append("defending (defendat %s%%): %s not on the wiki - its hits can't be foreseen, as for the "
                                 "bot: no defend against it" % (_n(o.defendat), ", ".join(blind)))
+        if could and not o.enemyspells:
+            out["notes"].append("no defending: enemyspells is off (the bot doesn't foresee the enemies' hits)")
         rounds = ("about %s rounds" % _n(res["rounds"])) if res.get("rounds") else "no win"
         out["text"] = "%s: %d%% won, %d%% lost, %d%% ran out (%s; %d battles) - %s" % (
             out["word"], round(100 * win), round(100 * res["lost"]), round(100 * res["timeout"]), rounds, res["n"],
@@ -2681,9 +3041,11 @@ def best_decks(decks, groups, make_foes, me, n=DECKFOR_N, top=DECKFOR_GROUPS, se
     medians), hp_left, groups, battles, why}] best first (won, then the fewer rounds, then health left), groups: [(names,
     battles)], why [notes]}. Common random numbers: every deck fights a group on the same seed (seed and the group's
     names - seed None: DECKFOR_SEED), its cards in one order (the game shuffles them anyway) - so two decks with the same
-    cards (one deck in two Equipment Sets) score the same, number for number, and a gap between two decks is theirs, not
-    the dice's (Decks.ahk DeckForZone swaps on a 5-point gap). pause: called before each simulation (vision.py's
-    gate_wait: the gated reads go first) - its time not counted in budget_ms. Never raises"""
+    main deck (one deck in two Equipment Sets; a treasure side changes nothing while drawenchant is off) score the
+    same, number for number, and a gap between two decks is theirs, not the dice's (Decks.ahk DeckForZone swaps on a
+    5-point gap). Each group played as the bot plays it - a boss in it: a boss fight (cardlogic 3: boost first - the
+    deck's Opts copied with boss set, never changed). pause: called before each simulation (vision.py's gate_wait: the
+    gated reads go first) - its time not counted in budget_ms. Never raises"""
     t0 = time.perf_counter()
     out = {"decks": [], "groups": [], "why": []}
     try:
@@ -2709,6 +3071,8 @@ def best_decks(decks, groups, make_foes, me, n=DECKFOR_N, top=DECKFOR_GROUPS, se
             cards = sorted(cards or [], key=_card_order)
             if not any(c.hit for c in cards):
                 why.append("no hit in it")
+            elif not any(c.hit and not c.tc for c in cards):
+                why.append("no hit in its main deck")
             for g, c, fs in foes:
                 if not fs:
                     continue
@@ -2716,7 +3080,13 @@ def best_decks(decks, groups, make_foes, me, n=DECKFOR_N, top=DECKFOR_GROUPS, se
                     p0 = time.perf_counter()
                     pause()
                     t0 += time.perf_counter() - p0
-                o = opts or Opts(boss=any(f.boss for f in fs))
+                # (the group played as the bot plays it: a boss in it - a boss fight, cardlogic 3's boost first; the
+                # deck's own Opts never changed - a copy)
+                gb = any(f.boss for f in fs)
+                o = opts or Opts(boss=gb)
+                if o.boss != gb:
+                    o = copy.copy(o)
+                    o.boss = gb
                 # (the group's own seed, the same for every deck - random.Random takes a str as it is: the same numbers
                 # in every run, unlike hash())
                 r = simulate(cards, me, fs, o, n=n, seed="%s|%s" % (DECKFOR_SEED if seed is None else seed,
@@ -2766,12 +3136,22 @@ def deckfor_lines(res, zone=""):
 # ============================================================================ decks learned from the game
 def deck_kinds(deck, facts=None):
     """{kind: copies} of a deckmem deck's cards (main, treasure, the item cards facts know) and the names of special ones
-    ({tower, reshuffle, hits [(name, pips, value, aoe)]})"""
+    ({tower, reshuffle, hits [(name, pips, value, aoe)]}). Never raises: an entry it can't read counts as '?'"""
     kinds, hits = {}, []
     tower = reshuffle = 0
-    for c in list((deck or {}).get("cards") or []) + [dict(c, item=True) for c in (deck or {}).get("item_cards") or []]:
-        n = int(c.get("count") or 1)
-        name = (c.get("display") or c.get("name") or "")
+    deck = deck if isinstance(deck, dict) else {}
+    entries = []
+    for key, item in (("cards", False), ("item_cards", True)):
+        lst = deck.get(key)
+        for c in lst if isinstance(lst, (list, tuple)) else []:
+            entries.append(None if not isinstance(c, dict) else dict(c, item=True) if item else c)
+    for c in entries:
+        if c is None:
+            kinds["?"] = kinds.get("?", 0) + 1
+            continue
+        n = _count(c.get("count"))
+        name = c.get("display") or c.get("name") or ""
+        name = name if isinstance(name, str) else str(name)
         if re.search(r"tower\s*shield", name, re.I):
             tower += n
         if re.search(r"reshuffle", name, re.I):
@@ -2792,7 +3172,8 @@ def learn_deck(deck, facts=None, n_decks=1):
     with neither Tower Shield nor absorb (KillCalc.ahk AbsorbOn: usetower switches the absorbs too) (a deck that has
     them: left to your Settings); its card logic (boost first with 4+ boosts and a big single hit, hit
     first with mostly AoEs and few boosts); what it's for: a boss deck (big single hits and boosts, few AoEs), else
-    anything else and collect goals (the only deck: anything else). Never a setting it can't tell"""
+    anything else and collect goals (the only deck: anything else). Never a setting it can't tell; never raises"""
+    deck = deck if isinstance(deck, dict) else {}
     kinds, sp = deck_kinds(deck, facts)
     vals, why = {}, []
     blades, traps = kinds.get("blade", 0), kinds.get("trap", 0)
@@ -2826,19 +3207,23 @@ def learn_deck(deck, facts=None, n_decks=1):
         why.append("for bosses: big single hits and boosts")
     else:
         when = ["default", "collect"]
-    sets = (deck or {}).get("sets") or []
-    name = (deck or {}).get("display") or (deck or {}).get("object_name") or "Game deck"
+    sets = deck.get("sets") or []
+    sets = sets if isinstance(sets, list) else []
+    name = deck.get("display") or deck.get("object_name") or "Game deck"
     name = re.sub(r"[^\x20-\x7E]|\|", "", str(name)).strip()[:30] or "Game deck"
-    return {"gid": "%x" % deck["gid"] if isinstance((deck or {}).get("gid"), int) else str((deck or {}).get("gid") or ""),
-            "name": name, "school": school_of((deck or {}).get("school")) or "any",
-            "eqset": sets[0] if sets and 1 <= sets[0] <= 9 else 0, "when": when, "vals": vals,
+    eq = sets[0] if sets and isinstance(sets[0], int) and not isinstance(sets[0], bool) and 1 <= sets[0] <= 9 else 0
+    return {"gid": "%x" % deck["gid"] if isinstance(deck.get("gid"), int) else str(deck.get("gid") or ""),
+            "name": name, "school": school_of(deck.get("school")) or "any",
+            "eqset": eq, "when": when, "vals": vals,
             "kinds": kinds, "why": "; ".join(why) or "nothing to set: your Settings"}
 
 
 def learn_decks(reading, facts=None):
     """[learn_deck(...)] of every deck in a deckmem reading that's in an Equipment Set (a set puts it on: the bot can
-    use it) - the equipped one too when it's in none (eqset 0: picked, not put on)"""
-    decks = [d for d in (reading or {}).get("decks") or [] if d.get("sets") or d.get("equipped")]
+    use it) - the equipped one too when it's in none (eqset 0: picked, not put on). Never raises (junk: [])"""
+    ds = reading.get("decks") if isinstance(reading, dict) else None
+    decks = [d for d in (ds if isinstance(ds, (list, tuple)) else []) if isinstance(d, dict)
+             and (d.get("sets") or d.get("equipped"))]
     return [learn_deck(d, facts, len(decks)) for d in decks]
 
 
