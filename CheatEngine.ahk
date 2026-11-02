@@ -22,9 +22,9 @@ CeDir()
 				ceKey := A_LoopRegKey "\" A_LoopRegName
 				if (!RegExMatch(A_LoopRegName, "i)^Cheat Engine") && !RegExMatch(V1Try(RegRead, ceKey, "DisplayName"), "i)^Cheat Engine"))
 					continue
-				ceDir := RTrim(V1Try(RegRead, ceKey, "InstallLocation"), "\")
-				if (ceDir != "" && CeExe(ceDir) != "")
-					return ceDir
+				cdDir := RTrim(V1Try(RegRead, ceKey, "InstallLocation"), "\")
+				if (cdDir != "" && CeExe(cdDir) != "")
+					return cdDir
 				}
 			}
 		}
@@ -68,8 +68,8 @@ CeRunning()
 ;Cheat Engine started from its folder, minimized. False if Windows wouldn't
 CeStart(dir)
 	{
-	ceExe := CeExe(dir)
-	if (ceExe = "")
+	csExe := CeExe(dir)
+	if (csExe = "")
 		return false
-	return V1Run("`"" ceExe "`"", dir, "Min") = 0
+	return V1Run("`"" csExe "`"", dir, "Min") = 0
 	}

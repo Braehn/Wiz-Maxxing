@@ -3775,16 +3775,16 @@ SpeedCheatEngine(why) {
 static saidNoScript := false
 if (Stat("speedhack") != 1)
 	return
-ceDir := CeDir()
-if (ceDir = "" || !FileExist(CeScriptPath(ceDir)))
+sceDir := CeDir()
+if (sceDir = "" || !FileExist(CeScriptPath(sceDir)))
 	{
 	if (!saidNoScript)
-		saidNoScript := true, DebugLog("Speedhack: on - " (ceDir = "" ? "Cheat Engine isn't installed" : "Cheat Engine (" ceDir ") doesn't have the bot's script") ": start, attach and set it up yourself, or let Setup.exe's `"Cheat Engine speedhack`" do it")
+		saidNoScript := true, DebugLog("Speedhack: on - " (sceDir = "" ? "Cheat Engine isn't installed" : "Cheat Engine (" sceDir ") doesn't have the bot's script") ": start, attach and set it up yourself, or let Setup.exe's `"Cheat Engine speedhack`" do it")
 	return
 	}
 if (CeRunning())
 	return DebugLog("Speedhack: on - Cheat Engine is running, the bot's script in it (" why ")")
-DebugLog("Speedhack: on - " (CeStart(ceDir) ? "Cheat Engine started, minimized" : "Cheat Engine (" CeExe(ceDir) ") couldn't be started") " (" why "): its Wiz-Maxxing script attaches it to Wizard101 and sets the speed keys")
+DebugLog("Speedhack: on - " (CeStart(sceDir) ? "Cheat Engine started, minimized" : "Cheat Engine (" CeExe(sceDir) ") couldn't be started") " (" why "): its Wiz-Maxxing script attaches it to Wizard101 and sets the speed keys")
 }
 ;##############################################
 MenuMap(A_ThisMenuItem:="", A_ThisMenuItemPos:="", MyMenu:="", *) { ; (v1: a label)
