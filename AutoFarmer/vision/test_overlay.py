@@ -923,7 +923,9 @@ class AhkParity(unittest.TestCase):
         """v1.8.0: the simulator plays discardspent only if the AutoFarmer sends it - Settings.ahk's CfgList entry a
         check with def 1 (LoadStats puts it in Stats: Decks.ahk DeckSimVals sends only a key Stats has), Decks.ahk's
         DeckKeys naming it (DeckSimVals' list), every DeckKey kept by the battle recorder (BattleRec.ahk BrecSetKeys ->
-        battlerec.SETTINGS_KEYS) and the simulator's Opts reading it"""
+        battlerec.SETTINGS_KEYS) and the simulator's Opts reading it; and 0 where the bot never runs it this session -
+        DeckSimVals' line and DeckForZone's deck profiles (dual mode, Autofarmer.ahk DiscardSpentRole: a Blader or
+        Healer with the party on)"""
         import battlerec
         import battlesim
         lines = ahk_lines('Settings.ahk')
@@ -953,6 +955,21 @@ class AhkParity(unittest.TestCase):
         for k in keys:
             self.assertIn(k, battlerec.SETTINGS_KEYS, k)
         self.assertIn('discardspent', battlesim.Opts.KEYS)
+        # (DeckSimVals' 0 - /sim, /plan and /deckfor's vals -, and DeckForZone's over a deck profile's own 1: the
+        # simulator holds the copies where the bot does)
+        self.assertRegex(dk, r'dsvK = "discardspent" && \(dualmode == 1 \|\| \(V1IsFunc\("DiscardSpentRole"\) '
+                             r'&& !DiscardSpentRole\.Call\(\)\)\)\)\s*dsvV := 0')
+        m = re.search(r'\nDeckForZone\(p, inBattle := false\)\s*\{.*?\n\t\}', dk, re.S)
+        self.assertIsNotNone(m)
+        self.assertRegex(m.group(0), r'dfzNoSpent := V1IsFunc\("DiscardSpentRole"\) && !DiscardSpentRole\.Call\(\)')
+        self.assertRegex(m.group(0), r'\(dfzK2 = "discardspent" && dfzNoSpent\)\) \? 0 : dfzV2')
+        af = '\n'.join(ahk_code(ahk_lines('Autofarmer.ahk')))
+        self.assertRegex(af, r'\nDiscardSpentRole\(\)\s*\{\s*return PartyBattleSet\(\) = "hitter" \|\| '
+                             r'PartyRoleSet\(\) = "off"\s*\}')
+        # (a treasure card drawn this battle - Draw.ahk: a sharpened cast may have spent its Sharpen, not the deck's -
+        # counts none of the worn deck's down)
+        self.assertRegex(af, r'dspCome := V1IsNum\(dspHas\) && dspHas - \(V1N\(DrawsBattle\) \? 0 : '
+                             r'DiscardSpentSharpened\(dspKind\)\) > 0')
 
     def test_hotkeys(self):
         lines = ahk_lines('Hotkeys.ahk')

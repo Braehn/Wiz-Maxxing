@@ -2666,10 +2666,11 @@ def deck_lines(fresh):
 def deckkinds_lines(ctx=None):
     """/deckkinds' answer (v1.8.0 - Autofarmer.ahk DiscardSpent asks once a battle): the worn deck's Sharpen and Potent
     copies - its main side and item cards, kinds from the reading, else cards.jsonl's facts (battlesim.deck_cards, as
-    /plan builds its draw pile); never a treasure card's (Draw.ahk draws only an enchant for a kill) - from the decks'
-    last reading (every deck's with kinds - decks_reading -, else the worn deck's), never a fresh read: it answers in a
-    battle. kinds|<sharpen n>|<potent n>|<sig>|<age s>: sig 1 the worn deck's signature now (navmem deck_sig, about 2 ms -
-    what battlerec's sig_ok compares at each battle's start) is the worn deck reading's and that reading wears the deck
+    /plan builds its draw pile - the simulator's last read of them, else cards.jsonl alone: never the battles recorded,
+    sim_book's read); never a treasure card's (Draw.ahk draws only an enchant for a kill) - from the decks' last reading
+    (every deck's with kinds - decks_reading -, else the worn deck's), never a fresh read: it answers in a battle.
+    kinds|<sharpen n>|<potent n>|<sig>|<age s>: sig 1 the worn deck's signature now (navmem deck_sig, about 2 ms - what
+    battlerec's sig_ok compares at each battle's start) is the worn deck reading's and that reading wears the deck
     counted, 0 it isn't (another deck worn since: the counts not to be used), "" not known; none|<why> no worn deck
     read. ctx: a test's stand-ins {decks, worn, sig, facts}. Never raises"""
     import battlesim as B
@@ -2684,7 +2685,11 @@ def deckkinds_lines(ctx=None):
             src = worn
         if deck is None:
             return ['none|no worn deck read (the Cards tab\'s From game, or a battle recorded since the helper started)']
-        facts = ctx['facts'] if 'facts' in ctx else sim_book()[1]
+        # (the card facts as the simulator last read them, at any age - a card's kind doesn't change -, else
+        # cards.jsonl's alone: never sim_book, whose read of every battle recorded would hold this battle's request)
+        facts = ctx['facts'] if 'facts' in ctx else (
+            SIM['facts'] if SIM['facts'] is not None
+            else B.load_facts(os.path.join(ROOT, 'learned', 'battles', 'cards.jsonl')))
         cards = [c for c in B.deck_cards(deck, facts) if not c.tc]
         n = {k: sum(1 for c in cards if c.kind == k) for k in ('sharpen', 'potent')}
         sig = ''
@@ -3319,9 +3324,11 @@ def plan_lines_for(q, cards_reader=None, battle_reader=None, ctx=None):
                 mtext, used, party_notes = P.fill_mates(q.get('mates'), prnd)
         mates = plan_mates(mtext, facts)
         # (discardspent: a hitter mate throws its spent copies as this bot's own vals say - sent: the party runs this
-        # AutoFarmer; not sent: an older one, which holds them - Mate's own default)
+        # AutoFarmer; not sent: an older one, which holds them - Mate's own default. A Blader's or Healer's 0 is its own
+        # role's - Decks.ahk DeckSimVals -, not the party's: its hitter mates throw theirs, as their own bots do; a
+        # support mate never throws - _discard_spent's role gate)
         for m in mates:
-            m.opts.discardspent = opts.discardspent
+            m.opts.discardspent = opts.discardspent or ('discardspent' in vals and opts.role != 'hitter')
         if mates:
             state.mates = mates
             notes.append('the team model: %d mate%s on your side (%s)' % (len(mates), '' if len(mates) == 1 else 's',

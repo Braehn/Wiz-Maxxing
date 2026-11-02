@@ -17,7 +17,7 @@ Before you start
 	  sigilhome, mobwall, duelavoid, puzzlestate, puzzlelevers (WALKING);
 	  gearswap, gearsets (THE BACKPACK); memclicks, planner, deckzone,
 	  discardspent (HOW IT PLAYS ITS CARDS - discardspent is on by default:
-	  switch it off for steps 1 and 2); partytpdoors, partyhitround,
+	  switch it off till its step, 3.11); partytpdoors, partyhitround,
 	  partyorders (PARTY); overlay (THE OVERLAY); deckadd, trainspells,
 	  spellquests (not built - leave them off).
 	- The commands run in a command prompt in the AutoFarmer folder, with

@@ -2718,7 +2718,8 @@ class SpentCopies(unittest.TestCase):
 
     def test_a_hitter_mate_by_its_opts(self):
         # (the team model: a hitter mate holding 3 copies throws 2 at its own fresh round's discards with discardspent
-        # on - /plan gives it this bot's -, keeps them with it off - Mate's own default)
+        # on - /plan gives it this bot's, a Blader's or Healer's sent 0 read as on: its role's, not the party's -, keeps
+        # them with it off - Mate's own default)
         for on, want in ((True, 1), (False, 3)):
             m = mate("Hit", 5, "hitter", [stormblade()] * 3 + [lord()], pips=7)
             m.opts.discardspent = on

@@ -3196,7 +3196,10 @@ DiscardSpent(done)
 			}
 		dspLeft := (UsedFlag(dspF[2]) != 1) ? 1 : 0
 		dspHas := IsObject(DeckSharp) ? (dspKind = "trap" ? DeckSharp.potent : DeckSharp.sharpen) : ""
-		dspCome := V1IsNum(dspHas) && dspHas - DiscardSpentSharpened(dspKind) > 0
+		;(a treasure card drawn this battle - Draw.ahk DrawsBattle: a Use1 may have been a treasure Sharpen's / Potent's,
+		;so the deck's count isn't counted down - a copy kept longer. One you drew in a round you played isn't known: then a
+		;copy can go too early)
+		dspCome := V1IsNum(dspHas) && dspHas - (V1N(DrawsBattle) ? 0 : DiscardSpentSharpened(dspKind)) > 0
 		if (UsedFlag(dspF[1]) != 1 && ((dspKind = "trap" ? potent : sharpen) == 1 || dspEnc || dspCome))
 			dspLeft += 1
 		done[dspK] := 1

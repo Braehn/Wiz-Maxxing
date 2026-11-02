@@ -1472,7 +1472,8 @@ class DeckFor(unittest.TestCase):
 # /deckkinds
 class SpentMates(unittest.TestCase):
     """/plan's mates throw their spent copies as the asking bot's own vals say (vision.py plan_lines_for): discardspent
-    sent - the party runs this AutoFarmer; not sent - an older one, which holds them (Mate's own default)"""
+    sent - the party runs this AutoFarmer; not sent - an older one, which holds them (Mate's own default). A Blader's or
+    Healer's 0 is its own role's (Decks.ahk DeckSimVals), not the party's: its hitter mates still throw theirs"""
 
     @classmethod
     def setUpClass(cls):
@@ -1491,13 +1492,37 @@ class SpentMates(unittest.TestCase):
     ask = PlanTeam.ask
 
     def test_mates_take_this_bots_discardspent(self):
-        for vals, want in (("discardspent:1", True), ("discardspent:0", False), ("", False)):
+        # (role: the asking bot's - Planner.ahk sends it only for a party's Blader or Healer, whose DeckSimVals always
+        # sends discardspent 0: the key there says the party runs this AutoFarmer; a hitter's - no role - its setting)
+        for role, vals, want in (("blader", "discardspent:1", True), ("blader", "discardspent:0", True),
+                                 ("healer", "discardspent:0", True), ("blader", "", False),
+                                 ("", "discardspent:1", True), ("", "discardspent:0", False), ("", "", False)):
             got = {}
-            q = {"seed": "1", "budget": "1500", "seat": "4", "role": "blader", "vals": vals,
+            q = {"seed": "1", "budget": "1500", "seat": "4", "vals": vals,
                  "mates": "Ann~5~storm~3000~3000~hitter~7~0~104:blade:0:storm:35%;104:blade:0:storm:35%"}
+            if role:
+                q["role"] = role
             out = self.ask(q, spy=got)
             self.assertTrue(out[0].startswith("plan|"), out)
-            self.assertEqual([m.opts.discardspent for m in got["state"].mates], [want], vals)
+            self.assertEqual([m.opts.discardspent for m in got["state"].mates], [want], (role, vals))
+            # (the asking bot itself plays as its own vals say - a support never throws: its role gate)
+            self.assertEqual(got["opts"].discardspent, vals == "discardspent:1", (role, vals))
+
+    def test_a_support_leaders_hitter_mate_throws(self):
+        """a Blader leader's team plan (vals discardspent:0 - its role's): the hitter mate's spent Stormblades go, as
+        its own bot throws them; a support mate's are held (_discard_spent's role gate)"""
+        for mrole, want in (("hitter", 1), ("blader", 3)):
+            got = {}
+            q = {"seed": "1", "budget": "1500", "seat": "4", "role": "blader", "vals": "discardspent:0",
+                 "mates": "Ann~5~storm~3000~3000~%s~7~0~101:damage:7:storm:1000;104:blade:0:storm:35%%;"
+                          "104:blade:0:storm:35%%;104:blade:0:storm:35%%" % mrole}
+            out = self.ask(q, spy=got)
+            self.assertTrue(out[0].startswith("plan|"), out)
+            b = S._Battle.from_state(got["state"], got["me"], got["foes"], got["opts"], random.Random(1))
+            k = next(i for i in range(len(b.side)) if b.side[i] is not None and getattr(b.side[i], "name", "") == "Ann")
+            b._swap(k)
+            b.discard()
+            self.assertEqual(sum(1 for c in b.hand if c.kind == "blade"), want, mrole)
 
 
 class DeckKinds(unittest.TestCase):
@@ -1547,6 +1572,65 @@ class DeckKinds(unittest.TestCase):
         # (junk never raises)
         self.assertTrue(self.V.deckkinds_lines({"decks": {"decks": "x"}, "worn": 5, "sig": [], "facts": 7})[0]
                         .startswith(("none|", "kinds|")))
+
+    def test_never_reads_the_battles(self):
+        """the facts without waiting (it answers in a battle, 600 ms at most): the simulator's last read of them at any
+        age, else cards.jsonl alone - never sim_book, whose read of every battle recorded would hold the request"""
+        import json
+        import tempfile
+        d = deckmem_deck()
+        d["item_cards"] = [{"name": "Potent Trap", "template_id": 202, "count": 1, "display": "Potent Trap",
+                            "from": "Pet"}]
+        potent = {"rec": "card", "v": 1, "tid": 202, "name": "Potent Trap", "kind": "potent", "value": "+10%",
+                  "full": True}
+        reading = {"decks": [d], "read_at": time.monotonic()}
+        worn = {"decks": [dict(d)], "sig": "S1", "read_at": time.monotonic()}
+        ctx = {"decks": reading, "worn": worn, "sig": "S1"}       # (no facts: the helper's own)
+
+        def no(*a, **kw):
+            raise AssertionError("the battles recorded read in a battle's request")
+        keep_root, keep_facts, keep_at = self.V.ROOT, self.V.SIM["facts"], self.V.SIM["at"]
+        with tempfile.TemporaryDirectory() as root, mock.patch.object(self.V, "sim_book", no), \
+                mock.patch.object(S, "FoeBook", no):
+            try:
+                os.makedirs(os.path.join(root, "learned", "battles"))
+                with open(os.path.join(root, "learned", "battles", "cards.jsonl"), "w", encoding="utf-8") as f:
+                    f.write(json.dumps(potent) + "\n")
+                self.V.ROOT = root
+                # (none read yet: cards.jsonl's)
+                self.V.SIM["facts"] = None
+                self.assertEqual(self.V.deckkinds_lines(dict(ctx))[0].split("|")[:4], ["kinds", "0", "1", "1"])
+                # (the simulator's, however old - SIM_BOOK_S long gone: not read again here)
+                self.V.SIM["facts"], self.V.SIM["at"] = {}, time.monotonic() - 10 * self.V.SIM_BOOK_S
+                self.assertEqual(self.V.deckkinds_lines(dict(ctx))[0].split("|")[:4], ["kinds", "0", "0", "1"])
+                self.V.SIM["facts"] = {202: potent}
+                self.assertEqual(self.V.deckkinds_lines(dict(ctx))[0].split("|")[:4], ["kinds", "0", "1", "1"])
+            finally:
+                self.V.ROOT, self.V.SIM["facts"], self.V.SIM["at"] = keep_root, keep_facts, keep_at
+
+    def test_route(self):
+        """/deckkinds on a local server: gated (navmem's lock for deck_sig - the recorder waits), deckkinds_lines'
+        answer"""
+        import tempfile
+        import threading
+        import urllib.request
+        from http.server import ThreadingHTTPServer
+        V = self.V
+        self.assertIn("/deckkinds", V.GATED)
+        keep_log = V.LOG
+        with tempfile.TemporaryDirectory() as d, \
+                mock.patch.object(V, "deckkinds_lines", lambda ctx=None: ["kinds|1|0|1|2.0"]):
+            V.LOG = os.path.join(d, "vision.log")
+            srv = ThreadingHTTPServer(("127.0.0.1", 0), V.Handler)
+            threading.Thread(target=srv.serve_forever, daemon=True).start()
+            try:
+                with urllib.request.urlopen("http://127.0.0.1:%d/deckkinds" % srv.server_address[1], timeout=10) as r:
+                    self.assertEqual((r.status, r.read().decode().split("\n")), (200, ["kinds|1|0|1|2.0"]))
+            finally:
+                srv.shutdown()
+                srv.server_close()
+                V.LOG = keep_log
+        self.assertEqual(V.GATE.n, 0)
 
 
 if __name__ == "__main__":

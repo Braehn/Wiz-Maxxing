@@ -1680,8 +1680,10 @@ DeckForZone(p, inBattle := false)
 		dfzQ := "/deckfor?zone=" NavUri(dfzZ) "&school=" dfzSch "&n=60&vals=" NavUri(DeckSimVals("", dfzSch))
 		;(each in-game deck's profile - the one this would put on, DeckSet: its own settings, laid over yours by the
 		;helper - gid~key:value,... |...; the first profile per in-game deck that fits your school; its drawenchant
-		;0 while drawing is off for the run, as DeckSimVals)
+		;0 while drawing is off for the run, and its discardspent 0 as a Blader or Healer with the party on (v1.8.0 -
+		;Autofarmer.ahk DiscardSpentRole: the bot never throws the copies then), as DeckSimVals)
 		dfzNoDraw := (DrawBroken != "" || (DrawEmptyAt && A_TickCount - DrawEmptyAt < 1800000))
+		dfzNoSpent := V1IsFunc("DiscardSpentRole") && !DiscardSpentRole.Call()
 		dfzDv := ""
 		for dfzI, dfzD in DeckList
 			{
@@ -1690,7 +1692,8 @@ DeckForZone(p, inBattle := false)
 			dfzOwn := ""
 			if (IsObject(V1At(dfzD, "vals")))
 				for dfzK2, dfzV2 in dfzD.vals
-					dfzOwn .= (dfzOwn = "" ? "" : ",") dfzK2 ":" ((dfzK2 = "drawenchant" && dfzNoDraw) ? 0 : dfzV2)
+					dfzOwn .= (dfzOwn = "" ? "" : ",") dfzK2 ":" (((dfzK2 = "drawenchant" && dfzNoDraw)
+						|| (dfzK2 = "discardspent" && dfzNoSpent)) ? 0 : dfzV2)
 			dfzDv .= (dfzDv = "" ? "" : "|") dfzD.game "~" dfzOwn
 			}
 		dfzQ .= "&dvals=" NavUri(dfzDv)
