@@ -1664,8 +1664,9 @@ class ChainDocs(unittest.TestCase):
         self.assertFalse(any(n.startswith("defending") for n in v["notes"]))
         v = S.verdict(S.simulate(cards, me, foes, n=20, seed=1), cards, me, foes, S.Opts(defendat=0))
         self.assertFalse(any(n.startswith("defending") for n in v["notes"]))
-        # (v1.7.0: Sharpen and Potent are what's left of the blades' and traps' play; the treasure side is modelled)
-        self.assertIn("Sharpen and Potent", nm)
+        # (v1.9.0: Sharpen and Potent modelled; the enemies' cheats aren't)
+        self.assertNotIn("Sharpen", nm)
+        self.assertIn("the enemies' cheats", nm)
         for w in ("reboost", "treasure cards dealt"):
             self.assertNotIn(w, nm)
         tdeck = cards + [S.Card("Strong", "enchant", value=100, tc=True)] * 3
@@ -1702,6 +1703,39 @@ class ChainDocs(unittest.TestCase):
         self.assertIn("no hit in the deck", r["why"])
         self.assertTrue(S.verdict(r, blades, me, ogre)["text"].endswith("Ogre 3200 health: no hit in the deck"),
                         S.verdict(r, blades, me, ogre)["text"])
+
+    def test_sharpen_with_no_blade_note(self):
+        # (v1.9.0: Sharpens and no blade in the deck - held all battle, as the bot holds them; useblades off throws
+        # them away, a blade gives them a use: no note then)
+        sh = {"name": "Sharpened Blade", "display": "Sharpened Blade", "kind": "sharpen", "school": "", "pips": 0,
+              "value": "+10%", "count": 4, "side": "main"}
+        me, foes = S.Me("storm", 3000), [S.Foe("Ogre", 3000)]
+        note = ("4 Sharpen cards and no blade in the deck: held all battle, a card short in hand (the bot keeps one for "
+                "a blade's second cast) - useblades off for this deck throws them away")
+
+        def notes(deck, o=None):
+            cards = S.deck_cards({"cards": deck})
+            return S.verdict(S.simulate(cards, me, foes, o, n=20, seed=1), cards, me, foes, o)["notes"]
+        deck = [hit("Thunder Snake", 2, 150, count=10), hit(count=6), sh]
+        self.assertIn(note, notes(deck))
+        self.assertFalse(any("Sharpen card" in n for n in notes(deck, S.Opts(useblades=0))))
+        self.assertFalse(any("Sharpen card" in n for n in notes(deck + [boost("blade", "Stormblade", 35)])))
+        # (discardunused off: nothing throws them - Settings.ahk DiscardSwitchedOff - so the note stays with useblades
+        # off too, and says that instead)
+        off = note.replace("useblades off for this deck throws them away", "discardunused is off: nothing throws them")
+        self.assertIn(off, notes(deck, S.Opts(discardunused=0)))
+        self.assertIn(off, notes(deck, S.Opts(discardunused=0, useblades=0)))
+        # (a pet's or gear's blade never takes one: held all battle the same, so the note shows)
+        cards = S.deck_cards({"cards": [hit(count=10), dict(sh, count=3)],
+                              "item_cards": [boost("blade", "Stormblade", 35, count=2)]})
+        self.assertEqual([c.name for c in cards if c.kind == "blade" and c.item], ["Stormblade", "Stormblade"])
+        r = S.simulate(cards, me, foes, n=20, seed=1)
+        self.assertNotIn("Sharpened Blade", r["casts"])
+        self.assertIn(note.replace("4 Sharpen", "3 Sharpen"), S.verdict(r, cards, me, foes)["notes"])
+        # (a Potent and no trap: the same, singular)
+        self.assertIn("1 Potent card and no trap in the deck: held all battle, a card short in hand (the bot keeps one "
+                      "for a trap's second cast) - usetraps off for this deck throws it away",
+                      notes(deck[:2] + [dict(sh, name="Potent Trap", display="Potent Trap", kind="potent", count=1)]))
 
 
 # ============================================================================ v1.7.0: treasure cards drawn the bot's
@@ -2624,7 +2658,7 @@ class SpentCopies(unittest.TestCase):
 
     def test_sharpen_still_to_come_keeps_one(self):
         # (the deck holds one - the bot's /deckkinds count, less its sharpened casts (none here) - wherever it is now:
-        # the draw pile, or already thrown away as a kind the simulator doesn't play; not hand + draw pile only)
+        # the draw pile, or the spent pile (cast, or thrown away); not hand + draw pile only)
         b = battle([stormblade()] * 3 + [lord()], pile=[SHARPEN] * 3, pips=0, fhp=[9000], opts=ON)
         b.discard()
         self.assertEqual(names(b.hand).count("Stormblade"), 2)
@@ -2811,6 +2845,340 @@ class SpentCopies(unittest.TestCase):
                 self.assertEqual(S.main(["--deck", p, "--foe", "Rat:500", "-n", "5", "--seed", "1"]), 0)
         self.assertTrue(out.getvalue().startswith("sim|"), out.getvalue()[:200])
         self.assertEqual([(o.discardspent, o.boss) for o in seen], [(True, False)])
+
+
+# ============================================================================ v1.9.0: Sharpen and Potent played the
+# bot's way (UseBlade / UseTrap's sharpened cast, DiscardSpare's two rules, the planner's used1=)
+def tcb():
+    return S.Card("Stormblade", "blade", "storm", 0, boosts={"storm": 35}, tc=True)
+
+
+def pet():
+    return S.Card("Stormblade", "blade", "storm", 0, boosts={"storm": 35}, item=True)
+
+
+TSH = S.Card("Sharpened Blade", "sharpen", tc=True)
+U = {("blade", "storm", ""): {"storm": 35}, ("blade", "storm", "+"): {"storm": 35}}
+
+
+class SharpenPotent(unittest.TestCase):
+    """the first Sharpen / Potent in hand goes on the blade / trap the chain casts while its sharpened cast is free (no
+    pip, no turn, the card's +N); a deck copy's two casts a battle (plain and sharpened), a treasure card's copy one
+    either way, an item card's copy never sharpened; DiscardSpare's both-casts and spare-Sharpen rules; the planner's
+    sharpened flags (used1=, else inferred from the '+' blades on)"""
+
+    def test_sharpened_then_plain_then_none(self):
+        b = battle([stormblade()] * 3 + [SHARPEN, lord()], pips=0, fhp=[9000])
+        c = b.pick_boost(lord())
+        self.assertIs(c, b.hand[0])
+        self.assertTrue(b.cast(c))
+        self.assertEqual(b.blades, [("Stormblade+", {"storm": 45.0})])
+        self.assertEqual(b.boosts_used, {("blade", "storm", "+"): {"storm": 35}})
+        self.assertEqual(b.casts, {"Stormblade": 1, "Sharpened Blade": 1})
+        self.assertEqual(names(b.spent), ["Stormblade", "Sharpened Blade"])
+        self.assertEqual(S._plannable(b.hand[0], b.opts, b), "")          # (its plain cast is still free)
+        self.assertTrue(b.cast(b.pick_boost(lord())))
+        self.assertEqual(b.blades, [("Stormblade+", {"storm": 45.0}), ("Stormblade", {"storm": 35})])
+        self.assertIsNone(b.pick_boost(lord()))
+        self.assertEqual(S._plannable(b.hand[0], b.opts, b), "on already")
+
+    def test_plain_first_then_sharpened(self):
+        b = battle([stormblade(), stormblade(), lord()], pile=[], pips=0, fhp=[9000])
+        b.cast(b.hand[0])
+        self.assertIsNone(b.pick_boost(lord()))
+        b.hand.append(S.Card("Sharpened Blade", "sharpen", value="+15%"))      # (its own number: +15)
+        self.assertEqual(S._plannable(b.hand[0], b.opts, b), "")
+        b.cast(b.pick_boost(lord()))
+        self.assertEqual(b.blades, [("Stormblade", {"storm": 35}), ("Stormblade+", {"storm": 50.0})])
+
+    def test_potent_trap(self):
+        b = battle([trap(), POTENT, lord()], pips=0, fhp=[9000])
+        b.cast(b.hand[0])
+        self.assertEqual(b.traps, [[{"storm": 40.0}]])
+        self.assertEqual(list(b.boosts_used), [("trap", "storm", "+")])
+        b = battle([trap(), SHARPEN, lord()], pips=0, fhp=[9000])                # (a Sharpen goes on no trap)
+        b.cast(b.hand[0])
+        self.assertEqual(b.traps, [[{"storm": 30}]])
+        self.assertIn("Sharpened Blade", names(b.hand))
+
+    def test_feint_and_bladestorm(self):
+        # (no exclusion: the bot's UseTrap / UseBlade puts one on Feint and Bladestorm too)
+        b = battle([S.Card("Feint", "trap", boosts={"all": 70}), POTENT, lord()], pips=0, fhp=[9000])
+        b.cast(b.hand[0])
+        self.assertEqual(b.traps, [[{"all": 80.0}]])
+        self.assertEqual(list(b.boosts_used), [("trap", "all/70", "+")])
+        b = battle([S.Card("Bladestorm", "blade", boosts={"all": 20}), SHARPEN, lord()], pips=0, fhp=[9000])
+        b.cast(b.hand[0])
+        self.assertEqual(b.blades, [("Bladestorm+", {"all": 30.0})])
+        self.assertEqual(list(b.boosts_used), [("blade", "all/20", "+")])
+
+    def test_copies(self):
+        # (an item card's copy is never sharpened - the Sharpen stays; a treasure card's copy takes it, keeps its one
+        # flag, and neither goes to the spent pile)
+        b = battle([pet(), SHARPEN, lord()], pips=0, fhp=[9000])
+        b.cast(b.hand[0])
+        self.assertEqual(b.blades, [("Stormblade@item", {"storm": 35})])
+        self.assertEqual(names(b.hand), ["Sharpened Blade", "Storm Lord"])
+        b = battle([tcb(), TSH, lord()], pips=0, fhp=[9000])
+        b.cast(b.hand[0])
+        self.assertEqual(b.blades, [("Stormblade@tc+", {"storm": 45.0})])
+        self.assertEqual(b.spent, [])
+        self.assertEqual(list(b.boosts_used), [("blade", "storm", "tc")])
+
+    def test_moved_copy_goes_plain(self):
+        # (KillCalc.ahk BoostCopyPick: the slot's first copy in hand - the one Find finds - can't go, so UseBlade moves
+        # to another copy that can go plain and casts it plain, never sharpened (!ubMoved); none can go plain: nothing)
+        P = {"storm": 35}
+        # (a pet's copy first, its flag set; a fresh deck copy after it: cast plain, the Sharpen kept)
+        b = battle([pet(), stormblade(), SHARPEN, lord()], pips=0, fhp=[9000])
+        b.boosts_used = {("blade", "storm", "item"): P}
+        self.assertIsNone(b._sharp_for(b.hand[1]))
+        self.assertEqual([S._plannable(c, b.opts, b) for c in b.hand[:2]], ["used this battle", ""])
+        c = b.pick_boost(lord())
+        self.assertIs(c, b.hand[1])
+        self.assertTrue(b.cast(c))
+        self.assertEqual(b.blades, [("Stormblade", P)])
+        self.assertEqual(names(b.hand), ["Stormblade", "Sharpened Blade", "Storm Lord"])
+        self.assertEqual(sorted(b.boosts_used), [("blade", "storm", ""), ("blade", "storm", "item")])
+        self.assertNotIn("Sharpened Blade", b.casts)
+        # (the deck copy's plain flag gone too: no copy can go plain - nothing is cast)
+        b = battle([pet(), stormblade(), SHARPEN, lord()], pips=0, fhp=[9000])
+        b.boosts_used = {("blade", "storm", "item"): P, ("blade", "storm", ""): P}
+        self.assertIsNone(b.pick_boost(lord()))
+        self.assertEqual(S._plannable(b.hand[1], b.opts, b), "used this battle")
+        # (a deck copy first, both its casts gone; a treasure card's copy after it: cast plain)
+        b = battle([stormblade(), tcb(), SHARPEN, lord()], pips=0, fhp=[9000])
+        b.boosts_used = dict(U)
+        c = b.pick_boost(lord())
+        self.assertIs(c, b.hand[1])
+        self.assertTrue(b.cast(c))
+        self.assertEqual(b.blades, [("Stormblade@tc", P)])
+        self.assertEqual(names(b.hand), ["Stormblade", "Sharpened Blade", "Storm Lord"])
+        self.assertIn(("blade", "storm", "tc"), b.boosts_used)
+        # (the deck copy first and fresh, the pet's after it with its flag set: the first copy goes sharpened - looked
+        # at before it leaves the hand)
+        b = battle([stormblade(), pet(), SHARPEN, lord()], pips=0, fhp=[9000])
+        b.boosts_used = {("blade", "storm", "item"): P}
+        self.assertTrue(b.cast(b.hand[0]))
+        self.assertEqual(b.blades, [("Stormblade+", {"storm": 45.0})])
+        self.assertEqual(names(b.hand), ["Stormblade", "Storm Lord"])
+
+    def test_first_sharpen_in_hand(self):
+        # (Find's first match - any copy: the treasure card's, used up)
+        b = battle([TSH, SHARPEN, stormblade(), lord()], pips=0, fhp=[9000])
+        b.cast(b.hand[2])
+        self.assertEqual(names(b.hand), ["Sharpened Blade", "Storm Lord"])
+        self.assertFalse(b.hand[0].tc)
+        self.assertEqual(names(b.spent), ["Stormblade"])
+        self.assertEqual(b.casts["Sharpened Blade"], 1)
+
+    def test_fizzle_and_no_random_number(self):
+        st = S.State([stormblade(), SHARPEN, lord()], [], fhp=[9000], me_first=True)
+        b = S._Battle.from_state(st, sure(accuracy=-200), [S.Foe("A", 9000)], S.Opts(), random.Random(1))
+        self.assertFalse(b.cast(b.hand[0]))                 # (a fizzle loses both and keeps the flag)
+        self.assertEqual(b.blades, [])
+        self.assertEqual(names(b.hand), ["Storm Lord"])
+        self.assertEqual(list(b.boosts_used), [("blade", "storm", "+")])
+
+        def after(hand):
+            b = battle(hand, pips=0, fhp=[9000])
+            b.cast(b.hand[0])
+            return b.rng.getstate()
+        self.assertEqual(after([stormblade(), lord()]), after([stormblade(), SHARPEN, lord()]))
+
+    def test_unpaid(self):
+        b = battle([S.Card("Stormblade", "blade", "storm", 2, boosts={"storm": 35}), SHARPEN, lord()], pips=0,
+                   fhp=[9000])
+        self.assertFalse(b.cast(b.hand[0]))
+        self.assertEqual(names(b.hand), ["Sharpened Blade", "Storm Lord"])
+        self.assertEqual(b.boosts_used, {})
+        self.assertNotIn("Sharpened Blade", b.casts)
+
+    def test_reboost_and_reshuffle_free_it(self):
+        b = battle([stormblade(), SHARPEN, lord()], pips=7, fhp=[90000], opts=S.Opts(reboost=1))
+        b.cast(b.hand[0])
+        self.assertEqual(list(b.boosts_used), [("blade", "storm", "+")])
+        b.cast(b.hand[0])
+        self.assertEqual(b.boosts_used, {})
+        b = battle([stormblade(), SHARPEN, resh(), lord()], pips=0, fhp=[9000])
+        b.cast(b.hand[0])
+        self.assertEqual(list(b.boosts_used), [("blade", "storm", "+")])
+        b.cast(b.hand[0])
+        self.assertEqual(b.boosts_used, {})
+
+    def test_kept_not_thrown(self):
+        b = battle([SHARPEN, POTENT, lord()], pips=0, fhp=[9000])
+        b.discard()
+        self.assertEqual(names(b.hand), ["Sharpened Blade", "Potent Trap", "Storm Lord"])
+        b = battle([SHARPEN, POTENT, lord()], pips=0, fhp=[9000], opts=S.Opts(useblades=0))
+        b.discard()
+        self.assertEqual(names(b.hand), ["Potent Trap", "Storm Lord"])
+        b = battle([SHARPEN, POTENT, lord()], pips=0, fhp=[9000], opts=S.Opts(usetraps=0))
+        b.discard()
+        self.assertEqual(names(b.hand), ["Sharpened Blade", "Storm Lord"])
+        for o, want in ((S.Opts(), ("goes on a blade", "goes on a trap")),
+                        (S.Opts(useblades=0), ("switched off", "goes on a trap")),
+                        (S.Opts(usetraps=0), ("goes on a blade", "switched off"))):
+            b = battle([SHARPEN, POTENT, lord()], pips=0, fhp=[9000], opts=o)
+            self.assertEqual((S._plannable(SHARPEN, o, b), S._plannable(POTENT, o, b)), want)
+
+    def test_spent_countdown_and_gate(self):
+        # (the deck's one Sharpen spent on this slot: none still to come - all 3 copies go)
+        b = battle([stormblade()] * 3 + [lord()], pile=[SHARPEN], pips=0, fhp=[9000], opts=ON)
+        b.boosts_used = dict(U)
+        b.discard()
+        self.assertEqual(names(b.hand).count("Stormblade"), 0)
+        # (another slot sharpened: the count goes down; two in the deck, or a treasure card drawn - DrawsBattle -: one
+        # still to come, the storm slot's sharpened cast free - 1 kept)
+        for pile, draws, want in (([SHARPEN], 0, 0), ([SHARPEN, SHARPEN], 0, 1), ([SHARPEN], 1, 1)):
+            b = battle([stormblade()] * 3 + [lord()], pile=pile, pips=0, fhp=[9000], opts=ON, draws=draws)
+            b.boosts_used = {("blade", "storm", ""): {"storm": 35}, ("blade", "fire", "+"): {"fire": 35}}
+            b.discard()
+            self.assertEqual(names(b.hand).count("Stormblade"), want, (pile, draws))
+
+    def test_spare_sharpen(self):
+        fb = S.Card("Fireblade", "blade", "fire", 0, boosts={"fire": 35})
+        for o in (S.Opts(), S.Opts(discardunused=0), ON):
+            b = battle([SHARPEN, SHARPEN, lord()], pips=0, fhp=[9000], opts=o)
+            b.discard()
+            self.assertEqual(names(b.hand), ["Sharpened Blade", "Sharpened Blade", "Storm Lord"], o.discardunused)
+            b.boosts_used[("blade", "storm", "+")] = {"storm": 35}
+            b.discard()
+            self.assertEqual(names(b.hand), ["Storm Lord"], o.discardunused)
+            # (no blade in hand the search looks for - the Fireblade fits no hit: thrown)
+            b = battle([SHARPEN, fb, lord()], pips=0, fhp=[9000], opts=o)
+            b.boosts_used[("blade", "storm", "+")] = {"storm": 35}
+            b.discard()
+            self.assertNotIn("Sharpened Blade", names(b.hand), o.discardunused)
+            # (a Stormblade in hand whose sharpened cast is free: kept)
+            b = battle([SHARPEN, stormblade(), lord()], pips=0, fhp=[9000], opts=o)
+            b.boosts_used[("blade", "fire", "+")] = {"fire": 35}
+            b.discard()
+            self.assertIn("Sharpened Blade", names(b.hand), o.discardunused)
+        # (Find's first match: a treasure card's - nothing goes; it stops there)
+        b = battle([TSH, SHARPEN, lord()], pips=0, fhp=[9000])
+        b.boosts_used[("blade", "storm", "+")] = {"storm": 35}
+        b.discard()
+        self.assertEqual(names(b.hand), ["Sharpened Blade", "Sharpened Blade", "Storm Lord"])
+        b = battle([SHARPEN, TSH, SHARPEN, lord()], pips=0, fhp=[9000])
+        b.boosts_used[("blade", "storm", "+")] = {"storm": 35}
+        b.discard()
+        self.assertEqual([(c.name, c.tc) for c in b.hand],
+                         [("Sharpened Blade", True), ("Sharpened Blade", False), ("Storm Lord", False)])
+        # (a support: BoostMisfitDiscard, not this; no spare-Potent rule)
+        b = battle([SHARPEN, lord()], pips=0, fhp=[9000], opts=S.Opts(role="blader"))
+        b.boosts_used[("blade", "storm", "+")] = {"storm": 35}
+        b.discard()
+        self.assertIn("Sharpened Blade", names(b.hand))
+        b = battle([POTENT, lord()], pips=0, fhp=[9000])
+        b.boosts_used[("trap", "storm", "+")] = {"storm": 30}
+        b.discard()
+        self.assertIn("Potent Trap", names(b.hand))
+
+    def test_both_casts(self):
+        # (both casts went, no copy can go: the first copy thrown, 3 a round - discardunused or not, reboost or not)
+        for o in (S.Opts(), S.Opts(discardunused=0), S.Opts(reboost=1, discardspent=1)):
+            b = battle([stormblade()] * 4 + [lord()], pips=0, fhp=[9000], opts=o)
+            b.boosts_used = dict(U)
+            b.discard()
+            self.assertEqual(names(b.hand).count("Stormblade"), 1, (o.discardunused, o.reboost))
+        o = S.Opts(discardunused=0)
+        # (a treasure card's copy with its flag free can still go: the slot's copies kept)
+        b = battle([stormblade()] * 2 + [tcb(), lord()], pips=0, fhp=[9000], opts=o)
+        b.boosts_used = dict(U)
+        b.discard()
+        self.assertEqual(names(b.hand).count("Stormblade"), 3)
+        # (its flag set too: the first copy in hand - a treasure card's stops it there)
+        ut = dict(U)
+        ut[("blade", "storm", "tc")] = {"storm": 35}
+        for hand, gone in (([tcb(), stormblade(), stormblade(), lord()], 0),
+                           ([stormblade(), tcb(), stormblade(), lord()], 1)):
+            b = battle(hand, pips=0, fhp=[9000], opts=o)
+            b.boosts_used = dict(ut)
+            b.discard()
+            self.assertEqual(len(b.spent), gone, names(hand))
+        # (DiscardSpent ran - discardspent on: it settles it; off: the rule, stopped at the treasure card's copy)
+        b = battle([tcb()] + [stormblade()] * 3 + [lord()], pips=0, fhp=[9000], opts=ON)
+        b.boosts_used = dict(ut)
+        b.discard()
+        self.assertEqual([(c.name, c.tc) for c in b.hand], [("Stormblade", True), ("Storm Lord", False)])
+        b = battle([tcb()] + [stormblade()] * 3 + [lord()], pips=0, fhp=[9000])
+        b.boosts_used = dict(ut)
+        b.discard()
+        self.assertEqual(names(b.hand).count("Stormblade"), 4)
+        # (no '+' key - the plain flag only: nothing, as before v1.9.0)
+        b = battle([stormblade()] * 4 + [lord()], pips=0, fhp=[9000], opts=o)
+        b.boosts_used = {("blade", "storm", ""): {"storm": 35}}
+        b.discard()
+        self.assertEqual(names(b.hand).count("Stormblade"), 4)
+
+    def test_planner_state(self):
+        blades = S.bot_blades([("storm/blade+", {"storm": 45.0})], [stormblade(), lord()])
+        self.assertEqual(blades, [("Stormblade+", {"storm": 45.0})])
+        # (no used= - an older AutoFarmer: the '+' blade on as its sharpened cast, only with a Sharpen among the cards)
+        b = battle([stormblade(), SHARPEN, lord()], blades=blades)
+        self.assertEqual(sorted(b.boosts_used), [("blade", "storm", "+")])
+        self.assertEqual(S._plannable(b.hand[0], b.opts, b), "")
+        self.assertIsNone(b._sharp_for(b.hand[0]))
+        self.assertEqual(battle([stormblade(), lord()], blades=blades).boosts_used, {})
+        # (used= given: as sent - vision.py adds the sharpened casts)
+        self.assertEqual(battle([stormblade(), SHARPEN, lord()], blades=blades, boosts_used=[]).boosts_used, {})
+        self.assertEqual(S.State([], boosts_used=[("blade", "+", {"storm": 35})]).boosts_used,
+                         [("blade", "+", {"storm": 35.0})])
+
+    def test_bot_sharpened(self):
+        bal = S.Card("Balanceblade", "blade", "balance", 0, boosts={"all": 25})
+        cards = [stormblade(), SHARPEN, tcb(), bal]
+        keys = [("storm/blade+", {"storm": 45}), ("storm/blade", {"storm": 35}), ("storm/blade@tc+", {"storm": 45}),
+                ("junk",), ("blade3+", {"all": 35}), ("x@pet+", {"storm": 45})]
+        self.assertEqual(S.bot_sharpened(keys, cards, "blade"),
+                         [("blade", "+", {"storm": 35}), ("blade", "tc", {"storm": 35}), ("blade", "+", {"all": 25})])
+        self.assertEqual(S.bot_sharpened(keys, [stormblade(), tcb(), bal], "blade"), [])
+        self.assertEqual(S.bot_sharpened([("storm/trap+", {"storm": 40})], [trap(), POTENT], "trap"),
+                         [("trap", "+", {"storm": 30})])
+        self.assertEqual(S.bot_sharpened(None, None, "blade"), [])
+        self.assertEqual(S.bot_sharpened(keys, cards, "aura"), [])
+
+    def test_plan_round_tries_both_copies(self):
+        # (a Sharpen in hand: the deck copy goes sharpened, the item card's plain - tried apart)
+        def plan(hand):
+            st = S.State(hand, [lord()] * 5, fhp=[9000], me_first=True, pips=3)
+            return st, S.plan_round(st, sure(), [S.Foe("A", 9000)], n=10, seed=1, budget_ms=5000)
+        st, p = plan([pet(), stormblade(), SHARPEN, lord()])
+        self.assertEqual(sorted(x["i"] for x in p["plays"] if x["name"] == "Stormblade"), [0, 1])
+        self.assertTrue(next(x for x in p["plays"] if x["i"] == 1)["why"].startswith("with Sharpened Blade"), p)
+        self.assertIn("1 card in hand not tried (goes on a blade)", p["why"])
+        b = S._Battle.from_state(st, sure(), [S.Foe("A", 9000)], S.Opts(), random.Random(1))
+        self.assertEqual(S._team_cands(b, 0, b.alive()), [(None, None), (0, None), (1, None)])
+        st, p = plan([pet(), stormblade(), lord()])
+        self.assertEqual([x["i"] for x in p["plays"] if x["name"] == "Stormblade"], [0])
+        b = S._Battle.from_state(st, sure(), [S.Foe("A", 9000)], S.Opts(), random.Random(1))
+        self.assertEqual(S._team_cands(b, 0, b.alive()), [(None, None), (0, None)])
+
+    def test_sharpen_deck_pinned(self):
+        sh = {"name": "Sharpened Blade", "display": "Sharpened Blade", "kind": "sharpen", "school": "", "pips": 0,
+              "value": "+10%", "count": 2, "side": "main"}
+        deck = S.deck_cards({"cards": [hit(count=8), boost("blade", "Stormblade", 35, count=6),
+                                       boost("trap", "Storm Trap", 30, count=6), sh,
+                                       dict(sh, name="Potent Trap", display="Potent Trap", kind="potent")]})
+        foe = S.Foe("Boss", 6000, spells=[("Hit", 1.0, {"pips": 2, "min": 150, "max": 200, "accuracy": 100})],
+                    boss=True)
+        keys = SpentCopies.KEYS
+
+        def run(o):
+            return S.simulate(deck, sure(damage=40), [foe], o, n=200, seed=7)
+        r = run(S.Opts())
+        self.assertEqual(tuple(r[k] for k in keys), (0.945, 0.0, 0.055, 16, 21, 49.8, 93, 16))
+        self.assertEqual(r["casts"], {"Storm Lord": 3.12, "Storm Trap": 1.84, "Stormblade": 1.79, "Potent Trap": 0.88,
+                                      "Sharpened Blade": 0.82})
+        on = run(ON)
+        self.assertEqual(tuple(on[k] for k in keys), (1.0, 0.0, 0.0, 15.0, 19, 52.6, 93, 15.0))
+        self.assertEqual(list(on["casts"].items()), [("Storm Lord", 3.04), ("Storm Trap", 2.0), ("Stormblade", 1.99),
+                                                     ("Potent Trap", 1.0), ("Sharpened Blade", 0.99)])
+        rb = run(S.Opts(reboost=1))
+        self.assertEqual(tuple(rb[k] for k in keys), (0.94, 0.0, 0.06, 11.0, 16, 62.0, 95, 11.0))
+        self.assertEqual(run(S.Opts(discardunused=0)), r)
+        # (HEAD v1.8.1 gave Opts() 0.88 / ON 1.0 in 21 / 22 rounds, discardunused 0 0.51)
 
 
 if __name__ == "__main__":

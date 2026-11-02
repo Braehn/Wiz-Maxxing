@@ -182,10 +182,11 @@ class BotBlades(unittest.TestCase):
         self.assertEqual(S.bot_blades([("Stormblade", {"storm": 35})], cards), [("Stormblade", {"storm": 35})])
 
     def test_copies_keep_the_bots_key(self):
-        # (a sharpened cast or a treasure / item card's copy: the bot counts it on top of the deck's plain one)
+        # (a sharpened cast named '<card>+' (it stacks with the plain one, not with a rollout's sharpened cast); a
+        # treasure / item card's copy: the bot counts it on top of the deck's plain one - no such card here: its key)
         keys = [("storm/blade+", {"storm": 40.0}), ("storm/blade@item", {"storm": 35.0}),
                 ("storm/blade@tc", {"storm": 35.0}), ("storm/blade@item+", {"storm": 40.0})]
-        self.assertEqual(S.bot_blades(keys, [BLADE, LORD]), keys)
+        self.assertEqual(S.bot_blades(keys, [BLADE, LORD]), [("Stormblade+", {"storm": 40.0})] + keys[1:])
         # (only a treasure / pet copy among the cards: the deck's plain cast isn't named after it)
         tc = C("Stormblade", "blade", 0, 35, boosts={"storm": 35}, tid=104, tc=True)
         pet = C("Stormblade", "blade", 0, 35, boosts={"storm": 35}, tid=304, item=True)
@@ -534,6 +535,30 @@ class PlanLinesFor(unittest.TestCase):
             got = self.spy_ask(q)
             self.assertTrue(got["out"][0].startswith("plan|"), (q, got["out"]))
             self.assertEqual((got["state"].boosts_used, got["state"].draws, got["state"].drawoff), ([], 0, False), q)
+
+    def test_sharpened_casts_reach_the_state(self):
+        """v1.9.0: Planner.ahk's used1= (PlannerUsed1 - the deck copies' sharpened / potent casts, Use1); an older
+        AutoFarmer's (used= and no used1=) inferred from the '+' blades and traps on while hand or deck holds a
+        Sharpen / Potent"""
+        sh = hand_card("Card5", 210, "Sharpened Blade", "sharpen", school="", value=10, vtext="+10%", tid=900)
+        pt = hand_card("Card6", 260, "Potent Trap", "potent", school="", value=10, vtext="+10%", tid=901)
+        got = self.spy_ask({"used": "-", "used1": "storm/blade~storm~35"}, hand=HAND + [sh])
+        self.assertEqual(got["state"].boosts_used, [("blade", "+", {"storm": 35.0})])
+        self.assertIn("note|1 card in hand not tried (goes on a blade)", got["out"])
+        # (used1="-": none sharpened - the Stormblade's play goes on with the Sharpen)
+        got = self.spy_ask({"used": "-", "used1": "-"}, hand=HAND + [sh])
+        self.assertEqual(got["state"].boosts_used, [])
+        line = next(ln.split("|") for ln in got["out"] if ln.split("|")[0] in ("plan", "alt")
+                    and ln.split("|")[10] == "Stormblade")
+        self.assertTrue(line[9].startswith("with Sharpened Blade"), line)
+        # (no used1= - an older AutoFarmer: inferred from the raw '+' keys on, only with that kind's card about)
+        q = {"used": "-", "blades": "storm/blade+~storm~45", "traps": "storm/trap+~storm~40"}
+        got = self.spy_ask(q, hand=HAND + [sh, pt])
+        self.assertEqual(got["state"].boosts_used, [("blade", "+", {"storm": 35.0}), ("trap", "+", {"storm": 30.0})])
+        self.assertEqual(got["state"].blades, [("Stormblade+", {"storm": 45.0})])
+        self.assertEqual(self.spy_ask(q)["state"].boosts_used, [])         # (no Sharpen in the hand or the deck)
+        # (no used= at all: None - from_state's own fallback, test_battlesim's SharpenPotent)
+        self.assertIsNone(self.spy_ask({"blades": "storm/blade+~storm~45"}, hand=HAND + [sh])["state"].boosts_used)
 
     def test_settings_reach_the_opts(self):
         got = self.spy_ask({"vals": "reboost:1,drawenchant:1,drawneed:175,drawround:2,drawmax:4,enemyspells:0"})
