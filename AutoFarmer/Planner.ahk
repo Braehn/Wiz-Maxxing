@@ -18,15 +18,19 @@
 ; TODO) - read as 1, said once.
 ; Not asked (said once a battle): in dual mode, two or more game windows open, the helper not running, navmem off,
 ; learning every card, after you took a round of this battle (PlayerTookRound: the bot's count of the blades and traps
-; on isn't sure), a party battle's blader or healer (its advice needs the hitter's hand - the leader's orders, not
-; built), no school known (hitter 0). Once a round at most (the log's round and the bot's); the helper keeps to 300 ms
-; (budget=, the game's reads included), the bot waits 1.5 s at most - a slow or missing answer is never counted against
-; the helper (VisionGet's noCount).
+; on isn't sure), a party battle's blader or healer (the simulator plays one wizard - unless it's the party's leader
+; with partyorders on: it plans the whole team), no school known (hitter 0). Once a round at most (the log's round and
+; the bot's); the helper keeps to 300 ms (budget=, the game's reads included), the bot waits 1.5 s at most - a slow or
+; missing answer is never counted against the helper (VisionGet's noCount).
 ; A party battle (v1.0.0, the team model - advice only, as the rest): the party's other wizards on your side go with the
 ; question (mates=: each one's seat, school, health and battle role from the party's state - PlannerMates; their hands
 ; aren't known: a hitter is played as the generic hitter, a blader or healer as doing nothing), your seat, and
 ; charms=log: the blades, traps and shields on you and the enemies from the game's log (the party's and the enemies'
-; too - vision\battlerec.py charms_now) instead of the bot's own count.
+; too - vision\battlerec.py charms_now) instead of the bot's own count. With partyorders on (the party's leader, planner
+; on), in a round its helper holds a follower's hand: the followers' hands from the party (vision\party.py fill_mates -
+; each one's own pips and health), budget 1500 ms (the bot waits 3 s at most), each follower told its card - advice
+; only, logged there (Party.ahk PartyOrderRound) - and "Plan: the team's round - ..." here. A round that doesn't get
+; here (a kill, a defence, a heal) is told to the followers at its end (Party.ahk PartyOrderSkip). LIVE_CHECKS.txt 3.10.
 
 ;(v2-only globals - declared here with no value: a top-level := in an #Included file never runs - PlannerBlank sets
 ;them blank, the entry script calls it first thing) The round last asked about (duel|log round|bot round); the last
@@ -47,7 +51,10 @@ PlannerMode()
 	return (V1IsNum(plmM) && plmM >= 1) ? 1 : 0
 	}
 
-;Whether this round is asked about: the setting on and nothing ruling it out - why: what does ("" none, or the setting off)
+;Whether this round is asked about: the setting on and nothing ruling it out - why: what does ("" none, or the setting off).
+;The lasting rules first (PlannerBlock - the party's leader asks for its followers' hands only while none holds:
+;Party.ahk PartyOrdersCanPlan), then a party battle's blader or healer (asked only as the party's leader with partyorders
+;on, in a round its helper holds a follower's hand - it plans the team: Party.ahk PartyOrdersTeam) and no school known
 PlannerOn(&why := "")
 	{
 	why := ""
@@ -55,28 +62,43 @@ PlannerOn(&why := "")
 		return false
 	try
 		{
-		if (dualmode == 1)
-			why := "dual mode (the game's memory is one client's)"
-		;(two or more game windows: the helper's memory read may be the other window's battle - Vision.ahk VisionMemOneClient,
-		;the rule the bot's own memory reads keep to)
-		else if (!V1IsFunc("VisionMemOneClient") || !VisionMemOneClient.Call())
-			why := "two or more game windows (the game's memory may be the other window's)"
-		else if (!VisionOn)
-			why := "the vision helper isn't running"
-		else if (!Stat("navmem"))
-			why := "navmem:0 in PlayerStats.txt"
-		else if (LearnAll)
-			why := "learning every card"
-		else if (PlayerTookRound)
-			why := "you played a round of this battle (the blades and traps on aren't sure)"
-		else if (PartySupport())
+		why := PlannerBlock()
+		if (why = "" && PartySupport() && !PartyOrdersTeam())
 			why := "a party battle's " BattleRole " (the simulator plays one wizard)"
-		else if (!hitter)
+		else if (why = "" && !hitter)
 			why := "no school known"
 		}
 	catch
 		why := "not ready"
 	return why = ""
+	}
+
+;The planner's lasting rules (PlannerOn's first - so the two never disagree - and Party.ahk PartyOrdersCanPlan's): why
+;it can't be asked now ("" none) - dual mode, two or more game windows, the helper not running, navmem off, learning
+;every card, you took a round of this battle. Never throws
+PlannerBlock()
+	{
+	plkWhy := ""
+	try
+		{
+		if (dualmode == 1)
+			plkWhy := "dual mode (the game's memory is one client's)"
+		;(two or more game windows: the helper's memory read may be the other window's battle - Vision.ahk VisionMemOneClient,
+		;the rule the bot's own memory reads keep to)
+		else if (!V1IsFunc("VisionMemOneClient") || !VisionMemOneClient.Call())
+			plkWhy := "two or more game windows (the game's memory may be the other window's)"
+		else if (!VisionOn)
+			plkWhy := "the vision helper isn't running"
+		else if (!Stat("navmem"))
+			plkWhy := "navmem:0 in PlayerStats.txt"
+		else if (LearnAll)
+			plkWhy := "learning every card"
+		else if (PlayerTookRound)
+			plkWhy := "you played a round of this battle (the blades and traps on aren't sure)"
+		}
+	catch
+		plkWhy := "not ready"
+	return plkWhy
 	}
 
 ;The round's advice (the battle loop, after the healer's Tower Shield and before TrapWhere - planner 1): /plan asked once
@@ -100,8 +122,11 @@ PlannerRound()
 		PlannerAsked := plrKey
 		if (StatOr("planner", 0) >= 2 && PlannerSaid != "mode2")
 			PlannerSaid := "mode2", DebugLog("  Plan: planner:" StatOr("planner", 0) " (play) isn't built yet - advice only")
+		;(partyorders, the party's leader: the team's round too, in a round its helper holds a follower's hand - 1500 ms
+		;asked, 3 s waited; else as ever)
+		plrTeam := PartyOrdersTeam()
 		plrAt := A_TickCount
-		plrAns := VisionGet(PlannerQuery(), 1500, true)
+		plrAns := VisionGet(PlannerQuery(), plrTeam ? 3000 : 1500, true)
 		plrMs := A_TickCount - plrAt
 		if (plrAns = "" || SubStr(plrAns, 1, 5) = "none|")
 			{
@@ -112,6 +137,8 @@ PlannerRound()
 		PlannerFails := 0
 		PlannerLast := PlannerText(plrAns, plrMs)
 		DebugLog("  " PlannerLast)
+		if (plrTeam)
+			DebugLog("  " PlannerTeamText(plrAns))
 		}
 	catch Any as e
 		{
@@ -138,7 +165,9 @@ PlannerQuery()
 	{
 	plqD := IsObject(DeckNow) ? DeckNow : ""
 	plqSch := hitschool
-	plqQ := "/plan?school=" plqSch "&round=" V1Add(BlRound, 1) "&boostrun=" V1N(BoostRun) "&budget=300&n=100"
+	;(partyorders, the party's leader with a follower's hand in its helper: the team planned too - 1500 ms)
+	plqTeam := PartyOrdersTeam()
+	plqQ := "/plan?school=" plqSch "&round=" V1Add(BlRound, 1) "&boostrun=" V1N(BoostRun) "&budget=" (plqTeam ? 1500 : 300) "&n=100"
 	plqG := IsObject(plqD) ? V1At(plqD, "game") : ""
 	if (plqG != "")
 		plqQ .= "&deck=" plqG
@@ -161,6 +190,10 @@ PlannerQuery()
 		plqS := V1IsFunc("PartySeat") ? PartySeat.Call() : ""
 		if (plqS != "")
 			plqQ .= "&seat=" plqS
+		;(partyorders: the followers' hands from the party - vision\party.py fill_mates -, each one's order kept for it; a
+		;blader's or healer's own play its support chain)
+		if (plqTeam)
+			plqQ .= "&teamplan=1&hands=party" (PartySupport() ? "&role=" BattleRole : "")
 		plqQ .= "&charms=log"
 		}
 	plqVals := ""
@@ -266,6 +299,47 @@ PlannerText(ans, ms)
 	if (pltLearn != "")
 		pltT .= " - " SubStr(pltLearn, 1, 150)
 	return pltT
+	}
+
+;The leader's team line (partyorders - logged after its own advice): /plan's order| lines but its own (who 0) -
+;"Plan: the team's round - <wizard> <card> at <enemy> / on all (won N%) / ... - each follower told its card, advice only
+;(partyorders)" + its teamnote| lines (200 characters). Every part this PC's own: the names from its log, the cards from
+;its simulation ("?": "tid N"), the enemies from its memory (foe| lines)
+PlannerTeamText(ans)
+	{
+	pttFoes := Map(), pttOrders := [], pttNotes := ""
+	Loop Parse, ans, "`n", "`r"
+		{
+		pttF := StrSplit(A_LoopField, "|")
+		pttTag := V1At(pttF, 1)
+		if (pttTag = "foe" && pttF.Length >= 3)
+			pttFoes[pttF[2] ""] := pttF[3]
+		else if (pttTag = "order")
+			{
+			while (pttF.Length < 11)
+				pttF.Push("")
+			if (pttF[2] != "" && pttF[2] != 0)
+				pttOrders.Push(pttF)
+			}
+		else if (pttTag = "teamnote")
+			pttNotes .= (pttNotes = "" ? "" : " / ") SubStr(A_LoopField, 10)
+		}
+	pttNotes := SubStr(pttNotes, 1, 200)
+	if (!pttOrders.Length)
+		return "Plan: the team's round - no follower's hand for this round (partyorders)" (pttNotes != "" ? " - " pttNotes : "")
+	pttT := ""
+	for pttI, pttF in pttOrders
+		{
+		pttCard := (pttF[11] = "?" || pttF[11] = "") ? "tid " pttF[6] : pttF[11]
+		if (pttF[8] = "all")
+			pttAt := " on all"
+		else if (pttF[8] != "" && pttFoes.Has(pttF[8] ""))
+			pttAt := " at " pttFoes[pttF[8] ""]
+		else
+			pttAt := ""
+		pttT .= (pttT = "" ? "" : " / ") pttF[4] " " pttCard pttAt " (won " pttF[9] "%)"
+		}
+	return "Plan: the team's round - " pttT " - each follower told its card, advice only (partyorders)" (pttNotes != "" ? " - " pttNotes : "")
 	}
 
 ;" at <enemy>" / " on all" / " on you" of a plan| / chain| line's target ("" a pass)

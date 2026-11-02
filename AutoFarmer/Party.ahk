@@ -29,6 +29,14 @@
 ; log round its planned hit goes out in (the earliest it can: KillCalc.ahk BoostPick) and each wizard its seat (its
 ; subcircle - our side's cast order); a blader's or healer's blades and traps wait for it - that round when its seat
 ; casts before the hitter's, else the round before (PartyHitHold). An older bot sends neither: as ever.
+; The leader's orders (TODO goal 3 - Settings: partyorders, off; not tried in the game - advice only): each follower's
+; helper keeps the hand its bot read (VisionCards, tagged with its duel and log round) and sends it once the leader's
+; asks; the leader's planner (planner on) plans the team with those hands (vision\party.py fill_mates) and each
+; follower's card comes back to it - PartyOrderRound waits up to 3 s for it in the round and logs it, nothing cast
+; (named from its own hand and log - no text from the leader's PC is logged). The leader asks only while it can plan
+; (&plans - planner on, its bot on, navmem, one window), and a round it doesn't plan is told at its end
+; (PartyOrderSkip). The round compared is each helper's battle recorder's (its own duel only). An older bot, or one
+; with it off: nothing sent, nothing waited for.
 
 ;The party as last heard: the role, the helper's state (off/serving/following/unreachable/error) and why; this wizard
 ;({zone, x, y, z, yaw} - the zone blank while it isn't read: a loading screen); the leader (a follower's view: {name, zone,
@@ -57,6 +65,11 @@ global PartyDoorGave, PartyMyZone, PartyLdZone, PartyStuckAt, PartyDoorGaveAt, P
 ;(BlDuel) - PartyTick sends it, with this wizard's seat, so a blader's or healer's blades and traps wait for it
 ;(Settings: partyhitround, off - PartyHitHold)
 global PartyHitAt, PartyHitAtDuel
+;The leader's orders (TODO goal 3 - Settings: partyorders, advice only - PartyOrderRound): the round last asked about
+;(duel|log round|bot round); the rounds with no order from the leader ({duel, n: in a row this battle, run: in a row
+;across battles} - two / six stop the wait); the notes said once a battle (a Map: duel|why). Each starts "" (PartyBlank):
+;IsObject first
+global PartyOrderAsked, PartyOrderMiss, PartyOrderSaid
 
 ;The role set in Settings: "off", "leader" or "follower"
 PartyRoleSet()
@@ -118,6 +131,11 @@ PartyTick()
 	;not known - as an older bot's)
 	q .= "&hitat=" ((inbattle = 1 && PartyHitAtDuel != "" && PartyHitAtDuel = BlDuel && !PartySupport()) ? PartyHitAt : "")
 		. "&seat=" (inbattle = 1 ? PartySeat() : "")
+	;(partyorders: this PC in the team's plan - a follower sends its hand when the leader asks, the leader's server takes
+	;it, and the leader asks - plans - only while it can plan: planner on, its bot on, navmem, one window...; off: not
+	;sent - the party as before)
+	if (PartyOrdersOn() && (role = "follower" || role = "leader"))
+		q .= "&orders=1" ((role = "leader" && PartyOrdersCanPlan()) ? "&plans=1" : "")
 	ans := VisionGet(q, 600, true)
 	PartyAskAt := A_TickCount
 	if (ans = "")
@@ -603,6 +621,260 @@ PartyRoleNote(why)
 		return
 	saidDuel := BlDuel, saidWhy := why
 	DebugLog("  party battle: " why)
+	}
+
+;---- The leader's orders (partyorders - TODO goal 3, advice only: nothing cast) ----
+
+;The setting (Settings: partyorders - on every PC of the party): 0 off, 1 on. Never throws
+PartyOrdersOn()
+	{
+	pooOn := 0
+	try pooOn := StatOr("partyorders", 0)
+	return (V1IsNum(pooOn) && pooOn >= 1) ? 1 : 0
+	}
+
+;The party's leader in a party battle, partyorders and planner on: its planner round may plan the team (Planner.ahk) and
+;its round's end tells its followers a round it didn't (PartyOrderSkip). False on any error
+PartyOrdersLead()
+	{
+	try
+		return PartyOrdersOn() && PartyRoleSet() = "leader" && PlannerMode() && BattleTeam() >= 2
+	catch
+		return false
+	}
+
+;The leader able to plan now - partyorders and planner on, its bot on, none of the planner's lasting rules against it
+;(Planner.ahk PlannerBlock: dual mode, two game windows, the helper, navmem, learning every card, you took a round of
+;this battle): only then does its helper ask the followers for their hands (PartyTick's &plans=1) - so no follower ever
+;waits on a leader that can't plan. False on any error
+PartyOrdersCanPlan()
+	{
+	try
+		return PartyOrdersOn() && PartyRoleSet() = "leader" && PlannerMode() && BotOn && PlannerBlock() = ""
+	catch
+		return false
+	}
+
+;The leader's team plan this round: PartyOrdersLead and its helper holding at least one follower's fresh hand
+;(PartyOrderHands) - else its /plan is as before (300 ms, no team plan) and a blader's or healer's isn't asked. False on
+;any error
+PartyOrdersTeam()
+	{
+	try
+		return PartyOrdersLead() && PartyOrderHands() > 0
+	catch
+		return false
+	}
+
+;How many followers' fresh hands the leader's helper holds (/partyorder?lead=1 - lead|<n>), asked once a round (the log's
+;round and the bot's, as PlannerAsked: PlannerOn, PlannerQuery and PlannerRound share it); 0 for anything else
+PartyOrderHands()
+	{
+	static pohKey := "", pohN := 0
+	try
+		{
+		pohK := BlDuel "|" BlRound "|" roundnumber
+		if (pohK == pohKey)
+			return pohN
+		pohKey := pohK, pohN := 0
+		pohA := Trim(VisionGet("/partyorder?lead=1", 300, true), " `r`n")
+		if (RegExMatch(pohA, "^lead\|(\d{1,2})$", &pohM))
+			pohN := pohM[1] + 0
+		return pohN
+		}
+	catch
+		return 0
+	}
+
+;(the leader's round's end - Autofarmer.ahk EndRound) a round it didn't plan the team in - a kill, a defence, a heal, a
+;shield, you playing, no plan - told to its followers at once: those whose hand is for this round and have no order yet
+;stop waiting (/partyorder?noplan=<round> - one it planned marks nothing). Never throws
+PartyOrderSkip()
+	{
+	try
+		{
+		posR := V1Add(BlRound, 1)
+		if (posR != "")
+			VisionGet("/partyorder?noplan=" posR, 300, true)
+		}
+	}
+
+;A follower's own key for its hand this round: d<duel>r<log round> (the game's log - BlDuel all digits), "" not known.
+;Only this PC's key - its helper keeps the hand under it, its leader echoes it - never compared across PCs
+PartyOrderTag()
+	{
+	try
+		{
+		potR := V1Add(BlRound, 1)
+		if (RegExMatch(BlDuel, "^\d{1,9}$") && potR != "")
+			return "d" BlDuel "r" potR
+		}
+	return ""
+	}
+
+;(Vision.ahk VisionCards) the query on a follower's own hand read with partyorders on, in battle, one game window
+;(Vision.ahk VisionMemOneClient - with two navmem can be on another client's hand; asked last, so a PC with it off
+;never counts the windows here): "?ptag=<its key>" - its helper keeps that hand for the leader; "" otherwise (/cards
+;as ever)
+PartyCardsTag()
+	{
+	try
+		{
+		if (!PartyOrdersOn() || PartyRoleSet() != "follower" || inbattle != 1 || !V1IsFunc("VisionMemOneClient") || !VisionMemOneClient.Call())
+			return ""
+		pctT := PartyOrderTag()
+		return pctT != "" ? "?ptag=" pctT : ""
+		}
+	return ""
+	}
+
+;The party's leader in this battle on your side: heard from in the last 5 s, in battle, its wizard's name one of your
+;side's in the game's log (exactly one of seats 4-7 so named - not yours). Else no order is waited for
+PartyOrderLeaderHere()
+	{
+	try
+		{
+		if (!IsObject(PartyLeader) || PartyLeader.age = "" || PartyLeader.age > 5000 || PartyLeader.battle != 1 || !IsObject(BlNames))
+			return false
+		polK := PartyKey(PartyLeader.wiz)
+		if (StrLen(polK) < 3 || polK = PartyKey(OwnName()))
+			return false
+		polN := 0
+		Loop 4
+			if (BlNames.Has(A_Index + 3) && PartyKey(BlNames[A_Index + 3]) = polK)
+				polN += 1
+		return polN = 1
+		}
+	catch
+		return false
+	}
+
+;A party battle's round (the battle loop, after the planner - partyorders on): a follower asks its helper for the
+;leader's card for its hand (/partyorder?tag=), waits for it 3 s at most and logs it - advice only: nothing is cast, no
+;global the round reads is set, the round then goes on exactly as without it. Two rounds in a row with none: not
+;waited for again this battle; six (across battles): not till one comes - still asked once a round, no wait. The
+;leader: a note once a battle when planner is off. Never throws
+PartyOrderRound()
+	{
+	global PartyOrderAsked, PartyOrderMiss ; (globals it sets)
+	try
+		{
+		if (!PartyOrdersOn() || BattleTeam() < 2 || dualmode == 1 || !VisionOn)
+			return
+		porRole := PartyRoleSet()
+		if (porRole = "leader")
+			{
+			if (!PlannerMode())
+				PartyOrderNote("the team isn't planned - partyorders needs planner on on the leader's PC (Settings: planner)")
+			return
+			}
+		if (porRole != "follower")
+			return
+		;(once a round: the log's round and the bot's, as PlannerAsked)
+		porKey := BlDuel "|" BlRound "|" roundnumber
+		if (porKey == PartyOrderAsked)
+			return
+		PartyOrderAsked := porKey
+		porTag := PartyOrderTag()
+		if (porTag = "" || !PartyOrderLeaderHere())
+			return
+		if (!IsObject(PartyOrderMiss))
+			PartyOrderMiss := V1Obj({duel: BlDuel, n: 0, run: 0})
+		if (PartyOrderMiss.duel != BlDuel)
+			PartyOrderMiss.duel := BlDuel, PartyOrderMiss.n := 0
+		;(0: asked once, no wait)
+		porMax := (PartyOrderMiss.n >= 2 || PartyOrderMiss.run >= 6) ? 0 : 3000
+		porAt := A_TickCount, porWhy := ""
+		Loop
+			{
+			porF := StrSplit(Trim(VisionGet("/partyorder?tag=" porTag, 300, true), " `r`n"), "|")
+			while (porF.Length < 11)
+				porF.Push("")
+			if (porF[1] = "order" && porF[2] = "ok")
+				{
+				PartyOrderMiss.n := 0, PartyOrderMiss.run := 0
+				DebugLog("  " PartyOrderText(porF, A_TickCount - porAt))
+				return
+				}
+			;(none - why in this PC's own helper's words, never the leader's: once a battle; a marker - kind "mark" - is the
+			;leader answering: the misses start again. No answer from the helper: no wait)
+			if (porF[1] != "order" || porF[2] != "wait")
+				{
+				if (porF[1] = "order" && porF[6] = "mark")
+					PartyOrderMiss.n := 0, PartyOrderMiss.run := 0
+				if (porF[1] = "order" && porF[11] != "")
+					PartyOrderNote("no order from the leader - " porF[11])
+				return
+				}
+			porWhy := porF[11]
+			if (!BotOn || A_TickCount - porAt >= porMax)
+				break
+			Sleep(150)
+			}
+		;(F6: the battle loop's own check after this takes over; not waiting: nothing to say)
+		if (!BotOn || porMax = 0)
+			return
+		PartyOrderMiss.n += 1, PartyOrderMiss.run += 1
+		DebugLog("  Plan: no order from the leader in " (A_TickCount - porAt) " ms (" porWhy ") - your own way (partyorders)")
+		if (PartyOrderMiss.n = 2)
+			DebugLog("  Plan: not waiting for the leader's orders again this battle (two rounds in a row with none) - still asked once a round")
+		if (PartyOrderMiss.run = 6)
+			DebugLog("  Plan: not waiting for the leader's orders till one comes (six rounds in a row with none) - still asked once a round")
+		}
+	catch Any as e
+		{
+		try DebugLog("  Plan: the leader's order failed - " (IsObject(e) ? e.Message : e) " (the round goes on as ever)")
+		}
+	}
+
+;The order's line (/partyorder's ok: f[4] the card - this wizard's own name for it, "tid N" or "pass" -, f[5] its tid, f[7]
+;the enemy, f[8] won %, f[9] tries, f[10] ms since the leader planned, f[11] its own helper's note): "Plan: the leader
+;would have you play <card> at <enemy> / on all (won N%, n tries) [tid T] - the leader's plan, advice only (partyorders,
+;M ms after it planned, waited W ms)". The enemy named only as this PC's own log names it (PartyOrderFoe). Not the
+;planner's "Plan: would play" (battlelearn.py's ADVICE_RX)
+PartyOrderText(f, waited)
+	{
+	if (f[7] = "all")
+		potAt := " on all"
+	else if (PartyOrderFoe(f[7]) != "")
+		potAt := " at " PartyOrderFoe(f[7])
+	else if (f[7] != "")
+		potAt := " at an enemy not named in this PC's log"
+	else
+		potAt := ""
+	return "Plan: the leader would have you play " f[4] potAt " (won " f[8] "%, " f[9] " tries)"
+		. (f[5] != "" ? " [tid " f[5] "]" : "")
+		. " - the leader's plan, advice only (partyorders, " f[10] " ms after it planned, waited " waited " ms)"
+		. (f[11] != "" ? " - " f[11] : "")
+	}
+
+;This PC's own log name for the enemy the leader named (one of BlNames 0-3 equal to it - case aside), "" none: the line
+;names an enemy only in this PC's own words
+PartyOrderFoe(name)
+	{
+	if (name = "" || !IsObject(BlNames))
+		return ""
+	Loop 4
+		{
+		pofK := A_Index - 1
+		if (BlNames.Has(pofK) && BlNames[pofK] = name)
+			return BlNames[pofK]
+		}
+	return ""
+	}
+
+;A partyorders note in debug.log, once a battle for each why ("  Plan: <why> (partyorders)")
+PartyOrderNote(why)
+	{
+	global PartyOrderSaid ; (globals it sets)
+	try
+		{
+		if (!IsObject(PartyOrderSaid) || PartyOrderSaid.Count >= 50)
+			PartyOrderSaid := Map()
+		ponK := BlDuel "|" why
+		if (!PartyOrderSaid.Has(ponK))
+			PartyOrderSaid[ponK] := 1, DebugLog("  Plan: " why " (partyorders)")
+		}
 	}
 
 ;The party in a line (the dashboard)
@@ -1294,4 +1566,5 @@ PartyBlank()
 	global PartyTp := "", PartyTpWhy := "", PartyCantAt := "", PartyCantSaid := "", PartyPortSaid := "", PartyCantAlerted := ""
 	global PartyDoorKey := "", PartyDoorTries := "", PartyDoorGave := "", PartyMyZone := "", PartyLdZone := "", PartyStuckAt := ""
 	global PartyDoorGaveAt := "", PartyDoorBattles := "", PartyDwalkSaid := "", PartyHitAt := "", PartyHitAtDuel := ""
+	global PartyOrderAsked := "", PartyOrderMiss := "", PartyOrderSaid := ""
 	}

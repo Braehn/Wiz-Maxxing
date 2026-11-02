@@ -751,6 +751,27 @@ and says so - below).
 	  due - that round when it casts before the hitter, else the round before -
 	  "party hit round: Ned's hit is due in round 6 ... held till round 5". An
 	  older bot says neither: boosts go on as before.
+	- The leader's orders (Settings > PARTY, "...the leader plans the team's
+	  round" - partyorders, off; new, not tried in the game yet; on every PC
+	  of the party, and planner on the leader's): each follower's bot sends
+	  the hand its helper read from the game's memory (its cards, pips and
+	  health - read only, nothing new read) to the leader's; the leader's
+	  planner tries the whole team's round in the battle simulator with those
+	  hands (its round takes about 1.5 s instead of 0.3) and sends each
+	  follower the card it would have it play. The follower waits up to 3 s
+	  in its round for it and writes it to debug.log - "Plan: the leader
+	  would have you play Stormblade (won 80%, 12 tries) [tid 104] - the
+	  leader's plan, advice only ..." - then plays its own way: nothing is
+	  cast from it (that needs planner:2's cast by memory, not built); the
+	  battle recorder keeps the line with what was played. A follower whose
+	  hand wasn't in when the leader planned is played its role's way; a
+	  round the leader doesn't plan (a kill, a defence, a heal, its bot off)
+	  is told to the followers at once; one with no order (the leader slower,
+	  an older bot, its setting off) plays its own way as ever - after two
+	  rounds in a row with none it stops waiting that battle, after six
+	  (across battles) till an order comes. A blader or healer leader plans
+	  too, in a round a follower's hand is in (not in one it heals or shields
+	  in).
 	- A heal on an ally that went out without asking who: one whose learned
 	  text says it heals all of you is kept as <school>.healNtarget:2 (still
 	  used for an ally); one that heals only you as :0, not tried on an ally

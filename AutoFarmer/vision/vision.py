@@ -56,6 +56,8 @@ Requests (all GET, answers are plain text lines, "ERR <why>" on a problem):
                                                root|<w>|<h>                  (v1.0.0: the GUI root's size in the same
                                                                              units - only when it's read)
                                                hand|<cards>|<ms>
+                                             ?ptag=d<duel>r<round> (partyorders, a follower's bot): the hand also kept
+                                             for the party's leader (party.py saw_hand)
   /badge?x1=&y1=&x2=&y2=&scale=&schools=  -> one line per school whose badge is there: "school|x|y|dist",
                                              best first ("unclear": two schools too close at the best spot)
   /hand?x1=&y1=&x2=&y2=&scale=&pics=&learned=<id>:<set folder>:<slot>,...&here=<set folder for this size>
@@ -491,9 +493,9 @@ Requests (all GET, answers are plain text lines, "ERR <why>" on a problem):
                                              planned|rollouts|ms|ms in all, or none|<why> (never an ERR)
        [&role=hitter|blader|healer&seat=4-7&mates=name~seat~school~hp~max~role~pips~power~hand|...&teamplan=1&charms=log]
                                              (v1.0.0 batch 3 - none given: as above) the team model: mates the party's
-                                             other wizards on your side (hand: tid:kind:pips:school:value;... - each
-                                             card's kind and value from cards.jsonl's facts when known; empty: not
-                                             known, its role's way), each with its own hand, pips and health in your
+                                             other wizards on your side (hand: tid:kind:pips:school:value[:ench[:mark]];
+                                             ...; each card's kind and value from cards.jsonl's facts when known; empty:
+                                             not known, its role's way), each with its own hand, pips and health in your
                                              side's cast order (seat), the enemies' single hits on one of you at random;
                                              role / seat yours. teamplan=1: also a play for each wizard whose hand is
                                              known (battlesim.plan_team: order|who|seat|name|i|tid|kind|target|won %|
@@ -501,6 +503,18 @@ Requests (all GET, answers are plain text lines, "ERR <why>" on a problem):
                                              weaknesses and absorbs on you and each enemy rebuilt from the game's log
                                              (battlerec.charms_now - the party's and the enemies' too) instead of the
                                              bot's own count (the enemies matched by their gid; note| says how many)
+       [&hands=party]                        (partyorders, the leader's: each mate's blank hand, pips, power and health
+                                             from its own bot's hand for this round - party.py fill_mates; teamplan
+                                             implied when a mate's hand was filled in - none filled: no team plan even
+                                             with teamplan=1, plan_round held to 300 ms; each follower's order kept for
+                                             its next beat - set_orders; teamnote| why a mate's hand wasn't used)
+  /partyorder?tag=d<duel>r<round>         -> order|state|round|card|tid|kind|target|won|n|age|why (party.py order_line -
+                                             the leader's card for this wizard's hand, advice only; state ok / wait /
+                                             none; a marker's none: kind mark); ?lead=1 -> lead|<followers' hands held>
+                                             (the leader's bot); ?noplan=<round> -> noplan|<followers told> (the
+                                             leader's bot at its round's end: those with a hand for the round and no
+                                             order told it wasn't planned). This helper's own server only - never the
+                                             LAN's
   /deckfor?zone=<zone path>[&foes=name~name|name...]&school=&hp=&damage=&pierce=&crit=&block=&acc=&resist=&vals=&n=60
                                           -> decks matched to a zone's enemies (battlesim.best_decks): each in-game deck
                                              in an Equipment Set (the decks' last reading - never read here), its
@@ -2069,6 +2083,29 @@ def party():
     return PARTY
 
 
+def partyorder_answer(q):
+    """/partyorder (partyorders - TODO goal 3, advice only; this helper's own server, never the LAN): ?tag= - the
+    follower's: the leader's card for its hand (party.py order_line); ?lead=1 - the leader's: lead|<followers' fresh
+    hands held> (lead_count); ?noplan=<round> - the leader's at its round's end: noplan|<followers told the round wasn't
+    planned> (no_plan - the round the battle recorder's, else the one given). Never raises"""
+    try:
+        if 'lead' in q:
+            return 'lead|%d' % (PARTY.lead_count() if PARTY is not None else 0)
+        if 'noplan' in q:
+            v = str(q.get('noplan') or '').strip()
+            if PARTY is None or not re.fullmatch(r'\d{1,3}', v):
+                return 'noplan|0'
+            loc = rec_local()
+            return 'noplan|%d' % PARTY.no_plan(loc[1] if loc else int(v))
+        if PARTY is None:
+            import party as party_mod
+            return party_mod.order_cells('none', why="the party isn't on in this helper")
+        return PARTY.order_line(q.get('tag', ''))
+    except Exception as e:  # noqa: BLE001 - never into the server
+        why = "the party couldn't be asked (%s)" % re.sub(r'[|\r\n]+', ' ', repr(e))
+        return '|'.join(['order', 'none'] + [''] * 8 + [why])
+
+
 def party_stop():
     if PARTY is not None:
         PARTY.stop()
@@ -2093,12 +2130,18 @@ def nav_reader():
 CARDS_LOGGED = {'text': None}
 
 
-def cards_answer():
+def cards_answer(q=None):
     """/cards with no rectangle: the hand and my pips from the game's memory (navmem's reader, read-only -
-    vision\\handmem.py), logged when the answer changes"""
+    vision\\handmem.py), logged when the answer changes. ptag=d<duel>r<round> (partyorders, a follower's bot): the hand
+    also kept for the party's leader (party.py saw_hand - the round the battle recorder's: rec_local)"""
     import handmem
     r, why = nav_reader().cards()
     _rec_hook('saw_hand', r)
+    if (q or {}).get('ptag') and PARTY is not None:
+        try:
+            PARTY.saw_hand(r, q['ptag'], rec_local())
+        except Exception:  # noqa: BLE001 - the answer as it is
+            pass
     text = handmem.answer(r, why)
     # (logged when the cards change - not their boxes, fields 26-29, nor the root line: a card zoomed up or the hand
     # sliding back isn't a new hand)
@@ -2570,6 +2613,30 @@ def _rec_hook(name, *a):
         pass
 
 
+def rec_local(ctx=None):
+    """(partyorders) the battle recorder's duel in its planning phase - the local player's own duel only, which AHK's log
+    reader can't tell from other wizards' nearby: (its duel number as text, its round n), else None (the recorder off or
+    broken, no duel, not in Planning - lagging -, no round yet). ctx['duel']: a test's stand-in (as plan_charms). Read
+    from the request's thread, as plan_charms reads it; never raises"""
+    try:
+        if ctx is not None and 'duel' in ctx:
+            d = ctx['duel']
+        else:
+            rec = REC
+            d = rec.parser.duel if rec is not None and rec.on and not rec.broken else None
+        if not isinstance(d, dict) or d.get('phase') != 'Planning':
+            return None
+        rounds = d.get('rounds')
+        if not isinstance(rounds, list) or not rounds or not isinstance(rounds[-1], dict):
+            return None
+        n = rounds[-1].get('n')
+        if not isinstance(n, int) or isinstance(n, bool) or not 1 <= n <= 999:
+            return None
+        return str(d.get('num') if d.get('num') is not None else ''), n
+    except Exception:  # noqa: BLE001 - not known
+        return None
+
+
 def deck_lines(fresh):
     """/deck's answer: deckmem.deck_lines of the worn deck's last reading plus deckage|<s>, or none|<why>"""
     import deckmem
@@ -2919,11 +2986,15 @@ def plan_book():
 
 
 def plan_mates(text, facts):
-    """/plan's mates= (name~seat~school~hp~max~role~pips~power~hand|... - hand: tid:kind:pips:school:value;... each card's
-    kind and value from cards.jsonl's facts when it has none, empty: not known) as [battlesim.Mate] - a field it can't
-    read the default, a card it can't make left out; never raises"""
+    """/plan's mates= (name~seat~school~hp~max~role~pips~power~hand|... - hand: tid:kind:pips:school:value[:ench[:mark]];...
+    each card's kind and value from cards.jsonl's facts when it has none, ench a hit's damage enchant already on it, mark
+    what the simulator reads off its name - resh, tower, an enchant's word: partyorders' hands, party.py hand_of -; empty:
+    not known) as [battlesim.Mate] - a field it can't read the default, a card it can't make left out (a hand given
+    with no card made: not known, never an empty hand); never raises"""
     import battlesim as B
     out = []
+    # (a mark as the card's name, so the simulator's name checks see it: Tower Shield, Reshuffle, a bot enchant's word)
+    mark_names = dict({'tower': 'Tower Shield', 'resh': 'Reshuffle'}, **{w: w.capitalize() for w in B.ENCHANT_WORDS})
     try:
         for spec in (text or '').split('|')[:12]:
             bits = (spec.split('~') + [''] * 9)[:9]
@@ -2939,13 +3010,22 @@ def plan_mates(text, facts):
             if bits[8].strip():
                 hand = []
                 for item in bits[8].split(';')[:9]:
-                    f = (item.split(':') + [''] * 5)[:5]
-                    c = {'template_id': num(f[0]), 'kind': f[1].strip().lower() or None, 'pips': num(f[2]),
+                    f = (item.split(':') + [''] * 7)[:7]
+                    # (a template id of up to 10 digits - the game's; the other numbers num()'s 6)
+                    tid = f[0].strip()
+                    c = {'template_id': int(tid) if re.fullmatch(r'\d{1,10}', tid) else None,
+                         'kind': f[1].strip().lower() or None, 'pips': num(f[2]),
                          'school': f[3].strip().lower(), 'value': f[4].strip() or None,
                          'value_text': f[4].strip() or None}
+                    if re.fullmatch(r'\d{1,4}', f[5].strip()):
+                        c['ench'] = int(f[5].strip())
+                    if mark_names.get(f[6].strip()):
+                        c['name'] = mark_names[f[6].strip()]
                     card = B.card_of(c, facts)
                     if card is not None:
                         hand.append(card)
+                # (a hand given but no card made of it: not known - its role's way -, not one holding nothing)
+                hand = hand or None
             school = bits[2].strip().lower()
             me = B.Me(school, num(bits[4], 3000), hp=num(bits[3]))
             out.append(B.Mate(re.sub(r'[^\w .\'-]', '', bits[0])[:24], num(bits[1]), me, bits[5].strip().lower(), hand,
@@ -3140,7 +3220,21 @@ def plan_lines_for(q, cards_reader=None, battle_reader=None, ctx=None):
             opts.role = role
         if re.fullmatch(r'[4-7]', (q.get('seat') or '').strip()):
             state.seat = int(q['seat'])
-        mates = plan_mates(q.get('mates'), facts)
+        # (partyorders - hands=party, the leader's: each mate's blank hand, pips, power and health from the hand its own
+        # bot sent for this round - party.py fill_mates; the round the battle recorder's - its own duel only -, else the
+        # bot's. P: a test's stand-in, else this helper's party)
+        hands_party = q.get('hands') == 'party'
+        mtext, used, party_notes, P, prnd = q.get('mates'), [], [], None, None
+        if hands_party:
+            P = ctx['party'] if 'party' in ctx else PARTY
+            loc = rec_local(ctx)
+            prnd = loc[1] if loc else int(fl('round', 1))
+            if P is None:
+                party_notes = ["the party isn't running in this helper - the mates' hands not known"]
+                mtext = q.get('mates') or ''
+            else:
+                mtext, used, party_notes = P.fill_mates(q.get('mates'), prnd)
+        mates = plan_mates(mtext, facts)
         if mates:
             state.mates = mates
             notes.append('the team model: %d mate%s on your side (%s)' % (len(mates), '' if len(mates) == 1 else 's',
@@ -3156,20 +3250,33 @@ def plan_lines_for(q, cards_reader=None, battle_reader=None, ctx=None):
         if left < 20:
             return ['none|' + mob_cell('no time left to plan (the game read %d ms of the %d ms)' % (
                 budget - left - 15, budget))]
-        teamplan = q.get('teamplan') == '1'
+        # (hands=party: the team planned only when a mate's hand was filled in - teamplan implied; none filled: no team
+        # plan, and plan_round at today's 300 ms - AutoFarmer's 1500 asked for nothing)
+        filled = any(u and u.get('tag') for u in used)
+        skip = hands_party and not filled
+        teamplan = (q.get('teamplan') == '1' or filled) and not skip
+        if skip:
+            pbudget = max(20, min(left, 300 - int((time.monotonic() - t0) * 1000) - 15))
+        else:
+            pbudget = int(left * 0.6) if teamplan else left
         plan = B.plan_round(state, me, foes, opts, n=int(fl('n', B.PLAN_N)),
                             horizon=int(fl('horizon')) if fl('horizon') > 0 else None,
-                            budget_ms=int(left * 0.6) if teamplan else left,
-                            seed=int(fl('seed')) if q.get('seed') else None, prior=prior)
+                            budget_ms=pbudget, seed=int(fl('seed')) if q.get('seed') else None, prior=prior)
         plan['why'] = notes + plan['why']
         out = B.plan_lines(plan, foes, ids)
         if out and out[0].startswith('none|'):
             return out
+        tp = None
         if teamplan:
             tleft = budget - int((time.monotonic() - t0) * 1000) - 15
-            out += B.team_lines(B.plan_team(state, me, foes, opts, n=int(fl('n', B.PLAN_N)),
-                                            budget_ms=max(20, tleft), seed=int(fl('seed')) if q.get('seed') else None),
-                                foes)
+            tp = B.plan_team(state, me, foes, opts, n=int(fl('n', B.PLAN_N)), budget_ms=max(20, tleft),
+                             seed=int(fl('seed')) if q.get('seed') else None)
+            out += B.team_lines(tp, foes)
+        if hands_party:
+            # (why a mate's hand wasn't used; each follower's order - or marker - kept for its next beat: advice only)
+            out += ['teamnote|' + mob_cell(n) for n in party_notes]
+            if P is not None:
+                P.set_orders(tp['orders'] if tp else [], used, [f.name for f in foes], prnd)
         for k, f in enumerate(foes):
             out.append('|'.join(['foe', str(k), mob_cell(f.name), mob_cell(fhp[k]), str(f.maxhp), '1' if f.boss else '0',
                                  plate_x(plates[k]) if plates[k] else '']))
@@ -4642,7 +4749,7 @@ class Handler(BaseHTTPRequestHandler):
                     return self.reply('ERR ' + (why or '?'))
                 return self.reply('\n'.join(duel_lines(got, r)))
             if u.path == '/cards' and 'x1' not in q:
-                return self.reply(cards_answer())
+                return self.reply(cards_answer(q))
             if u.path == '/phase':
                 # (the round's phase alone - no spell read, about a ms: vision\handmem.py HandMem.phase, read-only; gated
                 # as memory /cards is)
@@ -4825,10 +4932,15 @@ class Handler(BaseHTTPRequestHandler):
                 return self.reply('\n'.join(netmon().picked(q.get('id', ''))))
             if u.path == '/netcmd':
                 return self.reply(netmon().command(q.get('id', ''), q.get('c', '')))
+            if u.path == '/partyorder':
+                # (partyorders - this helper's own server only, never the LAN's: the leader's card for this wizard's hand
+                # - a follower's AutoFarmer -, or the leader's AutoFarmer's lead=1 / noplan=<round> - party.py)
+                return self.reply(partyorder_answer(q))
             if u.path == '/party':
                 # (AutoFarmer's party settings and state in - role, name, leader, port, battle, hp, ready, walk, bot,
-                # hold, brole, wiz, school, hits, hitr, plan, lasthit; the party as this PC sees it out: party|.., me|.., leader|..,
-                # member|.. - party.py)
+                # loading, hold, brole, wiz, school, hits, hitr, plan, lasthit, tp, tpwhy, hitat, seat, orders, plans
+                # (partyorders: 1 - plans the leader's, while it can plan); the party as this PC sees it out: party|..,
+                # me|.., leader|.., member|.. - party.py)
                 return self.reply('\n'.join(party().update(q)))
             if u.path in ('/cards', '/badge'):
                 x1, y1, x2, y2 = (int(round(float(q[k]))) for k in ('x1', 'y1', 'x2', 'y2'))

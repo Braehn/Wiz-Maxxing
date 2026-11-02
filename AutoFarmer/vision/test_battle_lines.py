@@ -88,13 +88,14 @@ class Helper(unittest.TestCase):
 
     def setUp(self):
         self.H = import_handmem()
-        self.keep = (V.nav_reader, V.LOG, V.log, sys.modules.get('handmem'), dict(V.CARDS_LOGGED))
+        self.keep = (V.nav_reader, V.LOG, V.log, sys.modules.get('handmem'), dict(V.CARDS_LOGGED), V.PARTY, V.REC,
+                     V._rec_hook)
         self.logged = []
         V.log = lambda text, *a, **kw: self.logged.append(text)
         sys.modules['handmem'] = self.H
 
     def tearDown(self):
-        V.nav_reader, V.LOG, V.log, had, cl = self.keep
+        V.nav_reader, V.LOG, V.log, had, cl, V.PARTY, V.REC, V._rec_hook = self.keep
         V.CARDS_LOGGED.clear()
         V.CARDS_LOGGED.update(cl)
         if had is None:
@@ -128,6 +129,43 @@ class Helper(unittest.TestCase):
             self.assertEqual(len(self.logged), 2)
         finally:
             V._rec_hook = rec
+
+    def test_cards_kept_for_the_leader(self):
+        # (partyorders, a follower: /cards?ptag= - the hand read also kept for the party's leader, the round the battle
+        # recorder's; no ptag: /cards as ever, nothing kept)
+        import party
+        hm = fake_hand()
+        V.nav_reader = lambda: FakeNav(hm)
+        V._rec_hook = lambda *a: None
+        V.REC = types.SimpleNamespace(on=True, broken=False, parser=types.SimpleNamespace(
+            duel={'num': 12, 'phase': 'Planning', 'rounds': [{'n': 6}]}))
+
+        class Quiet(party.Party):
+            def _loop(self):
+                return
+        F = Quiet(lambda: None, log=lambda *a: None)
+        F.cfg.update(role='follower', orders='1')
+        F.ahk = party.clean_state({'battle': '1'})
+        V.PARTY = F
+
+        def cards(q=None):
+            # (the answer but its hand| line - its read's ms)
+            return [ln for ln in V.cards_answer(q).split('\n') if not ln.startswith('hand|')]
+        text = cards()
+        self.assertIsNone(F.stash)
+        self.assertEqual(cards({'ptag': 'd12r5'}), text)                  # (the answer as ever)
+        self.assertEqual((F.stash['tag'], F.stash['round']), ('d12r5', 6))
+        self.assertEqual([c['tid'] for c in F.stash['hand']['cards']], [8192, 4096, 0])
+        # (no recorder: the tag's round; partyorders off in this helper: nothing kept)
+        V.REC = None
+        V.cards_answer({'ptag': 'd12r7'})
+        self.assertEqual((F.stash['tag'], F.stash['round']), ('d12r7', 7))
+        F.cfg['orders'], F.stash = '', None
+        V.cards_answer({'ptag': 'd12r8'})
+        self.assertIsNone(F.stash)
+        # (no party in this helper: /cards as ever)
+        V.PARTY = None
+        self.assertEqual(cards({'ptag': 'd12r8'}), text)
 
     def test_phase_route(self):
         import urllib.request

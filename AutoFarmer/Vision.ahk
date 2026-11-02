@@ -284,11 +284,14 @@ VisionCards(waitMs := 1500, maxAgeMs := 0)
 		}
 	if (vcGaveUp && A_TickCount - vcGaveUp < 10000)
 		waitMs := 0
+	;(partyorders, a follower: the read tagged with its duel and round - its helper keeps the hand for the party's leader;
+	;off: "/cards" as ever)
+	vcTag := V1IsFunc("PartyCardsTag") ? PartyCardsTag.Call() : ""
 	vcFrom := A_TickCount
 	Loop
 		{
 		;(an older helper - /cards wants a rectangle there - answers ERR: never counted against the helper)
-		vcAns := Trim(VisionGet("/cards", 800, true), " `t`r`n")
+		vcAns := Trim(VisionGet("/cards" vcTag, 800, true), " `t`r`n")
 		if (vcAns = "")
 			{
 			VisionCardsWhy := VisionErr = "" ? "no answer" : RegExReplace(VisionErr, "^ERR\s*")
