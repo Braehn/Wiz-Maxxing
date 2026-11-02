@@ -1214,6 +1214,42 @@ class DeckFor(unittest.TestCase):
             self.V.DECKFOR["cache"].clear()
             self.V.DECKFOR["cache"].update(keep)
 
+    def test_profile_with_every_hit_off(self):
+        """a deck profile with usehit1-4 all 0 (a support's - Decks.ahk DeckFilterHand then plays no hit): its deck
+        played with none, the rule /sim and /plan use - not scored a hitter that wins with the hits it never casts"""
+        c = {"book": S.FoeBook(battles=[]), "facts": FACTS, "wiki": None, "casts": None,
+             "decks": {"decks": [deckmem_deck()]}}
+        off = "usehit1:0,usehit2:0,usehit3:0,usehit4:0"
+        specs = {}
+        real = S.best_decks
+
+        def spy(ds, *a, **kw):
+            specs.clear()
+            specs.update({key: o for key, _n, _c, o in ds})
+            return real(ds, *a, **kw)
+        keep = dict(self.V.DECKFOR["cache"])
+        try:
+            self.V.DECKFOR["cache"].clear()
+            q = {"zone": "Z", "foes": "Rat", "school": "storm", "n": "30"}
+            with mock.patch.object(S, "best_decks", spy):
+                won = {}
+                for name, extra in (("none", {}), ("off", {"dvals": "abc~" + off}),
+                                    ("one on", {"dvals": "abc~usehit1:0,usehit2:0,usehit3:1,usehit4:0"}),
+                                    ("yours off, profile on", {"vals": off, "dvals": "abc~usehit1:1"}),
+                                    ("yours off, no profile", {"vals": off})):
+                    out = self.V.deckfor_lines_for(dict(q, **extra), c, wait=True)
+                    row = out[0].split("|")
+                    self.assertEqual(row[:3], ["deckfor", "abc", "Storm Deck"], (name, out))
+                    won[name] = (int(row[3]), specs["abc"].usehit)
+            self.assertEqual(won["off"], (0, False), won)                    # (the support's: no hit, no win)
+            self.assertEqual(won["yours off, no profile"], (0, False), won)  # (yours with all off: as /sim)
+            for name in ("none", "one on", "yours off, profile on"):
+                self.assertEqual(won[name][1], True, (name, won))
+                self.assertGreater(won[name][0], 50, (name, won))
+        finally:
+            self.V.DECKFOR["cache"].clear()
+            self.V.DECKFOR["cache"].update(keep)
+
     def test_in_a_thread_and_junk(self):
         keep = dict(self.V.DECKFOR["cache"])
         try:

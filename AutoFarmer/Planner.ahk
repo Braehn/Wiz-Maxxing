@@ -3,9 +3,10 @@
 ; loop: one call, PlannerRound) - the vision helper is asked which card it would play (/plan - vision\vision.py
 ; plan_lines_for, vision\battlesim.py plan_round): every card in hand that can go now, and a pass, tried in the battle
 ; simulator from this very round on - your hand, pips and health from the game's memory, the enemies' health (memory),
-; the blades, traps and aura the bot counts (KillCalc.ahk AppliedBlades, BossTraps, AuraRounds), the worn deck less the
-; hand as the draw pile, the rest of the battle played your settings' way; learned plays (vision\battlelearn.py, from the
-; battles recorded) only nudge near-equal plays.
+; the blades, traps and aura the bot counts (KillCalc.ahk AppliedBlades, BossTraps, AuraRounds), the worn deck's main
+; side less the hand as the draw pile (its treasure side drawn the bot's way - DrawsBattle), the blades and traps cast
+; this battle (PlannerUsed), the rest of the battle played your settings' way; learned plays (vision\battlelearn.py,
+; from the battles recorded) only nudge near-equal plays.
 ; AutoHotkey v2, written for v2 (v1 never had this: nothing here is ported); #Included by Autofarmer.ahk only.
 ;
 ; Setting (PlayerStats.txt, the Settings window's HOW IT PLAYS ITS CARDS): planner - 0 off (the default: nothing asked,

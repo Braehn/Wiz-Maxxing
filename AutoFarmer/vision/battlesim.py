@@ -2404,7 +2404,8 @@ class _Battle:
             low = self.up()
             self.heal_to = min(low, key=lambda k: self._wiz(k).hp / float(self._wiz(k).me.maxhp)) \
                 if card.kind == "heal" and low else None
-            # (its Tower Shield where PartyShield puts it while that hasn't gone this battle - else on itself)
+            # (its Tower Shield where PartyShield puts it while that hasn't gone since the side's hitter's last hit -
+            # else on itself)
             self.shield_to = self._party_shield_target() if card.tower and not self.pshield_used else None
         try:
             return self.cast(card)
@@ -2968,7 +2969,9 @@ def verdict(res, cards, me, foes, opts=None):
                         [g for g in foes if g.name == f.name]) > 1 else "", f.maxhp, name, dmg, (" with " + ", ".join(boosts)) if boosts else "",
                     out["hits"][f.name], "" if out["hits"][f.name] == 1 else "s"))
             else:
-                parts.append("%s %d health: no hit in the deck" % (f.name, f.maxhp))
+                # (a deck whose only hits are treasure cards: none in the main deck - simulate's why says the same)
+                parts.append("%s %d health: no hit in the %s" % (
+                    f.name, f.maxhp, "main deck" if any(c.hit and c.tc for c in cards) else "deck"))
         if any(f.crit_p is None for f in foes):
             out["notes"].append("an enemy's critical chance isn't known from the battles recorded - its block taken "
                                 "as your critical rating (75%% critical chance at x%.2f)" % crit_mult(me.crit, me.crit)

@@ -2772,6 +2772,12 @@ def quests_answer():
 GATED |= {'/book', '/quests'}
 
 
+def _usehit_off(vals):
+    """True when vals ({key: str}) switch every hit off - usehit1-4 all 0 (Decks.ahk DeckSimVals sends them, DeckKeys;
+    the bot's DeckFilterHand then plays no hit): /sim, /deckfor and /plan play that as Opts.usehit False, one rule"""
+    return all(str(vals.get('usehit%d' % i)) == '0' for i in range(1, 5))
+
+
 def sim_lines_for(q):
     """/sim's answer (see the docstring) - never raises"""
     import battlesim as B
@@ -2818,8 +2824,7 @@ def sim_lines_for(q):
             return ['none|no enemies named (foes=)']
         boss = q.get('boss') == '1' or any(f.boss for f in foes)
         opts = B.Opts.of(vals, boss=boss)
-        if any(vals.get('usehit%d' % i) == '0' for i in range(1, 5)) and all(
-                vals.get('usehit%d' % i) == '0' for i in range(1, 5)):
+        if _usehit_off(vals):
             opts.usehit = False
         res = B.simulate(cards, me, foes, opts, n=int(fl('n', 300)))
         res['why'] = notes + res['why']
@@ -2925,7 +2930,11 @@ def deckfor_lines_for(q, ctx=None, wait=False):
                             dv.update({k: str(v) for k, v in B.learn_deck(d, facts, len(decks))['vals'].items()})
                         except Exception:  # noqa: BLE001 - your settings alone
                             pass
-                    specs.append((gk, str(d.get('display') or d.get('object_name') or 'deck'), cards, B.Opts.of(dv)))
+                    o = B.Opts.of(dv)
+                    if _usehit_off(dv):
+                        # (a profile - or your settings - with every hit off: played with none, as /sim and /plan do)
+                        o.usehit = False
+                    specs.append((gk, str(d.get('display') or d.get('object_name') or 'deck'), cards, o))
                 sch = (q.get('school') or '').lower()
                 me = B.Me(sch, fl('hp', 3000), damage=fl('damage'), pierce=fl('pierce'), crit=fl('crit'),
                           block=fl('block'), accuracy=fl('acc'), resist=fl('resist'), power_pip=fl('pp', 0.4))
@@ -3242,7 +3251,7 @@ def plan_lines_for(q, cards_reader=None, battle_reader=None, ctx=None):
             if k.strip():
                 vals[k.strip().lower()] = v.strip()
         opts = B.Opts.of(vals, boss=q.get('boss') == '1' or any(f.boss for f in foes))
-        if all(vals.get('usehit%d' % i) == '0' for i in range(1, 5)):
+        if _usehit_off(vals):
             opts.usehit = False
         # (batch 3 - the team model and the log's charms; none asked: as before) my party battle role and seat, the
         # party's other wizards on my side

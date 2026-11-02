@@ -1687,6 +1687,19 @@ class ChainDocs(unittest.TestCase):
               S.Card("Stormblade", "blade", "storm", 0, boosts={"storm": 35}, tc=True)]
         self.assertEqual(S.best_hit(plain + tc, me, f), S.best_hit(plain, me, f))
         self.assertEqual(S.best_hit(tc, me, f), (None, 0, []))
+        # (a deck whose only hits are treasure cards: the verdict's text says none in the MAIN deck, as simulate's why
+        # does - not "no hit in the deck" for a deck holding five Tempests; no hit at all: "no hit in the deck")
+        ogre = [S.Foe("Ogre", 3200)]
+        tdeck = [S.Card("Tempest", "aoe", "storm", 6, heads={"storm": 400}, tid=9, tc=True)] * 5 + [stormblade()] * 3
+        r = S.simulate(tdeck, me, ogre, n=10, seed=1)
+        self.assertIn("no hit in the main deck (its treasure cards are never dealt)", r["why"])
+        self.assertTrue(S.verdict(r, tdeck, me, ogre)["text"].endswith("Ogre 3200 health: no hit in the main deck"),
+                        S.verdict(r, tdeck, me, ogre)["text"])
+        blades = [stormblade()] * 3 + [S.Card("Stormblade", "blade", "storm", 0, boosts={"storm": 35}, tc=True)]
+        r = S.simulate(blades, me, ogre, n=10, seed=1)
+        self.assertIn("no hit in the deck", r["why"])
+        self.assertTrue(S.verdict(r, blades, me, ogre)["text"].endswith("Ogre 3200 health: no hit in the deck"),
+                        S.verdict(r, blades, me, ogre)["text"])
 
 
 # ============================================================================ v1.7.0: treasure cards drawn the bot's
