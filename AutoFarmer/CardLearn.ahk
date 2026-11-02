@@ -254,14 +254,14 @@ LearnHitRank(c)
 	}
 
 ;A learned hit in no slot in this round's hand read (LastHandAnswer) that can go now - for "is there a hit to cast"
-;(CardHitReady). Not once the round's discarded something: that read's out of date
+;(CardHitReady). The round's read, read afresh after a discard (Autofarmer.ahk's discard step, v1.8.0 - before, nothing
+;was cast in a round that discarded)
 ;Learned hits in no slot that didn't go this battle: id -> the pips there were then (ResetVariables empties it)
 global LearnHitFails
 
 LearnHitReady()
 	{
-	global Discards
-	return !Discards && LearnHitCards(LastHandAnswer).Length > 0
+	return LearnHitCards(LastHandAnswer).Length > 0
 	}
 
 ;A fresh look at the hand, as LearnCards' (learned cards known by their pictures) but writing no thumbnails and

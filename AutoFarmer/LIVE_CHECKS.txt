@@ -13,12 +13,13 @@ Before you start
 	- Back up dashboard.ini, PlayerStats.txt, decks\, dungeons\ and learned\.
 	- One game window open on each PC: the memory reads refuse two or more.
 	- The vision helper running (the Dashboard's What it sees says so).
-	- Every new setting OFF (they are by default): sigilhome, mobwall,
-	  duelavoid, puzzlestate, puzzlelevers (WALKING); gearswap, gearsets (THE
-	  BACKPACK); memclicks, planner, deckzone (HOW IT PLAYS ITS CARDS);
-	  partytpdoors, partyhitround, partyorders (PARTY); overlay (THE
-	  OVERLAY); deckadd, trainspells, spellquests (not built - leave them
-	  off).
+	- Every new setting OFF (they are by default, but discardspent):
+	  sigilhome, mobwall, duelavoid, puzzlestate, puzzlelevers (WALKING);
+	  gearswap, gearsets (THE BACKPACK); memclicks, planner, deckzone,
+	  discardspent (HOW IT PLAYS ITS CARDS - discardspent is on by default:
+	  switch it off till its step, 3.11); partytpdoors, partyhitround,
+	  partyorders (PARTY); overlay (THE OVERLAY); deckadd, trainspells,
+	  spellquests (not built - leave them off).
 	- The commands run in a command prompt in the AutoFarmer folder, with
 	  Wizard101 running and your wizard in the world unless a step says
 	  otherwise. They only read the game's memory or files: nothing in the
@@ -175,7 +176,24 @@ Before you start
 	    another way ..." (once a battle) follows the leader's first kill,
 	    defence or heal round. With wizards fighting nearby: do orders
 	    still come? Then one PC with it off: nothing new on either.
-	3.11 memclicks LAST - only once 2.3's lines say the boxes line up (three
+	3.11 discardspent (right-clicks only - it never casts a card): a deck
+	    with 3 or more copies of one blade or trap (Stormblade, say),
+	    reboost off, set to Hitter, the vision helper running, one game
+	    window. First debug.log should say "Memory card boxes ... they
+	    line up, 3 looks in a row" - no discard of this kind before
+	    that. Once a battle it says "spent copies: the worn deck holds
+	    N Sharpen and M Potent card(s)" (or why it doesn't know). Each
+	    round a copy can't go any more it says "Discarded <name> -
+	    <key>: N of the deck's copies in hand, L cast(s) left this
+	    battle (card i of n, right-click at x,y)": the card that went is
+	    that blade or trap - never a hit, a treasure card or a pet's or
+	    gear's item card - and the Dashboard's Discarded count goes up.
+	    Send a battle's lines, and any "spent copies of <key>: ..."
+	    lines. With a Sharpen in hand, or one still in the deck, one
+	    more copy stays till it's used. Cast a Reshuffle later: do the
+	    discarded copies come back into the deck? As a party's blader or
+	    healer, with reboost on, or in dual mode: no such lines.
+	3.12 memclicks LAST - only once 2.3's lines say the boxes line up (three
 	    looks in a row within 10 pixels: "trusted"). Cards and plates are
 	    then clicked where the game's memory has them.
 

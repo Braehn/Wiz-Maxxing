@@ -62,7 +62,7 @@ DeckKeys()
 		keys := []
 		for i, k in ["cardlogic", "boostmax", "useblades", "usetraps", "usebubble", "useaura", "usewand", "usetower"
 			, "usereshuffle", "reboost", "solotraps", "healthocr", "killmargin", "drawenchant", "pipsave", "discardunused"
-			, "discardmax", "discardunaffordable", "healat", "defendat", "fleeon", "usehit1", "usehit2", "usehit3", "usehit4", "useheal"]
+			, "discardmax", "discardspent", "discardunaffordable", "healat", "defendat", "fleeon", "usehit1", "usehit2", "usehit3", "usehit4", "useheal"]
 			keys.Push(k)
 		}
 	return keys
@@ -549,7 +549,8 @@ DeckStatFor(d, sch, key)
 ;(enemyspells, useabsorb, drawneed, drawround, drawmax) - each as DeckStatFor has it (the deck's, your school's,
 ;the plain one), and only when set somewhere: useabsorb has no default (the helper's own is on, as StatOr's).
 ;drawenchant 0 while drawing is off for the run (Draw.ahk DrawForKill: DrawBroken, or Draw greyed out with room
-;under 30 minutes ago - DrawEmptyAt). d "" (no deck): yours. "key:value,..."
+;under 30 minutes ago - DrawEmptyAt). discardspent 0 in dual mode or as a Blader / Healer with the party on (v1.8.0).
+;d "" (no deck): yours. "key:value,..."
 DeckSimVals(d, sch)
 	{
 	dsvOut := ""
@@ -562,6 +563,10 @@ DeckSimVals(d, sch)
 		{
 		dsvV := DeckStatFor(d, sch, dsvK)
 		if (dsvK = "drawenchant" && dsvNoDraw)
+			dsvV := 0
+		;(v1.8.0: discardspent 0 where this bot never runs it this session - dual mode, a Blader or Healer with the party on
+		;(Autofarmer.ahk DiscardSpentRole): the simulator then holds the copies, as the bot does)
+		if (dsvK = "discardspent" && (dualmode == 1 || (V1IsFunc("DiscardSpentRole") && !DiscardSpentRole.Call())))
 			dsvV := 0
 		;(only a key set somewhere - DeckStatFor's 0 for one set nowhere would switch useabsorb off in the helper)
 		if (dsvV != "" && ((IsObject(d) && IsObject(V1At(d, "vals")) && d.vals.Has(dsvK)) || Stats.Has(dsvK)
@@ -1675,8 +1680,10 @@ DeckForZone(p, inBattle := false)
 		dfzQ := "/deckfor?zone=" NavUri(dfzZ) "&school=" dfzSch "&n=60&vals=" NavUri(DeckSimVals("", dfzSch))
 		;(each in-game deck's profile - the one this would put on, DeckSet: its own settings, laid over yours by the
 		;helper - gid~key:value,... |...; the first profile per in-game deck that fits your school; its drawenchant
-		;0 while drawing is off for the run, as DeckSimVals)
+		;0 while drawing is off for the run, and its discardspent 0 as a Blader or Healer with the party on (v1.8.0 -
+		;Autofarmer.ahk DiscardSpentRole: the bot never throws the copies then), as DeckSimVals)
 		dfzNoDraw := (DrawBroken != "" || (DrawEmptyAt && A_TickCount - DrawEmptyAt < 1800000))
+		dfzNoSpent := V1IsFunc("DiscardSpentRole") && !DiscardSpentRole.Call()
 		dfzDv := ""
 		for dfzI, dfzD in DeckList
 			{
@@ -1685,7 +1692,8 @@ DeckForZone(p, inBattle := false)
 			dfzOwn := ""
 			if (IsObject(V1At(dfzD, "vals")))
 				for dfzK2, dfzV2 in dfzD.vals
-					dfzOwn .= (dfzOwn = "" ? "" : ",") dfzK2 ":" ((dfzK2 = "drawenchant" && dfzNoDraw) ? 0 : dfzV2)
+					dfzOwn .= (dfzOwn = "" ? "" : ",") dfzK2 ":" (((dfzK2 = "drawenchant" && dfzNoDraw)
+						|| (dfzK2 = "discardspent" && dfzNoSpent)) ? 0 : dfzV2)
 			dfzDv .= (dfzDv = "" ? "" : "|") dfzD.game "~" dfzOwn
 			}
 		dfzQ .= "&dvals=" NavUri(dfzDv)

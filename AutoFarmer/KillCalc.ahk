@@ -344,6 +344,18 @@ BoostMatches(key, cards)
 	return bmOut
 	}
 
+;v1.8.0: whether card m of the game's hand (VisionCards' card) is boost key's copy for sure: its kind, its boosts read
+;(BoostsParse) with the key's schools - an every-school key's (blade3, blade4, trap3, feint) at its % (BoostPct) -, not
+;one of BoostMatches' fallbacks (boosts not read: any card of the kind; no card at an every-school key's %: every one).
+;Autofarmer.ahk DiscardSpent counts and BoostMemDiscard(key, 1) clicks only these
+BoostSureOf(key, m)
+	{
+	if (!IsObject(m) || m.kind != BoostKind(key))
+		return false
+	bsoB := BoostsParse(m.boosts)
+	return IsObject(bsoB) && bsoB.sch = BoostSchools(key) && (bsoB.sch != "all" || bsoB.pct = BoostPct(key))
+	}
+
 ;The cards of the game's hand (VisionCards' cards) that are a Tower Shield (resources\tower - cast on yourself or an ally
 ;as Tower Shield), as their numbers in cards: a shield (kind ward) the game names Tower Shield - the deck's, a treasure or
 ;an item card's; none so named: a shield card (the game's type Ward) for one wizard against every school - its text as
@@ -1012,6 +1024,17 @@ MemBoxTrusted()
 	return IsObject(mbtS) && mbtS.trusted = 1 && V1IsFunc("VisionMemOneClient") && VisionMemOneClient.Call()
 	}
 
+;v1.8.0: whether the game's memory's card boxes have been seen lining up with the screen's 3 looks in a row at this window
+;size (MemBoxCheck - whatever memclicks says) with one game window running: the screen's boxes laid on the game's cards
+;by their place in the hand (BoostBoxes) are then each the card the memory says. Autofarmer.ahk DiscardSpent's
+;right-clicks need it
+MemBoxLinedUp()
+	{
+	global MemBox
+	mbuS := IsObject(MemBox) ? V1At(MemBox, GameW "x" GameH) : ""
+	return IsObject(mbuS) && mbuS.trusted = 1 && V1IsFunc("VisionMemOneClient") && VisionMemOneClient.Call()
+	}
+
 ;The hand's card boxes from the game's memory alone, in BoostBoxes' shape ({boxes: [{l, t, w, h (pixels), known: "", grey:
 ;0, m (the game's card), n, mem: 1}], hand, mem: 1}) - every card's box read (VisionCardPx), else "". wait: how long the
 ;game's hand may still be changing (VisionCards); a read 0.4 s old at most, as VisionFind's look at the screen (places,
@@ -1050,8 +1073,11 @@ HandBoxes(wait := 300)
 ;game's hand has (BoostMemOnly; before v1.0.0 one was never discarded and stayed in hand): a fresh look at the hand's boxes
 ;laid on the game's cards (HandBoxes), only while they line up for sure (BoxesLineUp), the first copy (BoostMatches) of the
 ;deck's - never a treasure card (discarding one uses it up) nor an item card - whose box's picture, if any, can be it
-;(BoostMemBoxOk). {x, y (its box's middle), n, of, name}; {x: "", why} none
-BoostMemDiscard(key)
+;(BoostMemBoxOk). {x, y (its box's middle), n, of, name, ench, pct}; {x: "", why} none. v1.8.0: weakest 1 (Autofarmer.ahk
+;DiscardSpent): only the key's copies for sure (BoostSureOf), the one with no enchantment first, then the weakest
+;(BoostCardPct), then the first - never one set to Never discard (the Spells tab: a learned card's hold, as
+;BoostMisfitDiscard has it)
+BoostMemDiscard(key, weakest := 0)
 	{
 	global VisionCardsWhy
 	if (V1IsFunc("LearnMouseClear"))
@@ -1064,10 +1090,36 @@ BoostMemDiscard(key)
 	bmdIdx := V1Obj()
 	for bmdI, bmdN in BoostMatches(key, bmdAll.hand.cards)
 		bmdIdx[bmdN] := 1
+	bmdBest := "", bmdHeld := 0
 	for bmdI, bmdB in bmdAll.boxes
-		if (bmdIdx.Has(bmdB.n) && !bmdB.m.tc && !bmdB.m.item && BoostMemBoxOk(key, bmdB.known, BoostMemName(bmdB.m), bmdAll.hand.cards))
-			return V1Obj({x: Round(bmdB.l + bmdB.w / 2), y: Round(bmdB.t + bmdB.h / 2), n: bmdI, of: bmdAll.boxes.Length, name: BoostMemName(bmdB.m)})
-	return V1Obj({x: "", why: "no copy of it from the deck among the game's cards now"})
+		{
+		if (bmdB.m.tc || bmdB.m.item || !(weakest ? BoostSureOf(key, bmdB.m) : bmdIdx.Has(bmdB.n))
+			|| !BoostMemBoxOk(key, bmdB.known, BoostMemName(bmdB.m), bmdAll.hand.cards))
+			continue
+		bmdAt := V1Obj({x: Round(bmdB.l + bmdB.w / 2), y: Round(bmdB.t + bmdB.h / 2), n: bmdI, of: bmdAll.boxes.Length
+			, name: BoostMemName(bmdB.m), ench: (bmdB.m.ench != "") ? 1 : 0, pct: BoostCardPct(bmdB.m)})
+		if (!weakest)
+			return bmdAt
+		;(DiscardSpent's: never a card you set to Never discard - its box known by a learned card's picture, or a slot's
+		;with a learned card in it, flag hold)
+		bmdLc := ""
+		if (InStr(bmdB.known, "learned/") = 1 && V1IsFunc("LearnCardOf"))
+			bmdLc := LearnCardOf.Call(SubStr(bmdB.known, 9))
+		else if (bmdB.known != "" && V1IsFunc("LearnCardInSlot"))
+			bmdLc := LearnCardInSlot.Call(StrReplace(bmdB.known, "/", "\"))
+		if (IsObject(bmdLc) && V1IsFunc("LearnHasFlag") && LearnHasFlag.Call(bmdLc, "hold"))
+			{
+			bmdHeld += 1
+			continue
+			}
+		;(one with no enchantment before one that carries one - the better cast -, then the weakest, then the first)
+		if (!IsObject(bmdBest) || bmdAt.ench < bmdBest.ench || (bmdAt.ench = bmdBest.ench && V1IsNum(bmdAt.pct)
+			&& V1IsNum(bmdBest.pct) && bmdAt.pct < bmdBest.pct))
+			bmdBest := bmdAt
+		}
+	if (IsObject(bmdBest))
+		return bmdBest
+	return V1Obj({x: "", why: "no copy of it from the deck among the game's cards now" (bmdHeld ? " but " bmdHeld " set to Never discard (the Spells tab)" : "")})
 	}
 
 ;Which card of the game's hand (VisionCards' hand) picture slot dir\title is - Find's look with memclicks (MemCardFind): its
@@ -1393,10 +1445,12 @@ BoostSearch()
 				continue
 				}
 			BoostHand[bsK] := []
+			;(v1.8.0: each copy's card in the game's hand - n - and whether it's this key's for sure - BoostSureOf, not one of
+			;BoostMatches' fallbacks: Autofarmer.ahk DiscardSpent counts and throws away only those -, its enchantment too)
 			for bsJ, bsN in bsM
 				{
 				bsC := bsHand.cards[bsN], bsP := BoostCardPct(bsC), bsSrc := BoostSrcOf(bsC), bsHas[bsN] := 1
-				BoostHand[bsK].Push(V1Obj({src: bsSrc, item: bsC.item ? 1 : 0, pct: bsP}))
+				BoostHand[bsK].Push(V1Obj({src: bsSrc, item: bsC.item ? 1 : 0, pct: bsP, ench: (bsC.ench != "") ? 1 : 0, n: bsN, sure: BoostSureOf(bsK, bsC) ? 1 : 0}))
 				if (bsP != "")
 					{
 					if (!BoostPctMem.Has(bsK) || bsP < BoostPctMem[bsK])
@@ -1425,7 +1479,7 @@ BoostSearch()
 				if (!BoostHand.Has(bsMk))
 					BoostHand[bsMk] := []
 				bsP := BoostCardPct(bsC), bsSrc := BoostSrcOf(bsC), bsMem[bsMk] := 1
-				BoostHand[bsMk].Push(V1Obj({src: bsSrc, item: bsC.item ? 1 : 0, pct: bsP, ench: (bsC.ench != "") ? 1 : 0}))
+				BoostHand[bsMk].Push(V1Obj({src: bsSrc, item: bsC.item ? 1 : 0, pct: bsP, ench: (bsC.ench != "") ? 1 : 0, n: bsI, sure: BoostSureOf(bsMk, bsC) ? 1 : 0}))
 				if (bsP != "")
 					{
 					if (!BoostPctMem.Has(bsMk) || bsP < BoostPctMem[bsMk])

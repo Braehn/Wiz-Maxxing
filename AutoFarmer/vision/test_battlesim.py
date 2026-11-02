@@ -1,5 +1,7 @@
 """test_battlesim.py - the battle simulator's checks (standard library only):  python -m unittest vision\\test_battlesim.py"""
+import contextlib
 import datetime
+import io
 import json
 import os
 import random
@@ -1967,7 +1969,8 @@ class Reboost(unittest.TestCase):
         b.blades = []                                               # (as if a hit used it)
         self.assertIsNone(b.pick_boost(lord()))
         b.discard()
-        self.assertEqual(names(b.hand), ["Stormblade", "Storm Lord"])     # (the used copy held)
+        # (the used copy held - discardspent off: an older AutoFarmer)
+        self.assertEqual(names(b.hand), ["Stormblade", "Storm Lord"])
         b = battle([trap(), trap(), lord()], pips=0, fhp=[9000])
         b.cast(b.hand[0])
         self.assertIsNone(b.pick_boost(lord()))
@@ -2106,6 +2109,8 @@ class Reboost(unittest.TestCase):
         self.assertEqual((b._party_shield().name, b.shield_to), ("Tower Shield", 1))
 
     def test_used_copies_clog_the_hand(self):
+        """the older AutoFarmer's play (Opts() - discardspent off): its used copies held in hand, so reboost 1 wins more.
+        This AutoFarmer throws them away: SpentCopies.test_thrown_beats_held"""
         foe = S.Foe("Boss", 6000, spells=[("Hit", 1.0, {"pips": 2, "min": 150, "max": 200, "accuracy": 100})])
         boosted = S.deck_cards({"cards": [hit(count=8), boost("blade", "Stormblade", 35, count=6),
                                           boost("trap", "Storm Trap", 30, count=6)]})
@@ -2123,10 +2128,12 @@ class SettingsSent(unittest.TestCase):
         o = S.Opts()
         self.assertEqual((o.reboost, o.drawenchant, o.drawneed, o.drawround, o.drawmax, o.enemyspells, o.useabsorb),
                          (False, False, 100.0, 3, 6, True, True))
+        self.assertIs(o.discardspent, False)                        # (v1.8.0: not sent - an older AutoFarmer's)
         o = S.Opts.of({"reboost": "1", "drawenchant": "1", "drawneed": "175", "drawround": "2", "drawmax": "4",
-                       "enemyspells": "0"})
+                       "enemyspells": "0", "discardspent": "1"})
         self.assertEqual((o.reboost, o.drawenchant, o.drawneed, o.drawround, o.drawmax, o.enemyspells),
                          (True, True, 175.0, 2, 4, False))
+        self.assertIs(o.discardspent, True)
         # (the bot: Stat("reboost") == 1 - on only at exactly 1; drawenchant at any number but 0)
         self.assertEqual((S.Opts.of({"reboost": "2"}).reboost, S.Opts.of({"reboost": "0.5"}).reboost), (False, False))
         self.assertIs(S.Opts.of({"drawenchant": "2"}).drawenchant, True)
@@ -2535,6 +2542,275 @@ class BestDecksBoss(unittest.TestCase):
                          lambda names: [S.Foe(nm, 2000, boss=nm == "Boss") for nm in names], sure(), n=10, seed=1)
         self.assertEqual(seen, [(("Imp", "Imp"), False, 3), (("Boss", "Imp"), True, 3)])
         self.assertIs(o.boss, False)
+
+
+# ============================================================================ v1.8.0: the blade and trap copies the bot
+# can't cast again thrown away (discardspent)
+ON = S.Opts(discardspent=1)
+SHARPEN = S.Card("Sharpened Blade", "sharpen")
+POTENT = S.Card("Potent Trap", "potent")
+
+
+def feint():
+    return S.Card("Feint", "trap", "", 0, boosts={"all": 70}, tid=6)
+
+
+class SpentCopies(unittest.TestCase):
+    """discardspent (Autofarmer.ahk DiscardSpent - with discardunused, reboost off, a hitter): the deck's copies of a
+    blade or trap slot past the casts it has left this battle thrown away, the weakest first, at most 3 a slot a round;
+    one more kept while a Sharpen / Potent is in hand or in the deck; never a treasure or item card's copy. Opts' own
+    default is off (an older AutoFarmer, which holds them): the tests here turn it on (ON) unless they say otherwise"""
+    KEYS = ("won", "lost", "timeout", "rounds", "rounds_p90", "hp_left", "dmg_in", "first_kill")
+
+    def test_opts(self):
+        self.assertIs(S.Opts().discardspent, False)
+        self.assertIs(S.Opts.of({"discardspent": "1"}).discardspent, True)
+        self.assertIs(S.Opts.of({"discardspent": "1.0"}).discardspent, True)
+        # (on only at exactly 1, as Stat("discardspent") == 1 - not _int's 1.5 -> 1)
+        for v in ("2", "0.5", "0", "x", "1.5", "1.9", "-1", "nan", ""):
+            self.assertIs(S.Opts.of({"discardspent": v}).discardspent, False, v)
+        # (a mate's own: off - an older AutoFarmer's - till /plan gives it this bot's: SpentMates)
+        self.assertIs(S.Mate("Ann", 5).opts.discardspent, False)
+
+    def test_used_and_extra_copies(self):
+        b = battle([stormblade(), stormblade(), lord()], pips=0, fhp=[9000], opts=ON)
+        b.cast(b.hand[0])
+        b.discard()
+        self.assertEqual((names(b.hand), names(b.spent)), (["Storm Lord"], ["Stormblade", "Stormblade"]))
+        b = battle([stormblade()] * 3 + [lord()], pips=0, fhp=[9000], opts=ON)
+        b.discard()
+        self.assertEqual(names(b.hand), ["Stormblade", "Storm Lord"])
+        b = battle([trap(), trap(), lord()], pips=0, fhp=[9000], opts=ON)
+        b.cast(b.hand[0])
+        b.discard()
+        self.assertEqual(names(b.hand), ["Storm Lord"])
+        b = battle([stormblade(), stormblade(), lord()], pips=0, fhp=[9000])         # (off: held, as v1.7.0)
+        b.cast(b.hand[0])
+        b.discard()
+        self.assertEqual(names(b.hand), ["Stormblade", "Storm Lord"])
+
+    def test_cap_is_per_slot_and_counts_the_casts_left(self):
+        # (two slots used, 3 copies each: 3 + 3 go - one a key a look, 3 looks; not 3 a round in all)
+        b = battle([stormblade()] * 3 + [trap()] * 3 + [lord()], pips=0, fhp=[9000], opts=ON)
+        b.boosts_used[("blade", "storm", "")] = {"storm": 35}
+        b.boosts_used[("trap", "storm", "")] = {"storm": 30}
+        b.discard()
+        self.assertEqual(names(b.hand), ["Storm Lord"])
+        # (5 unused copies, 1 cast left: 4 past it, 3 go this round - 2 stay; not min(5, 3) - 1)
+        b = battle([stormblade()] * 5 + [lord()], pips=0, fhp=[9000], opts=ON)
+        b.discard()
+        self.assertEqual(names(b.hand).count("Stormblade"), 2)
+        # (6 used copies: 3 go, 3 stay)
+        b = battle([stormblade()] * 6 + [lord()], pips=0, fhp=[9000], opts=ON)
+        b.boosts_used[("blade", "storm", "")] = {"storm": 35}
+        b.discard()
+        self.assertEqual((names(b.hand).count("Stormblade"), len(b.spent)), (3, 3))
+
+    def test_sharpen_in_hand_keeps_one(self):
+        b = battle([stormblade()] * 3 + [SHARPEN, lord()], pips=0, fhp=[9000], opts=ON)
+        b.discard()
+        self.assertEqual(names(b.hand).count("Stormblade"), 2)
+        b = battle([trap()] * 3 + [SHARPEN, lord()], pips=0, fhp=[9000], opts=ON)
+        b.discard()
+        self.assertEqual(names(b.hand).count("Storm Trap"), 1)              # (a Sharpen keeps no trap)
+        b = battle([trap()] * 3 + [POTENT, lord()], pips=0, fhp=[9000], opts=ON)
+        b.discard()
+        self.assertEqual(names(b.hand).count("Storm Trap"), 2)
+        # (a treasure card's Sharpen in hand counts too - FindCards' sharpen, any copy; it never counts as one to come)
+        b = battle([stormblade()] * 3 + [S.Card("Sharpened Blade", "sharpen", tc=True), lord()], pips=0, fhp=[9000],
+                   opts=ON)
+        b.discard()
+        self.assertEqual(names(b.hand).count("Stormblade"), 2)
+
+    def test_sharpen_still_to_come_keeps_one(self):
+        # (the deck holds one - the bot's /deckkinds count, less its sharpened casts (none here) - wherever it is now:
+        # the draw pile, or already thrown away as a kind the simulator doesn't play; not hand + draw pile only)
+        b = battle([stormblade()] * 3 + [lord()], pile=[SHARPEN] * 3, pips=0, fhp=[9000], opts=ON)
+        b.discard()
+        self.assertEqual(names(b.hand).count("Stormblade"), 2)
+        b = battle([stormblade()] * 3 + [lord()], pips=0, fhp=[9000], opts=ON)
+        b.spent.append(SHARPEN)
+        b.discard()
+        self.assertEqual(names(b.hand).count("Stormblade"), 2)
+        # (used and the deck still holds a Sharpen: the sharpened cast left - 1 kept)
+        b = battle([stormblade()] * 3 + [lord()], pile=[SHARPEN], pips=0, fhp=[9000], opts=ON)
+        b.boosts_used[("blade", "storm", "")] = {"storm": 35}
+        b.discard()
+        self.assertEqual(names(b.hand).count("Stormblade"), 1)
+        # (none in the deck: 1; a treasure card's is the treasure pile's - never dealt, never counted (Draw.ahk draws
+        # only an enchant for a kill); a Potent keeps a trap, not a blade; an item card's counts - a pet's Sharpened
+        # Blade)
+        tcs = S.Card("Sharpened Blade", "sharpen", tc=True)
+        pet = S.Card("Sharpened Blade", "sharpen", item=True)
+        for pile, want in (([], 1), ([tcs], 1), ([POTENT], 1), ([pet], 2)):
+            b = battle([stormblade()] * 3 + [lord()], pile=pile, pips=0, fhp=[9000], opts=ON)
+            b.discard()
+            self.assertEqual(names(b.hand).count("Stormblade"), want, pile)
+        b = battle([trap()] * 3 + [lord()], pile=[POTENT], pips=0, fhp=[9000], opts=ON)
+        b.discard()
+        self.assertEqual(names(b.hand).count("Storm Trap"), 2)
+
+    def test_weakest_by_its_percent_first(self):
+        for strong, weak in ((40, 35), (30, 35)):
+            tb = S.Card("Thunderblade", "blade", "storm", 0, boosts={"storm": strong})
+            for hand in ([tb, stormblade(), lord()], [stormblade(), tb, lord()]):
+                b = battle(hand, pips=0, fhp=[9000], opts=ON)
+                b.discard()
+                self.assertEqual(names(b.spent), ["Stormblade" if strong > weak else "Thunderblade"], (strong, hand))
+        # (of equal ones the first in hand - BoostMemDiscard's leftmost)
+        tb = S.Card("Thunderblade", "blade", "storm", 0, boosts={"storm": 35})
+        for hand, first in (([tb, stormblade(), lord()], "Thunderblade"), ([stormblade(), tb, lord()], "Stormblade")):
+            b = battle(hand, pips=0, fhp=[9000], opts=ON)
+            b.discard()
+            self.assertEqual(names(b.spent), [first])
+
+    def test_every_school_ones_count(self):
+        # (Feint - all:70 - boosts every school: the search always looks for it)
+        b = battle([feint()] * 3 + [lord()], pips=0, fhp=[9000], opts=ON)
+        b.discard()
+        self.assertEqual(names(b.hand).count("Feint"), 1)
+
+    def test_never_a_treasure_or_item_copy(self):
+        tcb = S.Card("Stormblade", "blade", "storm", 0, boosts={"storm": 35}, tid=3, tc=True)
+        pet = S.Card("Stormblade", "blade", "storm", 0, boosts={"storm": 35}, tid=3, item=True)
+        b = battle([tcb, tcb, pet, pet, stormblade(), lord()], pips=0, fhp=[9000], opts=ON)
+        b.cast(b.hand[4])
+        b.cast(b.hand[0])
+        b.cast(b.hand[1])
+        b.discard()
+        self.assertEqual([(c.tc, c.item) for c in b.hand if c.kind == "blade"], [(True, False), (False, True)])
+
+    def test_only_what_the_search_looks_for(self):
+        fb = S.Card("Fireblade", "blade", "fire", 0, boosts={"fire": 35})
+        cat = S.Card("Fire Cat", "damage", "fire", 1, heads={"fire": 100})
+        b = battle([fb, fb, fb, lord()], pile=[cat], pips=0, fhp=[9000], opts=ON)
+        b.discard()
+        self.assertEqual(names(b.hand).count("Fireblade"), 3)
+        b = battle([fb, fb, fb, cat], pips=0, fhp=[9000], opts=ON)
+        b.discard()
+        self.assertEqual(names(b.hand).count("Fireblade"), 1)
+
+    def test_gates(self):
+        for o in (S.Opts(discardspent=1, reboost=1), S.Opts(discardspent=1, discardunused=0), S.Opts(discardspent=2)):
+            b = battle([stormblade()] * 4 + [lord()], pips=0, fhp=[9000], opts=o)
+            b.discard()
+            self.assertEqual(len(b.hand), 5)
+        b = battle([stormblade()] * 4 + [lord()], pips=0, fhp=[9000], opts=S.Opts(discardspent=1, useblades=0,
+                                                                                  discardmax=1))
+        b.discard()
+        self.assertEqual(names(b.hand).count("Stormblade"), 3)                 # (switched off: _useless's, discardmax)
+        # (a blader in the planner - from_state: simulate() always plays a hitter)
+        st = S.State([stormblade()] * 3, [], pips=0, fhp=[9000], seat=4, me_first=True,
+                     mates=[mate("Hit", 5, "hitter", [lord()], pips=7)])
+        b = S._Battle.from_state(st, sure(), [S.Foe("A", 9000)], S.Opts(role="blader", discardspent=1),
+                                 random.Random(1))
+        b.discard()
+        self.assertEqual(len(b.hand), 3)
+        # (simulate() always plays a hitter - Opts.role is from_state's: the rule runs there whatever role says)
+        deck = S.deck_cards({"cards": [hit(count=8), boost("blade", "Stormblade", 35, count=6),
+                                       boost("trap", "Storm Trap", 30, count=6)]})
+        boss = S.Foe("Boss", 6000, spells=[("Hit", 1.0, {"pips": 2, "min": 150, "max": 200, "accuracy": 100})],
+                     boss=True)
+        args = (deck, sure(damage=40), [boss])
+        on = S.simulate(*args, S.Opts(role="blader", discardspent=1), n=60, seed=3)
+        self.assertEqual(on, S.simulate(*args, ON, n=60, seed=3))
+        self.assertNotEqual(on, S.simulate(*args, S.Opts(role="blader"), n=60, seed=3))
+
+    def test_a_hitter_mate_by_its_opts(self):
+        # (the team model: a hitter mate holding 3 copies throws 2 at its own fresh round's discards with discardspent
+        # on - /plan gives it this bot's, a Blader's or Healer's sent 0 read as on: its role's, not the party's -, keeps
+        # them with it off - Mate's own default)
+        for on, want in ((True, 1), (False, 3)):
+            m = mate("Hit", 5, "hitter", [stormblade()] * 3 + [lord()], pips=7)
+            m.opts.discardspent = on
+            st = S.State([lord()], [], pips=0, fhp=[9000], seat=4, me_first=True, mates=[m])
+            b = S._Battle.from_state(st, sure(), [S.Foe("A", 9000)], S.Opts(role="blader", discardspent=1),
+                                     random.Random(1))
+            k = next(i for i in range(len(b.side)) if b.side[i] is not None and getattr(b.side[i], "name", "") == "Hit")
+            b._swap(k)
+            b.discard()
+            self.assertEqual(names(b.hand).count("Stormblade"), want, on)
+
+    def test_no_random_number(self):
+        b = battle([stormblade()] * 4 + [lord()], pile=[SHARPEN], pips=0, fhp=[9000], opts=ON)
+        before = b.rng.getstate()
+        b.discard()
+        self.assertEqual(b.rng.getstate(), before)
+
+    def test_pinned(self):
+        # (ZeroEffect's mixed deck and timeout deck and the treasure-side fixture's main deck, discardspent on - their
+        # own pins, with it off, stay as they were)
+        cards = S.deck_cards({"cards": [hit(count=8), hit("Thunder Snake", 2, 150, count=6),
+                                        boost("blade", "Stormblade", 35, count=4),
+                                        boost("trap", "Storm Trap", 30, count=4)]})
+        r = S.simulate(cards, S.Me("storm", 2500, damage=40),
+                       [biter("Ogre", 3000, 150, 200), biter("Imp", 800, 60, 80, passes=True)], ON, n=120, seed=11)
+        self.assertEqual(tuple(r[k] for k in self.KEYS),
+                         (0.26666666666666666, 0.7333333333333333, 0.0, 15.0, 16, 16.0, 188, 10))
+        self.assertEqual(r["casts"],
+                         {"Storm Lord": 3.23, "Stormblade": 0.96, "Storm Trap": 0.95, "Thunder Snake": 0.03})
+        cards = S.deck_cards({"cards": [hit("Thunder Snake", 2, 300, count=10),
+                                        boost("blade", "Stormblade", 35, count=2)]})
+        r = S.simulate(cards, S.Me("storm", 3000), [biter("Tank", 2600, 50, 60)], ON, n=100, seed=3)
+        self.assertEqual(tuple(r[k] for k in self.KEYS), (0.05, 0.0, 0.95, 16, 16, 73.7, 54, 16))
+        self.assertEqual(r["casts"], {"Thunder Snake": 9.99, "Stormblade": 1.0})
+        # (the treasure-side fixture's main deck against the fire Tank - its treasure side changes nothing)
+        main = [hit(count=6), hit("Thunder Snake", 2, 150, count=10), boost("blade", "Stormblade", 35, count=4)]
+        tside = [{"name": "Stun", "display": "Stun", "kind": "stun", "count": 6, "side": "treasure"},
+                 {"name": "Weakness", "display": "Weakness", "kind": "weakness", "count": 4, "side": "treasure"}]
+        tank = S.Foe("Tank", 3000, "fire", spells=[(None, 0.5, None),
+                                                   ("Bite", 1.0, {"pips": 2, "min": 200, "max": 250, "accuracy": 85,
+                                                                  "type": "Damage"})])
+        r = S.simulate(S.deck_cards({"cards": main + tside}), S.Me("storm", 3000), [tank], ON, n=120, seed=5)
+        self.assertEqual(tuple(r[k] for k in self.KEYS), (0.925, 0.025, 0.05, 19, 22, 38.7, 97, 19))
+        self.assertEqual(r["casts"], {"Storm Lord": 4.61, "Thunder Snake": 2.83, "Stormblade": 1.0})
+        self.assertEqual(r, S.simulate(S.deck_cards({"cards": main}), S.Me("storm", 3000), [tank], ON, n=120, seed=5))
+
+    def test_single_copies_unchanged(self):
+        cards = S.deck_cards({"cards": [hit(count=6), hit("Thunder Snake", 2, 150, count=6),
+                                        boost("blade", "Stormblade", 35), boost("trap", "Storm Trap", 30)]})
+        args = (cards, S.Me("storm", 2500, damage=40), [biter("Ogre", 3000, 150, 200)])
+        self.assertEqual(S.simulate(*args, ON, n=120, seed=11), S.simulate(*args, S.Opts(), n=120, seed=11))
+
+    def test_thrown_beats_held(self):
+        foe = S.Foe("Boss", 6000, spells=[("Hit", 1.0, {"pips": 2, "min": 150, "max": 200, "accuracy": 100})],
+                    boss=True)
+        deck = S.deck_cards({"cards": [hit(count=8), boost("blade", "Stormblade", 35, count=6),
+                                       boost("trap", "Storm Trap", 30, count=6)]})
+        held = S.simulate(deck, sure(damage=40), [foe], S.Opts(), n=200, seed=7)
+        spent = S.simulate(deck, sure(damage=40), [foe], ON, n=200, seed=7)
+        self.assertEqual((held["won"], spent["won"]), (0.875, 1.0))
+        self.assertEqual(S.simulate(deck, sure(damage=40), [foe], S.Opts(reboost=1, discardspent=1), n=200, seed=7),
+                         S.simulate(deck, sure(damage=40), [foe], S.Opts(reboost=1), n=200, seed=7))
+
+    def test_thrown_beats_held_paired(self):
+        # (each battle on its own seed in both modes - the same dice battle by battle, not one stream that drifts
+        # apart at the first discard: the 6+6 deck against the 6000 boss, the generic hitter - section 1's A)
+        deck = S.deck_cards({"cards": [hit(count=8), boost("blade", "Stormblade", 35, count=6),
+                                       boost("trap", "Storm Trap", 30, count=6)]})
+        me, foes = S.Me("storm", 3500, damage=60), [S.Foe("Boss", 6000, boss=True)]
+        w = {o: [S.simulate(deck, me, foes, S.Opts(discardspent=o), n=1, seed=300000 + i)["won"] for i in range(40)]
+             for o in (0, 1)}
+        self.assertEqual((sum(w[0]), sum(w[1]), sum(a < b for a, b in zip(w[0], w[1])),
+                          sum(a > b for a, b in zip(w[0], w[1]))), (23.0, 38.0, 15, 0))
+
+    def test_main_plays_it_on(self):
+        seen = []
+        real = S.simulate
+
+        def spy(cards, me, foes, opts=None, **kw):
+            seen.append(opts)
+            return real(cards, me, foes, opts, **kw)
+        deck = {"cards": [hit(count=4), boost("blade", "Stormblade", 35, count=3)]}
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, "deck.json")
+            with open(p, "w", encoding="utf-8") as fh:
+                json.dump(deck, fh)
+            out = io.StringIO()
+            with mock.patch.object(S, "simulate", spy), contextlib.redirect_stdout(out):
+                self.assertEqual(S.main(["--deck", p, "--foe", "Rat:500", "-n", "5", "--seed", "1"]), 0)
+        self.assertTrue(out.getvalue().startswith("sim|"), out.getvalue()[:200])
+        self.assertEqual([(o.discardspent, o.boss) for o in seen], [(True, False)])
 
 
 if __name__ == "__main__":

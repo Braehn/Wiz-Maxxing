@@ -29,7 +29,10 @@ THE MODEL (one battle, round by round, until every enemy is dead, the wizard is,
   passing; the treasure pile keeps nothing going).
   The bot's way (Opts - the deck's settings), in Autofarmer.ahk's chain order: cards it doesn't play discarded
   (discardunused, at most discardmax a round - never any damage enchant, a Reshuffle, or a Tower Shield or absorb while
-  they're on); the kill check - the cheapest hit that kills its target(s) at its least damage
+  they're on); then (discardspent - the AutoFarmer sends it, on by default; reboost off, a hitter) each blade and trap
+  slot's deck copies past the casts it has left this battle - the plain one while unused, one more while a Sharpen /
+  Potent is in hand or in the deck -, the weakest first, at most 3 a slot a round, not counted in discardmax; the kill
+  check - the cheapest hit that kills its target(s) at its least damage
   with the boosts on (killmargin % to spare), first with no enchant, then with the best enchant in hand; (drawenchant -
   Draw.ahk) no kill found and no bot enchant in hand, but a payable hit - not an item card's, not enchanted - would
   kill with +drawneed: treasure cards drawn at random till a bot enchant comes, each needing room in a full hand first
@@ -45,9 +48,10 @@ THE MODEL (one battle, round by round, until every enemy is dead, the wizard is,
   fits a head of the planned hit - the hit dealing the most to the enemies left, an enchant in hand counted - while
   fewer than boostmax boosts went on since the last hit (0: no limit) - each blade and trap once a battle (reboost off -
   the bot's used flags, one a slot: its kind and schools, an every-school one by its %; marked at the click, a fizzle
-  too; a treasure or item card's copy once more, on top of the deck's - it stacks; a used copy held in hand; a hitter's
-  Reshuffle lets them go again - the ones on stay on; reboost 1: the ones a hit fits - a fizzled one too - go again
-  after it, one cast of each between hits); then the planned hit once its pips are there;
+  too; a treasure or item card's copy once more, on top of the deck's - it stacks; a used copy held in hand unless
+  discardspent throws it away; a hitter's Reshuffle lets them go again - the ones on stay on; reboost 1: the ones a
+  hit fits - a fizzled one too - go again after it, one cast of each between hits); then the planned hit once its pips
+  are there;
   else a payable hit with nothing better coming; else the filler: Tower Shield on yourself, else an absorb that costs
   no pips, else Reshuffle (usereshuffle); else a pass (pips build). Hit first (cardlogic 2, or 3 against mobs): the
   planned hit as soon as it's paid for, boosts only while waiting for pips.
@@ -83,12 +87,13 @@ THE MODEL (one battle, round by round, until every enemy is dead, the wizard is,
   (-50 % on the next hit, any school) and absorbs as cast go on there too; stacked ones stack.
   Who goes first: either side, alike (the game's initiative), the same all battle.
   NOT modelled (yet): the stuns, minions and pure damage over time cards you could cast (the bot doesn't play them
-  either - CardLearn.ahk's played:0 kinds); Sharpen and Potent (the bot's second, sharpened cast of a blade or trap, and
-  its throwing away a blade both casts of which went - here each goes once and a used copy is held); an item card of a
-  kind the simulator doesn't play is discarded (the bot never discards one - lavender, as a treasure card); a Tower
-  Shield the bot knows only by its slot or its "-N% to next spell" text, not its name; the kill check's and the draw's
-  reach (the bot's looks at its hit slots and the wand only and needs the enemies' health read - healthocr or
-  memclicks -; the simulator's at every hit in hand, a treasure card drawn in an earlier round too); a treasure card
+  either - CardLearn.ahk's played:0 kinds); Sharpen and Potent (the bot's second, sharpened cast of a blade or trap -
+  here each slot goes once; one in hand or in the deck only keeps one more copy from discardspent's discards, and is
+  itself thrown away as a kind the simulator doesn't play); an item card of a kind the simulator doesn't play is
+  discarded (the bot never discards one - lavender, as a treasure card); a Tower Shield the bot knows only by its slot
+  or its "-N% to next spell" text, not its name; the kill check's and the draw's reach (the bot's looks at its hit slots
+  and the wand only and needs the enemies' health read - healthocr or memclicks -; the simulator's at every hit in hand,
+  a treasure card drawn in an earlier round too); a treasure card
   drawn now waits for the next round, an enchant excepted (the bot's card flags were set before the draw - but it can
   cast a drawn learned hit in no slot at once); a Draw that ends the turn (the bot then stops drawing till it's
   restarted - the AHK sends drawenchant 0 once it has seen one); the defend check's blind spot: your health unread (the
@@ -516,15 +521,19 @@ class Opts:
     `Stat("reboost") == 1`: a blade's or trap's used flag freed by a hit it fits, else each once a battle - a DeckKey,
     off), drawenchant (treasure cards drawn for an enchant that makes the kill - Draw.ahk, a DeckKey, off), drawneed
     (the enchant's +N that draw counts on - 0 or less: 100), drawround / drawmax (draws at most a round / a battle -
-    KillCalc.ahk's 3 and 6), enemyspells (the defend check's danger foreseen - off: no defend; Settings.ahk, on)"""
+    KillCalc.ahk's 3 and 6), enemyspells (the defend check's danger foreseen - off: no defend; Settings.ahk, on);
+    discardspent (with discardunused, reboost off, a hitter: the deck's copies of a blade or trap slot past the casts it
+    has left this battle thrown away - Autofarmer.ahk DiscardSpent, _discard_spent; on only at exactly 1. Settings.ahk's
+    default is on and this AutoFarmer always sends it - not sent: an older AutoFarmer, which holds its used copies, so
+    off here)"""
     KEYS = ("cardlogic", "boostmax", "healat", "killmargin", "useblades", "usetraps", "useaura", "useheal",
             "discardunused", "discardmax", "usetower", "useabsorb", "defendat", "usereshuffle", "reboost",
-            "drawenchant", "drawneed", "drawround", "drawmax", "enemyspells")
+            "drawenchant", "drawneed", "drawround", "drawmax", "enemyspells", "discardspent")
 
     def __init__(self, cardlogic=1, boostmax=0, healat=40, killmargin=15, useblades=1, usetraps=1, useaura=1, useheal=1,
                  discardunused=1, discardmax=3, boss=False, usehit=True, role="hitter", usetower=1, useabsorb=1,
                  defendat=30, usereshuffle=1, reboost=0, drawenchant=0, drawneed=100, drawround=3, drawmax=6,
-                 enemyspells=1):
+                 enemyspells=1, discardspent=0):
         self.role = role if role in ("hitter", "blader", "healer") else "hitter"
         # (a number it can't read - NaN, an infinity, junk - the default: never raises)
         self.cardlogic, self.boostmax, self.healat, self.killmargin = _int(cardlogic, 1), _int(boostmax, 0), \
@@ -546,6 +555,8 @@ class Opts:
             self.drawneed = 100.0       # (Draw.ahk: 0 or less counts as 100)
         self.drawround, self.drawmax = max(0, _int(drawround, 3)), max(0, _int(drawmax, 6))
         self.enemyspells = _fnum(enemyspells, 1.0) != 0
+        # (Settings.ahk discardspent - the bot's Stat("discardspent") == 1: on only at exactly 1)
+        self.discardspent = _fnum(discardspent, 0.0) == 1
 
     @classmethod
     def of(cls, vals, boss=False):
@@ -1558,9 +1569,13 @@ class _Battle:
 
     def discard(self):
         """the bot's discards (discardunused): the cards it never plays, at most discardmax a round - each to the spent
-        pile; a treasure card in hand (one drawn) never (Draw.ahk DiscardIsTc, CardLearn.ahk DiscardUnused)"""
+        pile; a treasure card in hand (one drawn) never (Draw.ahk DiscardIsTc, CardLearn.ahk DiscardUnused); then the
+        blade and trap copies it can't cast again (discardspent - _discard_spent)"""
         if not self.opts.discardunused:
             return
+        # (a Sharpen / Potent in hand as the bot's look found it, before anything's thrown away - DiscardSpent's)
+        sharp = {"blade": any(c.kind == "sharpen" for c in self.hand),
+                 "trap": any(c.kind == "potent" for c in self.hand)}
         n = 0
         keep = []
         # (the hits the deck holds: the hand's and the draw pile's - the treasure pile is never dealt)
@@ -1574,6 +1589,42 @@ class _Battle:
                 continue
             keep.append(c)
         self.hand = keep
+        self._discard_spent(sharp)
+
+    def _discard_spent(self, sharp):
+        """discardspent (Autofarmer.ahk DiscardSpent - a hitter, reboost off): of each blade and trap slot (_bkey)
+        in hand that the bot's search looks for (one that fits its school or a head of a hit in hand - an every-school
+        one always), the deck's copies past the casts the slot has left this battle - the plain one while its key isn't
+        in boosts_used, the sharpened / potent one while a Sharpen / Potent is in hand (sharp: KillCalc.ahk
+        BoostCopyCanGo's own) or the deck holds one still to come (the bot's /deckkinds count less its sharpened /
+        potent casts - none here: any Sharpen / Potent card of the deck's main side or item cards, wherever it is now) -
+        thrown away to the spent pile: the weakest first (of equal ones the first in hand), at most 3 a slot a round (the
+        bot's 3 looks, one copy a slot a look), not counted in discardmax. Never a treasure or item card's copy, nor a
+        kind switched off (useblades / usetraps: _useless's). No random number"""
+        o = self.opts
+        if not o.discardspent or o.reboost or self.role != "hitter":
+            return
+        want = {self.me.school} | {s for c in self.hand if c.hit for s in c.heads}
+        # (a Sharpen / Potent still to come: the deck's - main side and item cards, never a treasure card's - in hand,
+        # draw pile or spent pile: the simulator casts none sharpened, so its count never goes down)
+        deck = [c for c in self.hand + self.pile + self.spent if not c.tc]
+        sharp = {"blade": sharp["blade"] or any(c.kind == "sharpen" for c in deck),
+                 "trap": sharp["trap"] or any(c.kind == "potent" for c in deck)}
+        by_key = {}
+        for i, c in enumerate(self.hand):
+            if c.kind == "blade" and not o.useblades or c.kind == "trap" and not o.usetraps \
+                    or c.kind not in ("blade", "trap") or _src(c) != "" or not any(fits(c.boosts, s) for s in want):
+                continue
+            by_key.setdefault(_bkey(c), []).append(i)
+        gone = set()
+        for k, idx in by_key.items():
+            left = (0 if k in self.boosts_used else 1) + (1 if sharp[k[0]] else 0)
+            if len(idx) > left:
+                order = sorted(idx, key=lambda i: (_pct_of(self.hand[i].boosts), i))
+                gone.update(order[:min(len(idx) - left, 3)])
+        if gone:
+            self.spent.extend(self.hand[i] for i in sorted(gone))
+            self.hand = [c for i, c in enumerate(self.hand) if i not in gone]
 
     def _useless(self, c, hit_schools):
         """a card the bot throws away (CardLearn.ahk DiscardUnused, Settings.ahk DiscardSwitchedOff): never any damage
@@ -3295,7 +3346,9 @@ def main(argv=None):
         name, _, rest = spec.partition(":")
         hp, _, sch = rest.partition(":")
         foes.append(book.foe(name, hp=int(hp) if hp.isdigit() else None, school=sch or None))
-    res = simulate(cards, me, foes, n=a.n, seed=a.seed)
+    # (as this AutoFarmer plays by default - discardspent on: Opts' own off is an older AutoFarmer's; a boss as
+    # simulate's own default has it)
+    res = simulate(cards, me, foes, Opts(boss=any(f.boss for f in foes), discardspent=1), n=a.n, seed=a.seed)
     res["why"] = why + res["why"]
     print("\n".join(sim_lines(res, verdict(res, cards, me, foes), foes)))
     return 0
