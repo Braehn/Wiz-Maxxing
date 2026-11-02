@@ -107,6 +107,24 @@ Before you start
 	2.8 Older bots: one PC on this version and one on the last - the party
 	    still links. With partyorders on the new PC: no "Plan: the leader
 	    would have you" lines and no waits on either.
+	2.9 Turning with the mouse (v1.8.1 - this one acts: the raw press, the
+	    1x drop above 5x; "Turn with the mouse while walking" on, as by
+	    default): quest a few minutes, then send every "Walk: mouse
+	    steering:" line and the "Walk: the last minute: ... (N by the
+	    mouse)" lines. Working: "a mouse count turns the wizard ...
+	    (measured: ...)" and N above 0. Not: each line says why: "not now -
+	    <why>", "the facing couldn't be read (<why>)", "waiting for the
+	    game's memory (<why>)", "off (Settings: ...)", "the mouse didn't
+	    turn the wizard (... the cursor x,y shown|hidden before the slide,
+	    ... after)", "the cursor showed through the slide ... Under the
+	    press point (x,y): <window>" (once), and whether "the right button
+	    pressed as a raw mouse_event turned the wizard" follows. A tray tip
+	    "Turning with the mouse is off for 10 minutes: ...": say what it
+	    said, whether your wizard turns when you right-drag it yourself,
+	    and try one run with Settings > Lock my mouse while the bot uses it
+	    unticked. Above 5x (speedhack): before a mouse turn "speed: 1x -
+	    <your 1x key, F13 by default> (a mouse turn)" ("(a turn)" before a
+	    turn on the spot), and no "not now - sped up over 5x".
 
 3. The new settings - one at a time, in this order
    (turn it on, play a while, send the lines named; turn it off again if
@@ -159,6 +177,8 @@ Before you start
 	    screenshot (Windows+Shift+S) doesn't show it. Send the "Overlay:"
 	    lines, a phone photo if it looks wrong (a screenshot won't show
 	    it), and say what it covers that you need (Settings moves it).
+	    Windows+4 with another program in front is that program's: the
+	    overlay doesn't change.
 	3.10 partyorders (every PC of the party on this version, planner on the
 	    leader's too; advice only - nothing is cast from it): in a party
 	    battle, on the leader each round "Plan: the team's round - <follower>

@@ -133,16 +133,37 @@ middle of the scene and the mouse slid, then let go - at once, so it doesn't
 stop at corners; the mouse goes back where it was. Only while it walks by the
 game's memory (it reads the facing back as it turns - how far a mouse count
 turns the wizard is measured on the first turn), out of battle, Wizard101 in
-front, you away from the keyboard and mouse 3 s, at 5x or less, no window
-over the middle of the game (its words: Crowns, shop, quest...). You touching
-the keyboard or mouse mid-turn ends it there, the mouse left to you. Anything
-not sure, and every turn on the spot: A/D as before. Not in the first 0.6 s
-after setting off (the right button turns the wizard while he runs). The mouse
-not turning the wizard three times: left alone for 10 minutes. debug.log:
-"mouse steering: ..." (when it doesn't turn him: where the cursor was before
-and after the slide, and whether it showed). Once a minute after walking, debug.log says how smooth it was: "Walk: the
-last minute: W held N% of N s out walking, N stops, N turns on the spot, N
-turns walking on (N by the mouse), N speed keys".
+front, you away from the keyboard and mouse 3 s, no window over the middle of
+the game (its words: Crowns, shop, quest... - not the words of the bot's own
+notice over it) and the game itself under the point the button is pressed at
+(not the bot's notice or another window). Above 5x the game is put to 1x for
+the turn, as for an A/D turn. You touching the keyboard or mouse mid-turn ends
+it there, the mouse left to you. Not in the first 0.6 s after setting off (the
+right button turns the wizard while he runs). Anything not sure: A/D as before.
+A turn on the spot tries the mouse from standing (the camera turned, then W)
+once a count's worth is measured; A/D when it misses. A measuring try that
+didn't turn him waits 10 s before the next. The mouse not turning the wizard
+three times (no turn, or his facing not read on the way): left alone for 10
+minutes; debug.log and the Dashboard's log say so each time ("Walk: mouse
+steering off for 10 minutes - ..."), the first time in a run a tray tip too -
+with which half failed: "the game didn't take the right-button drag" (the
+cursor stayed shown before and after the slide), "the game took the drag but
+the wizard didn't turn" (it hid), or "the wizard's facing couldn't be read from
+the game's memory mid-turn (<why>)" (then send the log lines it names). When
+the cursor stays shown, the bot first tries that press once more with the right
+button pressed the raw way (the mouse lock leaves that button alone for it) and
+keeps that press for the run if it turns him. What to try: check your wizard
+turns when you right-drag yourself; or untick Settings > Lock my mouse while
+the bot uses it for one run. debug.log says why when a mouse turn is tried and
+not made: "Walk: mouse steering: not now - <why>", "... the facing couldn't be
+read (<why>) - A/D", "... the mouse didn't turn the wizard (N counts, N
+degrees; the cursor x,y shown|hidden before the slide, x,y shown|hidden
+after) - A/D", "... off (Settings: Turn with the mouse while walking)" or "...
+waiting for the game's memory (<why>)" (it isn't walking by it, so the mouse
+isn't tried), each at most once a minute. Once a minute after walking,
+debug.log says how smooth it was: "Walk: the last minute: W held N% of N s out
+walking, N stops, N turns on the spot, N turns walking on (N by the mouse), N
+speed keys".
 
 Faster walking with Cheat Engine's speedhack (Settings: "Walk faster with
 Cheat Engine's speedhack", off unless you switch it on): Cheat Engine speeds
@@ -871,7 +892,8 @@ the rounds it cast it this battle, and how often it was seen casting it.
 
 The overlay (Settings > THE OVERLAY, "Show the map and the log over the game";
 overlay:1 in PlayerStats.txt; the tray menu's "Overlay over the game on/off";
-Windows+4): the zone map round your wizard (as the dashboard's Map draws it)
+Windows+4, only with Wizard101 in front - elsewhere the key is your other
+programs'): the zone map round your wizard (as the dashboard's Map draws it)
 and the newest lines of the log (in the dashboard's colours) drawn see-through
 over Wizard101 - borderless or windowed, not exclusive full screen - while
 Wizard101 is the window in front; it hides as soon as another window is in
