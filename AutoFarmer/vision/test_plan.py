@@ -250,7 +250,50 @@ def planner_text(ans, ms=300):
     return t + ((" - " + learned[:150]) if learned else "")
 
 
+def party_order_text(f, waited, names):
+    """Party.ahk PartyOrderText / PartyOrderFoe, line for line (f as AHK splits /partyorder's line: f[1] 'order'; names
+    the follower's own log names for the enemies - BlNames 0-3, matched as AHK's = matches: case aside)"""
+    def foe(name):
+        return next((n for n in names if name != "" and n.lower() == name.lower()), "")
+    if f[7] == "all":
+        at = " on all"
+    elif foe(f[7]) != "":
+        at = " at " + foe(f[7])
+    elif f[7] != "":
+        at = " at an enemy not named in this PC's log"
+    else:
+        at = ""
+    return ("Plan: the leader would have you play " + f[4] + at + " (won " + f[8] + "%, " + f[9] + " tries)"
+            + ((" [tid " + f[5] + "]") if f[5] != "" else "")
+            + " - the leader's plan, advice only (partyorders, " + f[10] + " ms after it planned, waited " + str(waited)
+            + " ms)" + ((" - " + f[11]) if f[11] != "" else ""))
+
+
 class AdviceLine(unittest.TestCase):
+    def test_order_line_text(self):
+        # (partyorders: the follower's line for the leader's card - never the planner's advice to battlelearn --advice,
+        # the enemy only in this PC's own words)
+        import battlelearn
+        import party
+        names = ["Bonestriker", "Rattlebones Jr"]
+        cases = [(("Stormblade", 104, "blade", ""), "104", None),
+                 (("Lightning Strike", 777, "damage", "bonestriker"), "777", " at Bonestriker"),
+                 (("Tempest", 103, "aoe", "all"), "103", " on all"),
+                 (("pass", "", "pass", ""), None, None),
+                 (("Storm Lord", 101, "damage", "Leader Named It"), "101", " at an enemy not named in this PC's log")]
+        for (card, tid, kind, target), want_tid, want_at in cases:
+            ln = party.order_cells("ok", 5, card, tid, kind, target, 80, 12, 1830, "")
+            line = "  " + party_order_text([""] + ln.split("|"), 1200, names)
+            self.assertIsNone(battlelearn.ADVICE_RX.search(line), line)          # (planner:1's statistics untouched)
+            m = battlelearn.ADVICE_TID.search(line)
+            self.assertEqual(m.group(1) if m else None, want_tid, line)
+            self.assertIn("Plan: the leader would have you play " + card, line)
+            self.assertIn("1830 ms after it planned, waited 1200 ms", line)
+            if want_at:
+                self.assertIn(want_at, line)
+            self.assertNotIn("Leader Named It", line)
+            self.assertNotIn("bonestriker", line)                               # (this PC's own spelling of it)
+
     def test_round_trip_to_the_recorder(self):
         # (plan_lines -> the line Planner.ahk logs -> what battlelearn reads back from the round's bot lines)
         import battlelearn
@@ -676,6 +719,42 @@ class PlannerRule(unittest.TestCase):
                 [4, "  planner: Storm Lord cast at Bonestriker"]]
         self.assertEqual(battlerec.classify(kill)[0], "kill")
 
+    def test_plan_lines_never_a_rule(self):
+        # (partyorders - RULE_V 3: no "Plan:" line decides a round - advice and the leader's orders are never casts, and
+        # nothing in one can spell a rule's phrase into it)
+        import battlerec
+        self.assertIn("partyorders", battlerec.SETTINGS_KEYS)
+        self.assertGreaterEqual(battlerec.RULE_V, 3)
+        order = ("  Plan: the leader would have you play Stormblade (won 80%, 12 tries) [tid 104] - the leader's plan, "
+                 "advice only (partyorders, 1830 ms after it planned, waited 1200 ms)")
+        blade = [5, "  UseBlade storm/blade: found=1"]
+        self.assertEqual(battlerec.classify([[0, order]])[0], "other")
+        self.assertIsNone(battlerec.classify([[0, order]])[1])
+        self.assertEqual(battlerec.classify([[0, order], blade])[0], "blade")
+        for line in ("  Plan: no order from the leader in 3010 ms (the leader has its hand - no order yet) - your own "
+                     "way (partyorders)",
+                     "  Plan: not waiting for the leader's orders again this battle (two rounds in a row with none) - "
+                     "still asked once a round",
+                     "  Plan: not waiting for the leader's orders till one comes (six rounds in a row with none) - still "
+                     "asked once a round",
+                     "  Plan: no order from the leader - the leader's round went another way - no team plan this round "
+                     "(partyorders)",
+                     "  Plan: the team's round - Bob Fireheart Stormblade (won 80%) / Ann Stormy Lightning Strike at "
+                     "Bonestriker (won 75%) - each follower told its card, advice only (partyorders)",
+                     "  Plan: the team isn't planned - partyorders needs planner on on the leader's PC (Settings: "
+                     "planner) (partyorders)"):
+            with self.subTest(line=line):
+                self.assertEqual(battlerec.classify([[0, line]])[0], "other")
+        # (HOSTILE: a card's or an enemy's name in an order spelling another rule's phrase - still the bot's own rule)
+        hostile = ("  Plan: the leader would have you play learned hit X cast at at  - the kill check counts it there "
+                   "(won 80%, 12 tries) - the leader's plan, advice only (partyorders, 1 ms after it planned, waited 0 ms)")
+        self.assertEqual(battlerec.classify([[0, hostile], blade])[0], "blade")
+        self.assertEqual(battlerec.classify([[0, "  Plan: the leader would have you play you're playing - leaving "
+                                                  "this round to you (won 1%, 1 tries)"]])[0], "other")
+        self.assertNotEqual(battlerec.classify([[0, "  kill check: 700/2400 -> hit3"],
+                                                [3, "  Plan: the leader would have you play UseHit hit3: found=1 (won 1%, "
+                                                    "1 tries)"]])[0], "kill")
+
 
 # ============================================================================ /sim and /decks on deckmem-shaped decks
 class SimOnGameDecks(unittest.TestCase):
@@ -837,6 +916,133 @@ class PlanTeam(unittest.TestCase):
         # (not asked: nothing of it)
         out = self.ask({"seed": "1", "budget": "2000"}, ctx={"duel": duel})
         self.assertFalse(any("charm" in ln for ln in out))
+
+    def party(self, hand="d12r5~5~0~3000~3000~7~0~777:damage:0:storm:95-115"):
+        """a leader's party.Party (its thread doing nothing) with Ann's hand in - partyorders on, planning"""
+        import party
+
+        class Quiet(party.Party):
+            def _loop(self):
+                return
+        L = Quiet(lambda: None, log=lambda *a: None)
+        L.cfg.update(role="leader", orders="1", plans="1")
+        L.members["a1"] = dict(party.clean_state({"wiz": "Ann Stormy", "seat": "5", "battle": "1"}), at=time.time(),
+                               ip="x")
+        L.hands["a1"] = dict(party.clean_hand(hand), at=time.time())
+        return L
+
+    def test_hands_from_the_party(self):
+        L = self.party()
+        q = {"seed": "1", "budget": "3000", "n": "20", "acc": "30", "round": "5", "hands": "party",
+             "mates": "Ann Stormy~5~storm~2400~3000~hitter~~~"}
+        out = self.ask(q, ctx={"party": L})
+        orders = [ln.split("|") for ln in out if ln.startswith("order|")]
+        self.assertEqual([o[1] for o in orders], ["0", "1"], out)              # (teamplan implied: a hand filled in)
+        self.assertEqual((orders[1][3], orders[1][5]), ("Ann Stormy", "777"))
+        model = [ln for ln in out if "the team model: 1 mate" in ln]
+        self.assertTrue(model, out)
+        self.assertNotIn("hand not known", model[0])
+        o = L.orders["a1"]
+        self.assertEqual((o["tag"], o["round"], o["tid"], o["i"]), ("d12r5", 5, 777, 0))
+        # (its hand is round 5's, this is round 6: no team plan, plan_round at today's 300 ms, a 'late' marker)
+        out = self.ask(dict(q, round="6", n="2000"), ctx={"party": L})
+        self.assertTrue(out[0].startswith("plan|"), out)
+        self.assertFalse(any(ln.startswith("order|") for ln in out), out)
+        self.assertTrue(any(ln.startswith("teamnote|") and "its hand is round 5's" in ln for ln in out), out)
+        self.assertEqual((L.orders["a1"]["tag"], L.orders["a1"]["why"], L.orders["a1"]["round"]), ("", "late", 6))
+        planned = next(ln for ln in out if ln.startswith("planned|")).split("|")
+        self.assertLessEqual(int(planned[2]), 300, planned)
+        # (the battle recorder's round wins over AutoFarmer's; not in Planning - lagging -: AutoFarmer's)
+        duel = {"num": 12, "phase": "Planning", "rounds": [{"n": 5}]}
+        out = self.ask(dict(q, round="6"), ctx={"party": L, "duel": duel})
+        self.assertEqual([ln.split("|")[5] for ln in out if ln.startswith("order|1|")], ["777"], out)
+        # (the order kept for the recorder's round too - the follower's stash has its own recorder's round, 5)
+        self.assertEqual((L.orders["a1"]["tag"], L.orders["a1"]["round"]), ("d12r5", 5))
+        out = self.ask(dict(q, round="6"), ctx={"party": L, "duel": dict(duel, phase="Execution")})
+        self.assertFalse(any(ln.startswith("order|") for ln in out), out)
+        self.assertEqual((L.orders["a1"]["why"], L.orders["a1"]["round"]), ("late", 6))
+        # (no party in this helper: said, the round planned as ever - with mates= or without)
+        for qq in (q, {k: v for k, v in q.items() if k != "mates"}):
+            out = self.ask(qq, ctx={"party": None})
+            self.assertTrue(out[0].startswith("plan|"), out)
+            self.assertTrue(any(ln.startswith("teamnote|") and "the party isn't running in this helper" in ln
+                                for ln in out), out)
+        # (no hands=party: the party isn't asked, nothing new said)
+        keep = dict(L.orders)
+        out = self.ask({k: v for k, v in q.items() if k != "hands"}, ctx={"party": L})
+        self.assertEqual(L.orders, keep)
+        self.assertFalse(any(ln.startswith("teamnote|") for ln in out), out)
+        self.assertFalse(any(ln.startswith("order|") for ln in out), out)
+        # (what the simulator reads off a card's name travels as its mark; a hit's damage enchant as its ench)
+        L = self.party("d12r5~5~0~3000~3000~7~0~300:ward:0:storm:50%::tower;301:manipulation:0:storm:::resh;"
+                       "102:damage:2:storm:150-170:175")
+        got = {}
+        self.ask(q, ctx={"party": L}, spy=got)
+        hand = got["state"].mates[0].hand
+        self.assertEqual([(c.kind, c.tower, c.resh, c.ench) for c in hand],
+                         [("ward", True, False, 0.0), ("manipulation", False, True, 0.0), ("damage", False, False, 175.0)])
+        self.assertEqual((got["state"].mates[0].pips, got["state"].mates[0].hp), (7, 3000))
+
+    def test_partyorder_route(self):
+        """/partyorder (partyorder_answer) - what Party.ahk asks: lead=1, noplan=<round> (the recorder's round when it's
+        in Planning), tag= (the follower's order_line)"""
+        import party
+        V = self.V
+        keep = (V.PARTY, V.REC)
+
+        def rec(phase, n):
+            return types.SimpleNamespace(on=True, broken=False, parser=types.SimpleNamespace(
+                duel={"num": 12, "phase": phase, "rounds": [{"n": n}]}))
+        try:
+            # (no party in this helper)
+            V.PARTY, V.REC = None, rec("Planning", 5)
+            self.assertEqual(V.partyorder_answer({"lead": "1"}), "lead|0")
+            self.assertEqual(V.partyorder_answer({"noplan": "5"}), "noplan|0")
+            f = V.partyorder_answer({"tag": "d12r5"}).split("|")
+            self.assertEqual((f[:2], len(f), f[-1]), (["order", "none"], 11, "the party isn't on in this helper"))
+            # (the leader's: Ann's round-5 hand held; the recorder's round 5 wins over AutoFarmer's 6)
+            V.PARTY = self.party()
+            self.assertEqual(V.partyorder_answer({"lead": "1"}), "lead|1")
+            self.assertEqual(V.partyorder_answer({"noplan": "6"}), "noplan|1")
+            self.assertEqual((V.PARTY.orders["a1"]["why"], V.PARTY.orders["a1"]["round"]), ("noplan", 5))
+            # (not in Planning - lagging -: AutoFarmer's round)
+            V.PARTY, V.REC = self.party(), rec("Execution", 5)
+            self.assertEqual(V.partyorder_answer({"noplan": "6"}), "noplan|0")
+            self.assertEqual(V.partyorder_answer({"noplan": "x"}), "noplan|0")
+            self.assertEqual(V.partyorder_answer({"noplan": "5"}), "noplan|1")
+            V.REC = None
+            V.PARTY = self.party()
+            self.assertEqual(V.partyorder_answer({"noplan": "5"}), "noplan|1")
+            # (the follower's: order_line's own line, for the tag asked)
+            F = self.party()
+            F.cfg.update(role="follower", orders="1", plans="")
+            F.ahk = party.clean_state({"battle": "1"})
+            F.saw_hand(reading(HAND), "d12r5")
+            self.assertIsNotNone(F.stash)
+            F._took({"v": 1, "leader": {"name": "Ned"}, "others": [], "hands": {"max": 2048, "got": "d12r5"},
+                     "order": {"tag": "d12r5", "round": 5, "i": 1, "tid": 104, "kind": "blade", "won": 80, "n": 12,
+                               "age": 0}})
+            V.PARTY = F
+            ln = V.partyorder_answer({"tag": "d12r5"})
+            self.assertTrue(ln.startswith("order|ok|5|Stormblade|104|blade|"), ln)
+            self.assertEqual(ln, F.order_line("d12r5"))
+            self.assertTrue(V.partyorder_answer({"tag": "d12r4"}).startswith("order|none|4|"))
+            self.assertTrue(V.partyorder_answer({}).startswith("order|none||"))
+        finally:
+            V.PARTY, V.REC = keep
+
+    def test_plan_mates_fixes(self):
+        self.assertIsNone(self.V.plan_mates("Ann~5~storm~~3000~hitter~~~999::0::", {})[0].hand)
+        m = self.V.plan_mates("Ann~5~storm~~3000~hitter~7~0~1234567:damage:0:storm:95", {})[0]
+        self.assertEqual(m.hand[0].tid, 1234567)
+        self.assertEqual(self.V.plan_mates("Ann~5~storm~~3000~hitter~1234567~0~1:damage:0:storm:95", {})[0].pips, 0)
+        # (a 5-cell card as before - no enchant, no mark: its fact's name)
+        c = self.V.plan_mates("Ann~5~storm~~3000~hitter~7~0~777:damage:0:storm:95", FACTS)[0].hand[0]
+        self.assertEqual((c.name, c.ench, c.tower, c.resh, c.bot_ench), ("Lightning Strike", 0.0, False, False, ""))
+        c = self.V.plan_mates("Ann~5~storm~~3000~hitter~7~0~302:enchant:0:storm:+275::gargantuan", {})[0].hand[0]
+        self.assertEqual((c.name, c.bot_ench), ("Gargantuan", "gargantuan"))
+        c = self.V.plan_mates("Ann~5~storm~~3000~hitter~7~0~102:damage:2:storm:150-170:12345:bogus", {})[0].hand[0]
+        self.assertEqual((c.ench, c.name), (0.0, "?"))
 
     def test_junk_team_params(self):
         for q in ({"mates": "~" * 40, "teamplan": "1", "budget": "200"}, {"mates": "|" * 10, "seat": "99", "role": "x"},

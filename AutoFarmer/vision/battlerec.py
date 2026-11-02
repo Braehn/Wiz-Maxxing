@@ -166,7 +166,7 @@ A battle (rec "battle"):
                   GetCritParams}; mem (Phase B)
   settings        {k: v} the effective Stat(k) of a whitelist (the deck keys + enemyspells, defendat, healat,
                   learnedhits, roundwait, partybattle, navmem, handsoff, handsoffon, planner, memclicks, deckzone,
-                  partyhitround; null: not set) - never anything typed
+                  partyhitround, partyorders; null: not set) - never anything typed
   who             {bot: [n..], user: [..], none: [..], unknown: [..]}
   src             {log, mem, ahk, hands "k/n", deck, phase_b [groups on]} what fed the record
   partial         {from_round, why}: rounds before from_round lack memory or bot data (a helper restart, the log
@@ -204,7 +204,7 @@ import traceback
 
 SCHEMA = "wizmaxx-battles"
 V = 1
-RULE_V = 2                   # (2: the planner rule - v1.0.0)
+RULE_V = 3                   # (2: the planner rule - v1.0.0; 3: "Plan:" lines never match a rule - partyorders)
 # Phase B groups switched on (each needs its live probe item first - SPEC 8): "snapshot" (LIVE-1..4, 6: a memory
 # snapshot of every participant after each round), "wizstats" (LIVE-5: WizGameStats at the battle's first PrePlanning).
 # None yet: their fields are not written.
@@ -235,7 +235,7 @@ SETTINGS_KEYS = ("cardlogic", "boostmax", "useblades", "usetraps", "usebubble", 
                  "usereshuffle", "reboost", "solotraps", "healthocr", "killmargin", "drawenchant", "pipsave",
                  "discardunused", "discardmax", "discardunaffordable", "healat", "defendat", "fleeon", "usehit1",
                  "usehit2", "usehit3", "usehit4", "useheal", "enemyspells", "learnedhits", "roundwait", "partybattle",
-                 "navmem", "handsoff", "handsoffon", "planner", "memclicks", "deckzone", "partyhitround")
+                 "navmem", "handsoff", "handsoffon", "planner", "memclicks", "deckzone", "partyhitround", "partyorders")
 STAT_KEYS = ("school", "damage", "pierce", "critical", "accuracy", "block", "maxhealth", "charid_ok")
 PIP_KINDS = ("generic", "power", "balance", "death", "fire", "ice", "life", "myth", "storm", "shadow")
 BAD_WORDS = re.compile(r"http|webhook|token|password|login", re.I)
@@ -1125,20 +1125,25 @@ _RULES = [(n, [re.compile(p) for p in ps]) for n, ps in RULES]
 KILL = re.compile(r"\bkill check: .* -> hit\d")
 KILL_CAST = re.compile(r"^@cast |\bUseHit hit\d: found=1|\blearned hit .* cast at")
 LOCKED = re.compile(r"Mouse unlocked - the round's done \(locked ([\d.]+) s\)")
+# (the planner's advice and the party leader's orders - "  Plan: ..." lines: never a cast, never a round's rule)
+PLAN_LINE = re.compile(r"^\s*Plan: ")
 
 
 def classify(lines):
-    """(rule, plan, casts) of a bot round's lines ([[ms, text]]) - the first rule that matches (RULES, rule_v 2)"""
+    """(rule, plan, casts) of a bot round's lines ([[ms, text]]) - the first rule that matches (RULES, rule_v 3). The
+    rules (the kill rule's scan too) are matched on the lines that aren't "Plan:" lines: advice and the party leader's
+    orders are never casts, and nothing in one - a card's name, an enemy's - can spell a rule's phrase into a round"""
     texts = [t for _, t in lines if isinstance(t, str)]
+    rtexts = [t for t in texts if not PLAN_LINE.match(t)]
     plan = next((t.split("plan: ", 1)[1] for t in texts if "plan: " in t), None)
     casts = [t[6:].strip() for t in texts if t.startswith("@cast ")]
     for name, rxs in _RULES:
         if name == "kill":
-            for i, t in enumerate(texts):
-                if KILL.search(t) and any(KILL_CAST.search(u) for u in texts[i + 1:]):
+            for i, t in enumerate(rtexts):
+                if KILL.search(t) and any(KILL_CAST.search(u) for u in rtexts[i + 1:]):
                     return "kill", plan, casts
             continue
-        if any(rx.search(t) for t in texts for rx in rxs):
+        if any(rx.search(t) for t in rtexts for rx in rxs):
             return name, plan, casts
     return "other", plan, casts
 

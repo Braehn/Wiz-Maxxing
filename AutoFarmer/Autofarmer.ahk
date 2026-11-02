@@ -4884,6 +4884,10 @@ if (BotOn && PlannerMode() && PlannerRound())
 {
 	Goto("EndRound")
 }
+;(partyorders - Party.ahk PartyOrderRound: a follower's round - the leader's card for its hand logged, advice
+;only, waited for 3 s at most, nothing cast; the leader: a note once a battle when planner is off. Off: nothing)
+if (BotOn && PartyOrdersOn())
+	PartyOrderRound()
 
 ;How it plays its cards (the Settings window: cardlogic, boostmax, use...): hit first - before any boost - when
 ;the card logic says so (Settings.ahk CardHitFirst); boosts only up to boostmax before a hit it can cast
@@ -5022,6 +5026,9 @@ if (feint == 1) && (TrapOn == 1) && BoostOk && Stat("usetraps") && UseTrap(&_tit
 																	}
 EndRound:
 DebugLog("Round done")
+;(partyorders, the leader: a round it didn't plan the team in told to its followers - Party.ahk PartyOrderSkip)
+if (PartyOrdersLead())
+	PartyOrderSkip()
 ;The mouse back where it was when the round began (mousereturn, the Settings window), else off the cards - not
 ;if you've used the mouse or keys meanwhile (MouseLetGo -1: it's yours)
 if (MouseLetGo() = 0)

@@ -22,6 +22,10 @@ names the game's own log gives for its own side.
   * A follower's teleport state (tp: wait - it can't follow -, stuck, porting, refused) goes to the leader, which stops
     waiting for one that can't follow.
   * The leader's battle spot: where it stood when its battle started - followers walk into the circle there.
+  * partyorders (TODO goal 3 - advice only): a follower's hand (what its own AutoFarmer read - its helper keeps it, no
+    read of its own) goes to the leader once the leader asks ('hands' in its answer - an older leader never does); the
+    leader's planner plans the team with it and each follower's card comes back in its own answer ('order') - its bot
+    only logs it.
 Never sent: the game's login, anything from Credential Manager, the character's id, file paths, screenshots, gold."""
 import http.client
 import ipaddress
@@ -59,6 +63,21 @@ ZONE_RE = re.compile(r"^[\w/\\ .'-]{1,120}$")
 HOLD_RE = re.compile(r"^[\w .,'()/-]{0,80}$")
 ROLES = ('hitter', 'blader', 'healer')
 SCHOOLS = ('storm', 'fire', 'myth', 'balance', 'ice', 'life', 'death')
+# (partyorders - TODO goal 3, advice only: a follower's hand to the leader, the leader's card for it back)
+MAX_PATH_HANDS = 2048   # the leader's server with partyorders on: a beat with a 9-card hand is ~1972 at its worst
+HAND_FRESH = 40.0       # s a follower's hand is good for (a 30 s planning phase and the reads)
+ORDER_FRESH = 20.0      # s the leader's order for a follower is good for
+MAX_CARDS = 9           # a hand's cards sent (7 and a pet's, a treasure card or two)
+TAG_RE = re.compile(r'd(\d{1,9})r(\d{1,3})')     # a follower's own key for its hand: its AutoFarmer's duel and log round
+KIND_RE = re.compile(r'[a-z]{1,16}')               # a card's kind (handmem's: damage, aoe, blade, enchantother...)
+MARK_RE = re.compile(r'[a-z]{1,10}')               # what the simulator reads off a card's name: resh, tower, an enchant
+TARGET_RE = re.compile(r"[A-Za-z0-9 .'-]{1,40}")   # the enemy an order is aimed at (its name - no ( ) : | or line break)
+# (a marker: no order for a follower's hand this round, and why - a code; the follower says it in its own words)
+MARK_WHYS = ('late', 'old', 'noplay', 'noplan')
+MARK_TEXT = {'late': "the leader planned this round before this wizard's hand got there",
+             'old': "the leader had only an old hand of this wizard's",
+             'noplay': "the team's plan gave this wizard no play",
+             'noplan': "the leader's round went another way - no team plan this round"}
 
 
 def _f(v):
@@ -265,6 +284,197 @@ def clean_peer(d):
     return s
 
 
+# ---------------------------------------------------------------- partyorders (TODO goal 3 - advice only)
+def name_key(s):
+    """a wizard's name as the plates and the log are matched by (Walker.ahk WalkLetters): its letters in capitals, the
+    digits OCR takes for letters turned back (0 O, 1 I, 5 S, 8 B); only a-z made capitals - every other letter goes, as
+    in AutoHotkey"""
+    s = ''.join(c.upper() if 'a' <= c <= 'z' else c for c in str(s or ''))
+    for a, b in (('0', 'O'), ('1', 'I'), ('5', 'S'), ('8', 'B')):
+        s = s.replace(a, b)
+    return re.sub(r'[^A-Z]', '', s)
+
+
+def _int_in(v, lo, hi):
+    """v as an int when it is one (not a bool) and lo <= v <= hi, else None"""
+    return v if isinstance(v, int) and not isinstance(v, bool) and lo <= v <= hi else None
+
+
+def _num_in(v, lo, hi):
+    """int(v) when v is a number (int or float, not a bool) with lo <= v < hi, else None"""
+    if isinstance(v, bool) or not isinstance(v, (int, float)):
+        return None
+    return int(v) if lo <= v < hi else None
+
+
+def hand_of(r):
+    """the hand a follower sends its leader, from a handmem HandMem.read() reading (what its own AutoFarmer's /cards
+    read - no read here): {hp, max, pips, power, cards: [{tid, kind, pips, school, value, ench, mark, gi, name}]} - pips
+    and power as /plan counts them (vision.py plan_lines_for: shadow pips left out); each card's plain value (the
+    enchant not in it - its damage enchant is ench, as /plan's card_of reads it), mark what the simulator reads off its
+    name (resh, tower, an enchant's word - the name itself never travels), gi its place in the game's hand and name its
+    name (both local only: never sent). None: not a settled hand in a planning phase, or no card left (the hand not
+    known - never an empty hand). Never raises"""
+    try:
+        if not isinstance(r, dict) or not (r.get('in_battle') and r.get('planning') and r.get('settled')):
+            return None
+        from battlesim import ENCHANT_RE, RESH_RE, TOWER_RE     # (the simulator's own name checks - one source)
+        me = r.get('me') if isinstance(r.get('me'), dict) else {}
+        pp = me.get('pips') if isinstance(me.get('pips'), dict) else {}
+
+        def pip(k):
+            v = pp.get(k)
+            return int(v) if isinstance(v, (int, float)) and not isinstance(v, bool) and v > 0 else 0
+        school = str(me.get('school') or '').lower()
+        cards = []
+        for gi, c in enumerate(r.get('cards') or []):
+            if len(cards) >= MAX_CARDS:
+                break
+            if not isinstance(c, dict) or not c.get('name'):
+                continue
+            tid = c.get('template_id')
+            if not isinstance(tid, int) or isinstance(tid, bool) or not 0 <= tid < 10 ** 10:
+                continue
+            kind = str(c.get('kind') or '').lower()
+            if not KIND_RE.fullmatch(kind):
+                continue
+            ench = None
+            if kind in ('damage', 'aoe'):
+                m = re.search(r"kModifyCardDamage\s*\+?(\d{1,4})", str(c.get('ench_effect') or ''))
+                ench = int(m.group(1)) if m else None
+            txt = '%s %s' % (c.get('name') or '', c.get('display') or '')
+            em = ENCHANT_RE.search(txt) if kind == 'enchant' else None
+            mark = ('resh' if RESH_RE.search(txt) else 'tower' if kind == 'ward' and TOWER_RE.search(txt)
+                    else em.group(1).lower() if em else '')
+            cards.append({'tid': tid, 'kind': kind, 'pips': _int_in(c.get('pips'), 0, 14),
+                          'school': re.sub('[^a-z]', '', str(c.get('school') or '').lower())[:12],
+                          'value': re.sub(r"[^\w%+/.-]", '', str(c.get('value_text') or ''), flags=re.A)[:24],
+                          'ench': ench, 'mark': mark, 'gi': gi, 'name': str(c.get('display') or c.get('name'))[:40]})
+        if not cards:
+            return None
+        return {'hp': _num_in(me.get('health'), 0, 1e6), 'max': _num_in(me.get('max_health'), 1, 1e6),
+                'pips': pip('generic') + pip('power') + sum(pip(s) for s in SCHOOLS),
+                'power': pip('power') + (pip(school) if school in SCHOOLS else 0), 'cards': cards}
+    except Exception:  # noqa: BLE001 - the hand not known
+        return None
+
+
+def _card_cells(c):
+    """a hand card as the wire has it: tid:kind:pips:school:value[:ench[:mark]] - the empty cells after the 5th left off"""
+    cells = ['' if c.get(k) is None else str(c.get(k)) for k in ('tid', 'kind', 'pips', 'school', 'value', 'ench', 'mark')]
+    while len(cells) > 5 and cells[-1] == '':
+        cells.pop()
+    return ':'.join(cells)
+
+
+def mates_hand(cards):
+    """a hand's cards as /plan's mates= hand field takes them (vision.py plan_mates) - the same text the follower sent, in
+    the same order"""
+    return ';'.join(_card_cells(c) for c in cards or [] if isinstance(c, dict))
+
+
+def hand_wire(stash, now):
+    """a follower's beat's hand: tag~round~age~hp~max~pips~power~cards (cards: mates_hand's) - round its stash's (the
+    battle recorder's, else its tag's), age ms since it was read (the PCs' clocks differ: only ages travel), None as ''"""
+    h = stash['hand']
+    return '~'.join([stash['tag'], str(stash['round']), str(max(0, round((now - stash['at']) * 1000))),
+                     '' if h.get('hp') is None else str(h['hp']), '' if h.get('max') is None else str(h['max']),
+                     str(h.get('pips') or 0), str(h.get('power') or 0), mates_hand(h.get('cards'))])
+
+
+def clean_hand(text):
+    """a follower's hand as the leader got it (its beat's 'hand' - hand_wire's), each cell checked: {tag, round, age, hp,
+    max, pips, power, cards: [{tid, kind, pips, school, value, ench, mark}]}, or None (not known: a bad tag, round or
+    age, or no card left). Never raises"""
+    try:
+        if not isinstance(text, str) or not text:
+            return None
+        f = (text.split('~') + [''] * 8)[:8]
+        if not TAG_RE.fullmatch(f[0]) or not re.fullmatch(r'\d{1,3}', f[1]) or not 1 <= int(f[1]) <= 999:
+            return None
+        age = _ms(f[2])
+        if age is None:
+            return None
+
+        def num(v, lo, hi, d=None):
+            return int(v) if re.fullmatch(r'\d{1,7}', v) and lo <= int(v) <= hi else d
+        cards = []
+        for item in f[7].split(';')[:MAX_CARDS]:
+            c = (item.split(':') + [''] * 7)[:7]
+            if not re.fullmatch(r'\d{1,10}', c[0]) or not KIND_RE.fullmatch(c[1]):
+                continue
+            cards.append({'tid': int(c[0]), 'kind': c[1], 'pips': int(c[2]) if re.fullmatch(r'\d{1,2}', c[2]) else None,
+                          'school': c[3] if re.fullmatch(r'[a-z]{0,12}', c[3]) else '',
+                          'value': c[4] if re.fullmatch(r'[\w%+/.-]{0,24}', c[4], re.A) else '',
+                          'ench': int(c[5]) if re.fullmatch(r'\d{1,4}', c[5]) else None,
+                          'mark': c[6] if MARK_RE.fullmatch(c[6]) else ''})
+        if not cards:
+            return None
+        return {'tag': f[0], 'round': int(f[1]), 'age': age, 'hp': num(f[3], 0, 1000000), 'max': num(f[4], 1, 1000000),
+                'pips': num(f[5], 0, 14, 0), 'power': num(f[6], 0, 14, 0), 'cards': cards}
+    except Exception:  # noqa: BLE001 - not known
+        return None
+
+
+def clean_ask(v):
+    """the leader's ask for this follower's hand as it got it (its answer's 'hands'): {max - the longest beat its server
+    takes, MAX_PATH to MAX_PATH_HANDS -, got - the tag of the hand it holds, or ''}, or None (no ask: an older leader,
+    or one with partyorders off or unable to plan)"""
+    try:
+        if not isinstance(v, dict):
+            return None
+        m = v.get('max')
+        if isinstance(m, bool) or not isinstance(m, (int, float)) or not math.isfinite(m):
+            return None
+        got = v.get('got')
+        return {'max': max(MAX_PATH, min(MAX_PATH_HANDS, int(m))),
+                'got': got if isinstance(got, str) and TAG_RE.fullmatch(got) else ''}
+    except Exception:  # noqa: BLE001 - no ask
+        return None
+
+
+def clean_order(o):
+    """the leader's order for this follower as it got it (its answer's 'order'), each field checked: {tag, duel, round,
+    kind, i, tid, target, won, n, age, why} - tag '' a marker (no order for its hand this round: why one of MARK_WHYS,
+    duel the duel of its hand's tag); None not an order (a key it doesn't know - an older or newer leader's - dropped).
+    Nothing in it is logged but target, and that only when it's one of the follower's own log names (Party.ahk)"""
+    try:
+        if not isinstance(o, dict) or _int_in(o.get('round'), 1, 999) is None:
+            return None
+        tag = o.get('tag')
+        if tag in (None, ''):
+            tag = ''
+        elif not isinstance(tag, str) or not TAG_RE.fullmatch(tag):
+            return None
+        duel = o.get('duel')
+        duel = str(duel) if duel is not None and not isinstance(duel, bool) and isinstance(duel, (str, int)) else ''
+        kind = o.get('kind')
+        kind = kind if isinstance(kind, str) and KIND_RE.fullmatch(kind) else ''
+        tid = o.get('tid')
+        if isinstance(tid, str) and re.fullmatch(r'\d{1,10}', tid):
+            tid = int(tid)
+        target = o.get('target')
+        why = o.get('why')
+        d = {'tag': tag, 'duel': duel if re.fullmatch(r'\d{1,9}', duel) else '', 'round': o['round'], 'kind': kind,
+             'i': _int_in(o.get('i'), 0, 8), 'tid': _int_in(tid, 0, 10 ** 10 - 1),
+             'target': target if isinstance(target, str) and (target == 'all' or TARGET_RE.fullmatch(target)) else '',
+             'won': _int_in(o.get('won'), 0, 100), 'n': _int_in(o.get('n'), 0, 1000000), 'age': _ms(o.get('age')),
+             'why': why if tag == '' and why in MARK_WHYS else ''}
+        if tag == '':
+            return d if d['duel'] and d['why'] else None
+        return d if d['kind'] else None
+    except Exception:  # noqa: BLE001 - not an order
+        return None
+
+
+def order_cells(state, rnd='', card='', tid='', kind='', target='', won='', n='', age='', why=''):
+    """/partyorder's line for AutoFarmer (Party.ahk PartyOrderRound): order|state|round|card|tid|kind|target|won|n|age|why
+    - 11 fields, each with no | or line break in it (None as '')"""
+    def cell(v):
+        return '' if v is None else re.sub(r'[\r\n]', ' ', str(v)).replace('|', '/')
+    return 'order|' + '|'.join(cell(v) for v in (state, rnd, card, tid, kind, target, won, n, age, why))
+
+
 class PartyServer(ThreadingHTTPServer):
     """the leader's LAN server: its port its own (no address reuse - on Windows that lets a second server share it)"""
     allow_reuse_address = False
@@ -282,7 +492,8 @@ class Party:
     def __init__(self, reader, log=print):
         self.reader, self.log = reader, log
         self.lock = threading.Lock()
-        self.cfg = {'role': 'off', 'name': '', 'leader': '', 'port': PORT, 'bind': ''}
+        # (orders, plans: partyorders - '1' on, '' off; plans the leader's, while it can plan - Party.ahk PartyTick)
+        self.cfg = {'role': 'off', 'name': '', 'leader': '', 'port': PORT, 'bind': '', 'orders': '', 'plans': ''}
         self.ahk = {}                       # what AutoFarmer said last (clean_state)
         self.ahk_at = 0.0
         self.mem = {}                       # zone, x, y, z, yaw, at - read here
@@ -295,6 +506,12 @@ class Party:
         self.battle_spot = None             # (x, y, z) where its battle started
         self.members = {}                   # leader: follower id -> state (with 'at', 'ip')
         self.leader = None                  # follower: the leader's answer (with 'at')
+        # (partyorders - TODO goal 3, advice only. A follower: its hand as its AutoFarmer last read it - {tag, round, at,
+        # hand}: saw_hand -, the leader's ask for it - clean_ask -, the leader's order for it - clean_order, with
+        # 'heard'. The leader: each follower's hand - clean_hand, with 'at' - and its order or marker for that
+        # follower's next beat, by follower id. All of it this battle's only)
+        self.stash, self.asked, self.order = None, None, None
+        self.hands, self.orders = {}, {}
         self.state, self.why = 'off', ''
         self.server, self.server_key = None, None
         # (the server's lifecycle: one change at a time; the old servers still closing, by port - {port: [(thread, when
@@ -327,14 +544,33 @@ class Party:
         role = role if role in ('off', 'leader', 'follower') else 'off'
         port = int(_f(q.get('port')) or PORT)
         port = port if 1024 <= port <= 65535 else PORT
+        # (partyorders: this PC in the team's plan - plans: the leader's, only while it can plan; neither sent: off)
+        orders = '1' if q.get('orders') == '1' else ''
+        plans = '1' if q.get('plans') == '1' and orders == '1' else ''
         with self.lock:
+            was_orders, was_plans = self.cfg.get('orders'), self.cfg.get('plans')
+            was_at = (self.cfg.get('leader'), self.cfg.get('port'))
             self.cfg.update(role=role, port=port, leader=(q.get('leader') or '').strip()[:64],
-                            name=clean_state(q)['name'], bind=q.get('bind', '') if q.get('bind') == '127.0.0.1' else '')
+                            name=clean_state(q)['name'], bind=q.get('bind', '') if q.get('bind') == '127.0.0.1' else '',
+                            orders=orders, plans=plans)
+            if was_orders == '1' and orders != '1':
+                self.stash, self.asked, self.order = None, None, None
+            if (self.cfg['leader'], self.cfg['port']) != was_at:
+                # (pointed at another leader: the old one's ask and order aren't the new one's - its first beat as
+                # before, the hand only once it asks. The leader's last answer kept as ever, and this wizard's own hand)
+                self.asked, self.order = None, None
+            if (was_orders == '1' and orders != '1') or (was_plans == '1' and plans != '1'):
+                # (the leader stopped planning: its followers' next answers lack 'hands' - their waits end)
+                self.hands, self.orders = {}, {}
             self.ahk, self.ahk_at = clean_state(q), time.time()
             if self.ahk['battle'] == '1' and self.battle_spot is None and self.mem.get('x') is not None:
                 self.battle_spot = (self.mem['x'], self.mem['y'], self.mem['z'])
             elif self.ahk['battle'] != '1':
                 self.battle_spot = None
+            if self.ahk['battle'] != '1':
+                # (partyorders: no hand or order outlives its battle - a follower's, a leader's)
+                self.stash, self.order = None, None
+                self.hands, self.orders = {}, {}
         self._serve()
         return self.lines()
 
@@ -445,7 +681,7 @@ class Party:
                 except ValueError:
                     ok = False
                 u = urllib.parse.urlparse(self.path)
-                if not ok or len(self.path) > MAX_PATH or u.path != '/party/beat':
+                if not ok or len(self.path) > party.path_max() or u.path != '/party/beat':
                     self.send_response(403)
                     self.end_headers()
                     return
@@ -489,19 +725,59 @@ class Party:
         return s
 
     def beat_in(self, q, ip):
-        """the leader's side of a follower's beat: it noted; the leader's state and the others' back"""
+        """the leader's side of a follower's beat: it noted; the leader's state and the others' back. partyorders on
+        and the leader able to plan (cfg plans): its hand kept (clean_hand - never in members, others or lines), and
+        two keys after 'others' - hands (the ask: the longest beat taken, the tag of the hand held) and order (its own
+        order or marker, ORDER_FRESH s) - which an older follower doesn't read. Off: the answer as before"""
         fid = re.sub(r'[^0-9a-f]', '', q.get('id', ''))[:16]
         s = clean_state(q)
         now = time.time()
+        ask = order = None
         with self.lock:
+            stored = False
             if fid and (fid in self.members or len(self.members) < MAX_FOLLOWERS):
                 s.update(at=now, ip=ip)
                 self.members[fid] = s
+                stored = True
             others = [dict(v, age=round((now - v['at']) * 1000)) for k, v in self.members.items() if k != fid]
+            if stored and self.cfg['role'] == 'leader' and self.cfg['orders'] == '1' and self.cfg['plans'] == '1':
+                try:
+                    if s['battle'] != '1':
+                        # (that follower's battle is over: its hand and order go with it)
+                        self.hands.pop(fid, None)
+                        self.orders.pop(fid, None)
+                    else:
+                        h = clean_hand(q.get('hand'))
+                        if h is not None:
+                            self.hands[fid] = dict(h, at=now)
+                    ask = {'max': MAX_PATH_HANDS, 'got': (self.hands.get(fid) or {}).get('tag', '')}
+                    o = self.orders.get(fid)
+                    if o and now - o['at'] <= ORDER_FRESH:
+                        order = {k: o.get(k) for k in ('tag', 'duel', 'round', 'i', 'tid', 'kind', 'target', 'won', 'n',
+                                                       'why')}
+                        order['age'] = max(0, round((now - o['at']) * 1000))
+                except Exception as e:  # noqa: BLE001 - the answer as before
+                    ask = order = None
+                    self._log_once(f'party: a follower\'s hand couldn\'t be taken ({e!r})')
         me = self._me()
-        return {'v': 1, 'leader': me, 'others': [{k: o.get(k) for k in
-                ('name', 'zone', 'x', 'y', 'z', 'battle', 'hp', 'ready', 'walk', 'age', 'brole', 'wiz', 'school', 'hits',
-                 'hitr', 'plan', 'lasthit', 'tp', 'tpwhy', 'hitat', 'seat')} for o in others]}
+        d = {'v': 1, 'leader': me, 'others': [{k: o.get(k) for k in
+             ('name', 'zone', 'x', 'y', 'z', 'battle', 'hp', 'ready', 'walk', 'age', 'brole', 'wiz', 'school', 'hits',
+              'hitr', 'plan', 'lasthit', 'tp', 'tpwhy', 'hitat', 'seat')} for o in others]}
+        if ask is not None:
+            d['hands'] = ask
+            if order is not None:
+                d['order'] = order
+        return d
+
+    def path_max(self):
+        """the longest request the leader's server takes: MAX_PATH_HANDS with partyorders on (whether it plans or not -
+        a hand already on its way when planning stops isn't refused), else MAX_PATH"""
+        try:
+            with self.lock:
+                on = self.cfg['role'] == 'leader' and self.cfg.get('orders') == '1'
+            return MAX_PATH_HANDS if on else MAX_PATH
+        except Exception:  # noqa: BLE001 - as before
+            return MAX_PATH
 
     def _beat_out(self):
         """a follower's beat to the leader (its own thread); a failure backs off and says why"""
@@ -533,17 +809,7 @@ class Party:
             d = json.loads(body.decode('utf-8'))
             if not isinstance(d, dict):
                 raise ValueError('not an object')
-            with self.lock:
-                others = []
-                got = d.get('others') if isinstance(d.get('others'), list) else []
-                for o in got[:MAX_FOLLOWERS]:
-                    if isinstance(o, dict):
-                        c = clean_state({k: str(v) for k, v in o.items() if isinstance(v, (str, int, float))})
-                        age = _f(o.get('age'))
-                        c['age'] = int(age) if age is not None and 0 <= age < 1e6 else ''
-                        others.append(c)
-                self.leader = dict(clean_peer(d.get('leader')), at=time.time(), others=others)
-                self.state, self.why, self.fails = 'following', '', 0
+            self._took(d, at=(host, port))
         except socket.timeout:
             self._fail('no answer - is that PC\'s bot the leader, and its firewall letting Python in (Private networks)?')
         except ConnectionRefusedError:
@@ -552,6 +818,45 @@ class Party:
             self._fail(f'can\'t reach it ({e.strerror or e})')
         except (ValueError, http.client.HTTPException):
             self._fail('its answer couldn\'t be read')
+
+    def _took(self, d, at=None):
+        """a follower's side of the leader's answer d (a dict): the leader's state and the other followers', each field
+        checked; partyorders on here: the leader's ask for its hand (clean_ask - None: an older leader, or one not
+        planning) and its order (clean_order) - only from the leader it's pointed at now (at: the (host, port) the beat
+        went to - an answer still on its way when the address changed asks nothing)"""
+        with self.lock:
+            others = []
+            got = d.get('others') if isinstance(d.get('others'), list) else []
+            for o in got[:MAX_FOLLOWERS]:
+                if isinstance(o, dict):
+                    c = clean_state({k: str(v) for k, v in o.items() if isinstance(v, (str, int, float))})
+                    age = _f(o.get('age'))
+                    c['age'] = int(age) if age is not None and 0 <= age < 1e6 else ''
+                    others.append(c)
+            self.leader = dict(clean_peer(d.get('leader')), at=time.time(), others=others)
+            self.state, self.why, self.fails = 'following', '', 0
+            self.asked, self.order = None, None
+            if self.cfg['role'] == 'follower' and self.cfg.get('orders') == '1' \
+                    and at in (None, (self.cfg['leader'], self.cfg['port'])):
+                self.asked = clean_ask(d.get('hands'))
+                o = clean_order(d.get('order'))
+                self.order = dict(o, heard=time.time()) if o else None
+
+    def _hand_out(self):
+        """(the hand for this beat - hand_wire -, the longest beat the leader takes) or ('', 0): only a follower with
+        partyorders on, in battle, its leader heard from in LEADER_FRESH s and asking (clean_ask), its hand under
+        HAND_FRESH s old"""
+        try:
+            now = time.time()
+            with self.lock:
+                if self.cfg['role'] != 'follower' or self.cfg.get('orders') != '1' or self.ahk.get('battle') != '1':
+                    return '', 0
+                st, ask, L = self.stash, self.asked, self.leader
+                if not st or not ask or not L or now - L.get('at', 0) > LEADER_FRESH or now - st['at'] > HAND_FRESH:
+                    return '', 0
+                return hand_wire(st, now), min(ask['max'], MAX_PATH_HANDS)
+        except Exception:  # noqa: BLE001 - no hand this beat
+            return '', 0
 
     def _beat_query(self):
         """a follower's beat's fields: its state (_me - its tp and tpwhy too) and its id; not its doors, battle spot or
@@ -562,6 +867,13 @@ class Party:
         'unreachable'). Still over: the seat, then hitat (the hit round not said: its supports cast as ever)"""
         q = {k: ('' if v is None else v) for k, v in self._me().items() if k not in ('door', 'doors', 'bspot', 'zage')}
         q['id'] = self.id
+        # (partyorders: the hand last - only once the leader asks, and only while the whole beat fits what its server
+        # takes; else left out first, and the beat as before)
+        wire, cap = self._hand_out()
+        if wire:
+            qh = dict(q, hand=wire)
+            if len('/party/beat?' + urllib.parse.urlencode(qh)) <= cap:
+                return qh
         for k in ('tpwhy', 'hold', 'seat', 'hitat'):
             if len('/party/beat?' + urllib.parse.urlencode(q)) <= MAX_PATH:
                 break
@@ -572,6 +884,8 @@ class Party:
         with self.lock:
             self.fails += 1
             self.state, self.why = 'unreachable', why
+            # (a 403 too: the next beat as before - no hand - till a good answer asks again)
+            self.asked = None
             self.next_beat = time.time() + min(5.0, 0.5 * 2 ** min(self.fails, 4))
 
     def _loop(self):
@@ -583,6 +897,7 @@ class Party:
                     role = self.cfg['role']
                     for k in [k for k, v in self.members.items() if t0 - v['at'] > STALE]:
                         self.members.pop(k, None)
+                    self._prune_orders(t0)
                     if role == 'leader' and self.server is not None:
                         self.state, self.why = 'serving', ''
                     elif role == 'off':
@@ -643,6 +958,240 @@ class Party:
             # (one line a zone change - how the doors are told apart, to check in the game: WALK_MIN, DOOR_WINDOW - and
             # whether its last readings in the old zone stand still with a body: "still for")
             self.log(said)
+
+    # ------------------------------------------------------------------ partyorders (TODO goal 3 - advice only)
+    def _prune_orders(self, t0):
+        """(self.lock held) the leader's hands of followers no longer in members, and orders of those or older than
+        ORDER_FRESH s, dropped"""
+        for k in [k for k in self.hands if k not in self.members]:
+            self.hands.pop(k, None)
+        for k in [k for k, o in self.orders.items() if k not in self.members or t0 - o.get('at', 0) > ORDER_FRESH]:
+            self.orders.pop(k, None)
+
+    def _hand_fresh(self, h, now):
+        """a follower's hand at the leader is HAND_FRESH s old or less (its age as sent and since it came)"""
+        return (h.get('age') or 0) / 1000.0 + (now - h.get('at', 0)) <= HAND_FRESH
+
+    def saw_hand(self, r, tag, local=None):
+        """(vision.py /cards?ptag=, a follower's AutoFarmer's read of its own hand - no read here) the hand kept for the
+        leader: {tag - the follower's own key, its AutoFarmer's duel and log round -, round - the battle recorder's round
+        (local: vision.py rec_local's (duel, round) - its own duel only), else the tag's -, at, hand - hand_of}. Only a
+        follower with partyorders on, in battle, a good tag and a settled hand (else the last one stays). Never raises"""
+        try:
+            m = TAG_RE.fullmatch(tag) if isinstance(tag, str) else None
+            if not m:
+                return
+            h = hand_of(r)
+            if h is None:
+                return
+            rnd = int(m.group(2))
+            if isinstance(local, (tuple, list)) and len(local) >= 2 and _int_in(local[1], 1, 999) is not None:
+                rnd = local[1]
+            with self.lock:
+                if self.cfg['role'] != 'follower' or self.cfg.get('orders') != '1' or self.ahk.get('battle') != '1':
+                    return
+                self.stash = {'tag': tag, 'round': rnd, 'at': time.time(), 'hand': h}
+        except Exception as e:  # noqa: BLE001 - the last hand stays
+            self._log_once(f'party: the hand couldn\'t be kept ({e!r})')
+
+    def order_line(self, tag):
+        """/partyorder?tag= for the follower's AutoFarmer (Party.ahk PartyOrderRound): order_cells' line - ok (the
+        leader's card for this hand, named from this wizard's own hand as read - never the leader's text), wait (its hand
+        on its way, or the leader has it and no order yet) or none (why: this PC's own words - a marker's code in them,
+        the kind cell 'mark'). The round cell: the tag's round, the stash's once it's found. Never raises"""
+        try:
+            now = time.time()
+            m = TAG_RE.fullmatch(tag) if isinstance(tag, str) else None
+            rnd = int(m.group(2)) if m else ''
+            with self.lock:
+                if self.cfg['role'] != 'follower':
+                    return order_cells('none', rnd, why="this PC isn't a follower")
+                if self.cfg.get('orders') != '1':
+                    return order_cells('none', rnd, why='partyorders is off on this PC')
+                L = self.leader
+                if not L or now - L.get('at', 0) > LEADER_FRESH:
+                    return order_cells('none', rnd, why='the leader not heard from')
+                if self.asked is None:
+                    return order_cells('none', rnd, why="the leader's bot doesn't plan the team now (an older version, "
+                                                        "partyorders or planner off there, its bot off or unable to read "
+                                                        "the game)")
+                st = self.stash
+                if not m or not st or st['tag'] != tag or now - st['at'] > HAND_FRESH:
+                    return order_cells('none', rnd, why="this wizard's hand wasn't read this round (navmem on, one game "
+                                                        "window?)")
+                rnd = st['round']
+                o = self.order
+                age = None
+                if o:
+                    age = (o.get('age') or 0) + (now - o['heard']) * 1000
+                    if age > ORDER_FRESH * 1000:
+                        o = None
+                if o and o['tag'] and o['tag'] == tag and o['round'] == rnd:
+                    return self._order_ok(o, st, age)
+                if o and not o['tag'] and o['duel'] == m.group(1) and o['round'] == rnd:
+                    return order_cells('none', rnd, kind='mark', why=MARK_TEXT.get(o['why'], ''))
+                if self.asked.get('got') != tag:
+                    return order_cells('wait', rnd, why='its hand is on its way to the leader')
+                return order_cells('wait', rnd, why='the leader has its hand - no order yet')
+        except Exception:  # noqa: BLE001 - said so
+            return order_cells('none', why="the party's state couldn't be read")
+
+    @staticmethod
+    def _order_ok(o, st, age):
+        """an order's ok line: its card named from the stash (the card at its place i with its tid, else the first with
+        its tid - its own name, '(enchanted)' with a damage enchant on it), 'tid N' when none has it, 'pass'"""
+        cards = st['hand'].get('cards') or []
+        tid, why = o.get('tid'), ''
+        if o.get('kind') == 'pass':
+            card, tid = 'pass', ''
+        else:
+            i = o.get('i')
+            c = cards[i] if isinstance(i, int) and 0 <= i < len(cards) and cards[i].get('tid') == tid else None
+            if c is None:
+                c = next((x for x in cards if tid is not None and x.get('tid') == tid), None)
+            if c is not None:
+                card = str(c.get('name') or '?') + (' (enchanted)' if c.get('ench') else '')
+            else:
+                card = 'tid %s' % ('?' if tid is None else tid)
+                why = "not in this wizard's hand as last read"
+        return order_cells('ok', st['round'], card, tid, o.get('kind'), o.get('target'), o.get('won'), o.get('n'),
+                           '' if o.get('age') is None else round(age), why)
+
+    def fill_mates(self, text, rnd):
+        """(the leader's /plan with hands=party - vision.py plan_lines_for) /plan's mates= with each follower's hand,
+        pips, power and health from the hand it sent for round rnd: (text, used, notes) - text the kept specs (plan_mates'
+        walk: 3 at most, blank ones dropped - plan_team's who k is used[k - 1]), used per spec None (not one of the
+        party's bots' hands) or {fid, tag ('' its hand not used - why late / old), duel, name}, notes why a mate's hand
+        wasn't used (the leader's own words and names). Never raises"""
+        try:
+            text = text if isinstance(text, str) else ''
+            kept = []
+            for spec in text.split('|')[:12]:
+                bits = (spec.split('~') + [''] * 9)[:9]
+                if not any(b.strip() for b in bits):
+                    continue
+                if len(kept) >= 3:
+                    break
+                kept.append((spec, bits))
+            with self.lock:
+                if self.cfg['role'] != 'leader' or self.cfg.get('orders') != '1':
+                    return text, [None] * len(kept), ["partyorders isn't on in this helper - the mates' hands not known"]
+                now = time.time()
+                out, used, notes = [], [], []
+                for spec, bits in kept:
+                    out.append(spec)
+                    used.append(None)
+                    name = re.sub(r'[^\w .\'-]', '', bits[0])[:24].strip()
+                    key = name_key(bits[0])
+                    if bits[8].strip() or len(key) < 3:
+                        continue
+                    seat = int(bits[1].strip()) if re.fullmatch(r'[4-7]', bits[1].strip()) else None
+                    fids = [k for k, v in self.members.items() if name_key(v.get('wiz')) == key
+                            and (seat is None or v.get('seat') is None or v.get('seat') == seat)]
+                    if not fids:
+                        notes.append("%s: not one of the party's bots - its hand not known" % name)
+                        continue
+                    fid = max(fids, key=lambda k: self.members[k].get('at', 0))
+                    h = self.hands.get(fid)
+                    if h is None:
+                        notes.append('%s: no hand from its bot (an older version, partyorders off there, or its hand not '
+                                     'read)' % name)
+                        continue
+                    hm = TAG_RE.fullmatch(h['tag'])
+                    duel = hm.group(1) if hm else ''
+                    if h['round'] != rnd:
+                        notes.append("%s: its hand is round %s's, not this round's (%s) - played its role's way" % (
+                            name, h['round'], rnd))
+                        used[-1] = {'fid': fid, 'tag': '', 'duel': duel, 'name': name, 'why': 'late'}
+                        continue
+                    if not self._hand_fresh(h, now):
+                        notes.append("%s: its hand is %.0f s old - played its role's way" % (
+                            name, (h.get('age') or 0) / 1000.0 + (now - h.get('at', 0))))
+                        used[-1] = {'fid': fid, 'tag': '', 'duel': duel, 'name': name, 'why': 'old'}
+                        continue
+                    nb = [bits[0], bits[1], bits[2], str(h['hp']) if h.get('hp') is not None else bits[3],
+                          str(h['max']) if h.get('max') else bits[4], bits[5], str(h.get('pips') or 0),
+                          str(h.get('power') or 0), mates_hand(h.get('cards'))]
+                    out[-1] = '~'.join(nb)
+                    used[-1] = {'fid': fid, 'tag': h['tag'], 'duel': duel, 'name': name}
+                return '|'.join(out), used, notes
+        except Exception as e:  # noqa: BLE001 - the mates as AutoFarmer sent them
+            return (text if isinstance(text, str) else ''), [], ["the mates' hands couldn't be filled (%r)" % (e,)]
+
+    def set_orders(self, orders, used, foe_names, rnd):
+        """(the leader's /plan with hands=party, after plan_team) each follower's order for its next beat: its play
+        (plan_team's order with who k + 1 - the card's place i in the hand it sent, its tid and kind, the enemy's name
+        it's aimed at - 'all' an aoe -, won % and rollouts; never the card's name: the follower names it from its own
+        hand) or a marker (tag '': why a code - late, old, noplay); nothing for a follower whose hand wasn't in. Only
+        with partyorders on and the leader planning. Never raises"""
+        try:
+            now = time.time()
+            with self.lock:
+                if self.cfg['role'] != 'leader' or self.cfg.get('orders') != '1' or self.cfg.get('plans') != '1':
+                    return
+                for k, u in enumerate(used or []):
+                    if not isinstance(u, dict) or not u.get('fid'):
+                        continue
+                    if u.get('tag') == '':
+                        self.orders[u['fid']] = {'tag': '', 'duel': u.get('duel'), 'round': rnd, 'why': u.get('why'),
+                                                 'at': now}
+                        continue
+                    o = next((x for x in orders or [] if isinstance(x, dict) and x.get('who') == k + 1), None)
+                    if o is None:
+                        self.orders[u['fid']] = {'tag': '', 'duel': u.get('duel'), 'round': rnd, 'why': 'noplay',
+                                                 'at': now}
+                        continue
+                    aim = o.get('aim')
+                    if o.get('kind') == 'aoe':
+                        target = 'all'
+                    elif isinstance(aim, int) and not isinstance(aim, bool) and 0 <= aim < len(foe_names or []):
+                        target = re.sub(r"[^A-Za-z0-9 .'-]", '', str(foe_names[aim]))[:40].strip()
+                    else:
+                        target = ''
+                    self.orders[u['fid']] = {'tag': u['tag'], 'round': rnd, 'i': o.get('i'), 'tid': o.get('tid'),
+                                             'kind': o.get('kind'), 'target': target,
+                                             'won': int(round(100 * float(o.get('won') or 0))), 'n': int(o.get('n') or 0),
+                                             'why': '', 'at': now}
+        except Exception as e:  # noqa: BLE001 - no orders this round
+            self._log_once(f'party: the orders couldn\'t be kept ({e!r})')
+
+    def no_plan(self, rnd):
+        """(/partyorder?noplan=, the leader's AutoFarmer at its round's end) a 'noplan' marker for each follower whose
+        fresh hand is for round rnd, in battle, with no order for that round yet - a round the leader didn't plan the
+        team in, told at once. How many were marked (a round already covered: none - it may be asked every round). Never
+        raises"""
+        try:
+            now = time.time()
+            n = 0
+            with self.lock:
+                if self.cfg['role'] != 'leader' or self.cfg.get('orders') != '1' or self.cfg.get('plans') != '1':
+                    return 0
+                for fid, h in list(self.hands.items()):
+                    mem = self.members.get(fid)
+                    o = self.orders.get(fid)
+                    if h.get('round') != rnd or not self._hand_fresh(h, now) or not mem or mem.get('battle') != '1' \
+                            or (o and o.get('round') == rnd):
+                        continue
+                    hm = TAG_RE.fullmatch(h['tag'])
+                    self.orders[fid] = {'tag': '', 'duel': hm.group(1) if hm else '', 'round': rnd, 'why': 'noplan',
+                                        'at': now}
+                    n += 1
+            return n
+        except Exception:  # noqa: BLE001 - none marked
+            return 0
+
+    def lead_count(self):
+        """(/partyorder?lead=1, the leader's AutoFarmer - Party.ahk PartyOrderHands) how many followers' fresh hands this
+        helper holds, each in battle; 0 unless a leader with partyorders on and planning. Never raises"""
+        try:
+            now = time.time()
+            with self.lock:
+                if self.cfg['role'] != 'leader' or self.cfg.get('orders') != '1' or self.cfg.get('plans') != '1':
+                    return 0
+                return sum(1 for fid, h in self.hands.items() if self._hand_fresh(h, now)
+                           and (self.members.get(fid) or {}).get('battle') == '1')
+        except Exception:  # noqa: BLE001 - none
+            return 0
 
     # ------------------------------------------------------------------ to AutoFarmer
     def lines(self):

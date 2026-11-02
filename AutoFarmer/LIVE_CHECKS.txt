@@ -16,8 +16,9 @@ Before you start
 	- Every new setting OFF (they are by default): sigilhome, mobwall,
 	  duelavoid, puzzlestate, puzzlelevers (WALKING); gearswap, gearsets (THE
 	  BACKPACK); memclicks, planner, deckzone (HOW IT PLAYS ITS CARDS);
-	  partytpdoors, partyhitround (PARTY); overlay (THE OVERLAY); deckadd,
-	  trainspells, spellquests (not built - leave them off).
+	  partytpdoors, partyhitround, partyorders (PARTY); overlay (THE
+	  OVERLAY); deckadd, trainspells, spellquests (not built - leave them
+	  off).
 	- The commands run in a command prompt in the AutoFarmer folder, with
 	  Wizard101 running and your wizard in the world unless a step says
 	  otherwise. They only read the game's memory or files: nothing in the
@@ -103,7 +104,8 @@ Before you start
 	    Participant (id N) missed" line - is N the caster's seat (0-7) or its
 	    "Added participant N" number?
 	2.8 Older bots: one PC on this version and one on the last - the party
-	    still links.
+	    still links. With partyorders on the new PC: no "Plan: the leader
+	    would have you" lines and no waits on either.
 
 3. The new settings - one at a time, in this order
    (turn it on, play a while, send the lines named; turn it off again if
@@ -156,7 +158,24 @@ Before you start
 	    screenshot (Windows+Shift+S) doesn't show it. Send the "Overlay:"
 	    lines, a phone photo if it looks wrong (a screenshot won't show
 	    it), and say what it covers that you need (Settings moves it).
-	3.10 memclicks LAST - only once 2.3's lines say the boxes line up (three
+	3.10 partyorders (every PC of the party on this version, planner on the
+	    leader's too; advice only - nothing is cast from it): in a party
+	    battle, on the leader each round "Plan: the team's round - <follower>
+	    <card> ... - each follower told its card" (its round about 1.5 s
+	    longer), and on each follower "Plan: the leader would have you play
+	    <card> ... (partyorders, N ms after it planned, waited M ms)". Send a
+	    few rounds of both PCs' lines from one battle, and any "Plan: no order
+	    from the leader ..." lines (a timeout, or why the leader had none):
+	    they say whether a follower's hand gets to the leader before it plans
+	    and how long an order takes between your PCs. Say whether the card
+	    named on the follower is in its hand that round and the enemy named
+	    is the one you'd expect (or "an enemy not named in this PC's log"
+	    - the leader's memory names it otherwise). A wizard joining late:
+	    its first round has no order. A line "... the leader's round went
+	    another way ..." (once a battle) follows the leader's first kill,
+	    defence or heal round. With wizards fighting nearby: do orders
+	    still come? Then one PC with it off: nothing new on either.
+	3.11 memclicks LAST - only once 2.3's lines say the boxes line up (three
 	    looks in a row within 10 pixels: "trusted"). Cards and plates are
 	    then clicked where the game's memory has them.
 
