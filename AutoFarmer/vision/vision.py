@@ -2668,7 +2668,11 @@ def deckkinds_lines(ctx=None):
     copies - its main side and item cards, kinds from the reading, else cards.jsonl's facts (battlesim.deck_cards, as
     /plan builds its draw pile - the simulator's last read of them, else cards.jsonl alone: never the battles recorded,
     sim_book's read); never a treasure card's (Draw.ahk draws only an enchant for a kill) - from the decks' last reading
-    (every deck's with kinds - decks_reading -, else the worn deck's), never a fresh read: it answers in a battle.
+    (every deck's with kinds - decks_reading -, else the worn deck's), never a fresh read: it answers in a battle. The
+    worn deck's own reading newer and wearing the same deck (its cards read): ITS cards counted - the one its sig is
+    checked for: navmem keeps every deck's reading beside it when only counts changed (_worn_misfit), so a Sharpen put
+    in twice more since would be counted once -, each card's kind by its template from every deck's reading, else the
+    facts (its item cards every deck's when it has none, or one's template isn't known).
     kinds|<sharpen n>|<potent n>|<sig>|<age s>: sig 1 the worn deck's signature now (navmem deck_sig, about 2 ms - what
     battlerec's sig_ok compares at each battle's start) is the worn deck reading's and that reading wears the deck
     counted, 0 it isn't (another deck worn since: the counts not to be used), "" not known; none|<why> no worn deck
@@ -2680,8 +2684,23 @@ def deckkinds_lines(ctx=None):
         worn = ctx['worn'] if 'worn' in ctx else nav_reader().deck(fresh=False)[0]
         deck = next((d for d in (reading or {}).get('decks') or [] if d.get('equipped')), None)
         src = reading
+        wl = worn.get('decks') if isinstance(worn, dict) else None
+        wdeck = next((d for d in wl if isinstance(d, dict) and d.get('equipped')), None) \
+            if isinstance(wl, (list, tuple)) else None
         if deck is None:
-            deck = next((d for d in (worn or {}).get('decks') or [] if d.get('equipped')), None)
+            deck, src = wdeck, worn
+        elif wdeck is not None and wdeck is not deck and wdeck.get('gid') == deck.get('gid') \
+                and wdeck.get('ok') is not False:
+            # (the worn deck's newer reading - its cards, kinds by template from every deck's)
+            kinds = {c.get('template_id'): c.get('kind') for c in deck.get('cards') or []
+                     if isinstance(c, dict) and c.get('kind')}
+            items = wdeck.get('item_cards')
+            if not items or not isinstance(items, (list, tuple)) or \
+                    any(not isinstance(c, dict) or c.get('template_id') is None for c in items):
+                items = deck.get('item_cards')
+            deck = dict(wdeck, item_cards=items,
+                        cards=[dict(c, kind=c.get('kind') or kinds.get(c.get('template_id'))) if isinstance(c, dict)
+                               else c for c in wdeck.get('cards') or []])
             src = worn
         if deck is None:
             return ['none|no worn deck read (the Cards tab\'s From game, or a battle recorded since the helper started)']
@@ -2695,7 +2714,6 @@ def deckkinds_lines(ctx=None):
         sig = ''
         try:
             now = ctx['sig'] if 'sig' in ctx else nav_reader().deck_sig()[0]
-            wdeck = next((d for d in (worn or {}).get('decks') or [] if d.get('equipped')), None)
             if now is not None and worn and worn.get('sig') is not None and wdeck is not None:
                 sig = '1' if now == worn['sig'] and wdeck.get('gid') == deck.get('gid') else '0'
         except Exception:  # noqa: BLE001 - not known

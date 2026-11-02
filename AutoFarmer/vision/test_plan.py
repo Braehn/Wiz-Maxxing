@@ -1550,11 +1550,16 @@ class DeckKinds(unittest.TestCase):
         facts[202] = {"rec": "card", "v": 1, "tid": 202, "name": "Potent Trap", "kind": "potent", "value": "+10%",
                       "full": True}
         reading = {"decks": [d], "equipped": 0xABC, "why": "", "read_at": time.monotonic() - 30}
-        worn = {"decks": [dict(d)], "sig": "S1", "read_at": time.monotonic()}
+        worn = {"decks": [dict(d)], "sig": "S1", "read_at": time.monotonic() - 10}
         out = self.V.deckkinds_lines({"decks": reading, "worn": worn, "sig": "S1", "facts": facts})
         self.assertEqual(len(out), 1, out)
         f = out[0].split("|")
         self.assertEqual(f[:4], ["kinds", "2", "1", "1"])      # (the treasure side's 3 Sharpens not counted)
+        self.assertAlmostEqual(float(f[4]), 10, delta=2)        # (the worn deck's newer reading counted - its age)
+        # (the worn deck's reading every deck's own - one reading: its age)
+        f = self.V.deckkinds_lines({"decks": reading, "worn": dict(reading, sig="S1"), "sig": "S1",
+                                    "facts": facts})[0].split("|")
+        self.assertEqual(f[:4], ["kinds", "2", "1", "1"])
         self.assertAlmostEqual(float(f[4]), 30, delta=2)
         # (another deck worn since the reading: sig 0; the signature not known: "")
         self.assertEqual(self.V.deckkinds_lines({"decks": reading, "worn": worn, "sig": "S2", "facts": facts})[0]
@@ -1572,6 +1577,41 @@ class DeckKinds(unittest.TestCase):
         # (junk never raises)
         self.assertTrue(self.V.deckkinds_lines({"decks": {"decks": "x"}, "worn": 5, "sig": [], "facts": 7})[0]
                         .startswith(("none|", "kinds|")))
+
+    def test_worn_reading_counts(self):
+        """the worn deck's newer reading wearing the same deck: ITS cards counted (navmem keeps every deck's reading
+        beside it when only counts changed - a Sharpen put in twice more since), kinds by template from every deck's"""
+        import copy
+        d = deckmem_deck()
+        d["cards"].append(dict(d["cards"][2], name="Sharpened Blade", display="Sharpened Blade", kind="sharpen",
+                               template_id=201, count=1, boosts_text="", value_text="+10%"))
+        d["item_cards"] = [{"name": "Potent Trap", "template_id": 202, "count": 1, "display": "Potent Trap",
+                            "from": "Pet"}]
+        every = {"decks": [d], "read_at": time.monotonic() - 1200}       # 20 min old: 1 Sharpen
+        w = copy.deepcopy(d)
+        for c in w["cards"]:
+            c.pop("kind", None)                                           # (the recorder's: no kinds)
+            if c["template_id"] == 201:
+                c["count"] = 3
+        worn = {"decks": [w], "sig": "S2", "read_at": time.monotonic() - 5}
+        facts = {202: {"rec": "card", "v": 1, "tid": 202, "name": "Potent Trap", "kind": "potent", "full": True}}
+        f = self.V.deckkinds_lines({"decks": every, "worn": worn, "sig": "S2", "facts": facts})[0].split("|")
+        self.assertEqual(f[:4], ["kinds", "3", "1", "1"])
+        self.assertAlmostEqual(float(f[4]), 5, delta=2)                   # (the worn reading's age)
+        # (its item cards not known, or one's template not known: every deck's)
+        for items in (None, [], [{"name": "Potent Trap", "template_id": None, "count": 1}]):
+            w["item_cards"] = items
+            self.assertEqual(self.V.deckkinds_lines({"decks": every, "worn": worn, "sig": "S2", "facts": facts})[0]
+                             .split("|")[:4], ["kinds", "3", "1", "1"], items)
+        w["item_cards"] = [{"name": "Potent Trap", "template_id": 202, "count": 2}]
+        self.assertEqual(self.V.deckkinds_lines({"decks": every, "worn": worn, "sig": "S2", "facts": facts})[0]
+                         .split("|")[:3], ["kinds", "3", "2"])
+        # (its cards not read, or another deck worn: every deck's reading counted, as before)
+        self.assertEqual(self.V.deckkinds_lines({"decks": every, "worn": {"decks": [dict(w, ok=False)], "sig": "S2"},
+                                                 "sig": "S2", "facts": facts})[0].split("|")[:3], ["kinds", "1", "1"])
+        f = self.V.deckkinds_lines({"decks": every, "worn": {"decks": [dict(w, gid=0xDEF)], "sig": "S2"},
+                                    "sig": "S2", "facts": facts})[0].split("|")
+        self.assertEqual(f[:4], ["kinds", "1", "1", "0"])
 
     def test_never_reads_the_battles(self):
         """the facts without waiting (it answers in a battle, 600 ms at most): the simulator's last read of them at any
