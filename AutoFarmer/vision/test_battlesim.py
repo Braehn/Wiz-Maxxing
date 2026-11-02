@@ -2658,7 +2658,7 @@ class SpentCopies(unittest.TestCase):
 
     def test_sharpen_still_to_come_keeps_one(self):
         # (the deck holds one - the bot's /deckkinds count, less its sharpened casts (none here) - wherever it is now:
-        # the draw pile, or already thrown away as a kind the simulator doesn't play; not hand + draw pile only)
+        # the draw pile, or the spent pile (cast, or thrown away); not hand + draw pile only)
         b = battle([stormblade()] * 3 + [lord()], pile=[SHARPEN] * 3, pips=0, fhp=[9000], opts=ON)
         b.discard()
         self.assertEqual(names(b.hand).count("Stormblade"), 2)

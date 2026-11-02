@@ -101,7 +101,8 @@ THE MODEL (one battle, round by round, until every enemy is dead, the wizard is,
   and the wand only and needs the enemies' health read - healthocr or memclicks -; the simulator's at every hit in hand,
   a treasure card drawn in an earlier round too); a treasure card
   drawn now waits for the next round, an enchant excepted (the bot's card flags were set before the draw - but it can
-  cast a drawn learned hit in no slot at once); a Draw that ends the turn (the bot then stops drawing till it's
+  cast a drawn learned hit in no slot at once, and UseBlade / UseTrap look for a Sharpen / Potent afresh, so a drawn
+  one goes on the blade / trap it casts that round); a Draw that ends the turn (the bot then stops drawing till it's
   restarted - the AHK sends drawenchant 0 once it has seen one); the defend check's blind spot: your health unread (the
   bot then doesn't defend, the simulator does); the enchant's +N the bot's own kill check counts (its enchantN settings
   - the simulator takes the card's number: the same unless you changed them); a blade or trap of two schools other than
@@ -349,8 +350,9 @@ def _on_name(c):
 
 def _pkey(c):
     """a deck copy's sharpened / potent cast's used key: its slot and '+' (KillCalc.ahk KeyFlags' Use1 - _bkey is the
-    plain cast's, Use2). Set only by a sharpened / potent cast, /plan's used1= or a '+' blade on with a Sharpen among
-    the cards (bot_sharpened) - so never in a battle with no Sharpen or Potent"""
+    plain cast's, Use2). Set only by a sharpened / potent cast, /plan's used1= (State.boosts_used's src '+') or a '+'
+    blade / trap on with a Sharpen / Potent among the cards (bot_sharpened) - so never in a battle with no Sharpen or
+    Potent"""
     return _slot(c.kind, c.boosts) + ("+",)
 
 
