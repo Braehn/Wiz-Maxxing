@@ -3720,8 +3720,11 @@ Sleep(3000)
 Send("{" speedKeyName " down}")
 Sleep(250)
 Send("{" speedKeyName " up}")
-;(if Cheat Engine already has it: the game's at that speed now)
-SpeedNow := fast ? SpeedFactor() : 1, SpeedSentAt := A_TickCount
+;(if Cheat Engine already has it: the game's at that speed now - only with the speedhack setting on. Off, the key is
+;for Cheat Engine's hotkey box, and a walking speed counted then held the mouse's turns back till the next stop)
+if (SpeedSetting())
+	SpeedNow := fast ? SpeedFactor() : 1
+SpeedSentAt := A_TickCount
 DebugLog("Speedhack: " speedKeyName " pressed (for Cheat Engine's hotkey box)")
 return
 }

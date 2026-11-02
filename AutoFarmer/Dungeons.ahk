@@ -866,7 +866,7 @@ DgSteer(nav, p, d)
 	;it (2026-10-24: you asked); standing - the mouse turns only the camera then - or the mouse can't: on the spot, A/D)
 	if (Abs(h) > 60 && d < 250)
 		{
-		if (HeldW && Abs(h) <= 150 && (WkNavTrusted || WkNavChecked) && MouseSteerWhyNot(true, false) = "" && MouseTurn(h, false) != "")
+		if (HeldW && Abs(h) <= 150 && (WkNavTrusted || WkNavChecked) && MouseSteerWhyNot(true, false, true) = "" && MouseTurn(h, false) != "")
 			{
 			Sleep(60)
 			return

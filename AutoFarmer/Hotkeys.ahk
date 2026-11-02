@@ -15,8 +15,8 @@ global HkCapMods
 global KeyList, KeyHelp, KeyStatus, KeyChangeBtn, KeyDefaultBtn, KeyNoneBtn, KeyAllBtn
 
 ;Every action that has a key: {id, label, def (its key out of the box), ctx (when it works: game - the bot on, or
-;Wizard101 in front; on - the bot on; "" always; rec - only while recording, made by the recorder), run (the label it
-;runs - in Autofarmer.ahk)}
+;Wizard101 in front; front - only with Wizard101 in front, the bot on or not; on - the bot on; "" always; rec - only
+;while recording, made by the recorder), run (the label it runs - in Autofarmer.ahk)}
 HkActions()
 	{
 	static list := ""
@@ -24,7 +24,7 @@ HkActions()
 		list := [V1Obj({id: "bot", label: "The bot on / off", def: "F6", ctx: "game", run: "MenuBotToggle"})
 			, V1Obj({id: "walk", label: "Walking on / off", def: "F8", ctx: "game", run: "MenuWalk"})
 			, V1Obj({id: "dash", label: "The dashboard (show / hide)", def: "#2", ctx: "", run: "HkDash"})
-			, V1Obj({id: "overlay", label: "The overlay over the game on / off (map and log)", def: "#4", ctx: "game", run: "MenuOverlay"})
+			, V1Obj({id: "overlay", label: "The overlay over the game on / off (map and log)", def: "#4", ctx: "front", run: "MenuOverlay"})
 			, V1Obj({id: "restart", label: "Restart the bot", def: "#1", ctx: "", run: "MenuRestart"})
 			, V1Obj({id: "restart2", label: "Restart the bot (a second key)", def: "!Esc", ctx: "", run: "HkRestart2"})
 			, V1Obj({id: "quit", label: "Quit the bot", def: "#Esc", ctx: "", run: "HkQuit"})
@@ -167,6 +167,12 @@ HkCtxOn(hk := "")
 	return BotOn
 	}
 
+;Only with Wizard101 in front (the overlay's: Windows+4 isn't taken from your other programs while the bot runs)
+HkCtxFront(hk := "")
+	{
+	return WinActive("ahk_exe WizardGraphicalClient.exe")
+	}
+
 ;Every action's key made as it's set now - the ones changed taken off first, then the new ones put on (two actions
 ;swapping keys don't take each other's). $: the bot's own Send never sets one off. A key the Hotkey command won't take:
 ;said, and that action has none
@@ -175,7 +181,7 @@ HkApply()
 	static ctx := ""
 	global HkOn ; (v1 globals it sets)
 	if (!IsObject(ctx))
-		ctx := V1Obj({game: HkCtxGame, on: HkCtxOn})
+		ctx := V1Obj({game: HkCtxGame, on: HkCtxOn, front: HkCtxFront})
 	if (!IsObject(HkOn))
 		HkOn := V1Obj()
 	want := V1Obj()
@@ -328,7 +334,7 @@ KeyListFill()
 	lv.Delete()
 	for i, a in HkActions()
 		{
-		when := a.ctx = "game" ? "the bot on, or in Wizard101" : a.ctx = "on" ? "the bot on" : a.ctx = "rec" ? "while recording" : "always"
+		when := a.ctx = "game" ? "the bot on, or in Wizard101" : a.ctx = "front" ? "in Wizard101" : a.ctx = "on" ? "the bot on" : a.ctx = "rec" ? "while recording" : "always"
 		k := HkKeyOf(a.id)
 		r := lv.Add("", a.label, HkName(k), HkName(a.def) (HkSame(k, a.def) ? "" : "  (changed)"), when, a.id)
 		if (a.id = keep)

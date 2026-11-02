@@ -986,6 +986,22 @@ MouseLockKeys(on)
 	made := 1
 	}
 
+;The bot's right button pressed as a raw mouse_event (MouseSteer.ahk MouseSteerButton - its own press didn't reach the
+;game): the lock's right-button hotkey off while it's down (free 1 - it would take that press for yours and swallow it),
+;on again once it's up (0). Only while the lock swallows clicks; the rest of the lock - your moves held, the other
+;buttons and the wheel swallowed, the watchdog, the keyboard free (F6) - as it was
+MouseLockRightFree(free)
+	{
+	if (!MouseLockClicks)
+		return
+	HotIfWinActive("ahk_class Wizard Graphical Client ahk_exe WizardGraphicalClient.exe")
+	if (free)
+		HkTry("*RButton", "Off")
+	else
+		HkTry("*RButton", MouseLockSwallow, "On")
+	HotIfWinActive()
+	}
+
 MouseLockKeyList()
 	{
 	return ["*LButton", "*RButton", "*MButton", "*XButton1", "*XButton2", "*WheelUp", "*WheelDown", "*WheelLeft", "*WheelRight"]

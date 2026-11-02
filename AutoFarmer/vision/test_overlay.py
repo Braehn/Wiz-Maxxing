@@ -984,6 +984,87 @@ class AhkParity(unittest.TestCase):
         self.assertIn('IniRead(A_ScriptDir "\\dashboard.ini", "hotkeys")', body)
         self.assertIn('HkSame(Trim(SubStr(A_LoopField, p + 1)), a.def)', body)
         self.assertNotIn('? k : a.def', body)
+        # (v1.8.1: the overlay's key only with Wizard101 in front - Windows+4 stays your other programs' while the bot
+        # runs; every other action's context as it was)
+        self.assertTrue([ln for ln in code if 'id: "overlay"' in ln and 'ctx: "front"' in ln])
+        self.assertEqual(len([ln for ln in code if 'ctx: "front"' in ln]), 1)
+        for act in ('bot', 'walk'):
+            self.assertTrue([ln for ln in code if 'id: "%s"' % act in ln and 'ctx: "game"' in ln], act)
+        text = '\n'.join(code)
+        self.assertRegex(text, r'\nHkCtxFront\(hk := ""\)\s*\{\s*return WinActive\("ahk_exe WizardGraphicalClient\.exe"\)\s*\}')
+        self.assertIn('ctx := V1Obj({game: HkCtxGame, on: HkCtxOn, front: HkCtxFront})', text)
+        self.assertIn('a.ctx = "front" ? "in Wizard101"', text)
+
+    def test_mousesteer_v181(self):
+        """v1.8.1: the mouse never given up on silently (MouseSteer.ahk) - each reason through MouseSteerNote, the
+        measuring try's back-off, a failed facing read counted as a miss, the 10-minute pause shown, the raw press
+        retried when the drag didn't reach the game, 1x for the turn above 5x, the bot's own windows' words left out;
+        the callers that drop the speed say so (slows) - msWalk doesn't"""
+        ms_lines = ahk_lines(os.path.join('..', 'AutoQuester', 'MouseSteer.ahk'))
+        ms = '\n'.join(ahk_code(ms_lines))
+        self.assertEqual(semicolon_hits(ms_lines), [])
+        self.assertIn('MouseSteerWhyNot(needW := true, byMem := true, slows := false)', ms)
+        self.assertIn('if (SpeedNow > 5 && !slows)', ms)
+        self.assertRegex(ms, r'why := MouseSteerWhyNot\(true, byMem, true\)\s*if \(why != ""\)\s*\{\s*'
+                             r'MouseSteerNote\("not now - " why\)\s*return ""')
+        self.assertNotIn('why != "off"', ms)
+        self.assertIn('if (MsK = "" && MsTriedAt && A_TickCount - MsTriedAt < 10000)', ms)
+        self.assertEqual(ms.count('SpeedSet(0, "a mouse turn")'), 2)
+        self.assertEqual(ms.count('MouseSteerNote("the facing couldn\'t be read (" MsYawWhy ")'), 2)
+        self.assertIn('if (MsK = "" && !msUser)', ms)
+        self.assertNotIn('if (MsK = "" && msY != "" && !msUser)', ms)
+        self.assertIn('MsFails := 0, MsOffUntil := A_TickCount + 600000, msGaveUp := true', ms)
+        m = re.search(r'\nMouseSteerGaveUp\(\)\s*\{.*?\n\t\}', ms, re.S)
+        self.assertIsNotNone(m)
+        for bit in ('SetStatus(', 'TrayTip(', 'static msTold := 0', 'Lock my mouse while the bot uses it for one run',
+                    'check your wizard turns when you right-drag yourself'):
+            self.assertIn(bit, m.group(0), bit)
+        self.assertIn('"the game didn\'t take the right-button drag"', ms)
+        self.assertIn('"the game took the drag but the wizard didn\'t turn"', ms)
+        self.assertIn('"the wizard\'s facing couldn\'t be read from the game\'s memory mid-turn ("', ms)
+        # (a word's or window's place left out of the once-a-minute key: one moving about isn't said at every look)
+        self.assertIn('msKey := RegExReplace(what, " at -?\\d+,-?\\d+ in the game", "")', ms)
+        self.assertIn('if (msNoted.Has(msKey) && A_TickCount - msNoted[msKey] < 60000)', ms)
+        # (a look that turned him the wrong way isn't "too small", nor held back 10 s like a missed measuring try)
+        self.assertIn('if (!sent && MsK != "")', ms)
+        self.assertIn('MsTriedAt := A_TickCount - ((!probed && MsK = "") ? 9500 : 0)', ms)
+        # (the raw press: the retry only when the cursor showed before and after, and let go the way it was pressed)
+        self.assertIn('if (MsK = "" && msY != "" && !msUser && !MsRaw && InStr(msCur0, "shown") && InStr(msCur1, "shown"))', ms)
+        self.assertIn('if (down ? MsRaw : (MsHeld = 2))', ms)
+        self.assertIn('DllCall("mouse_event", "UInt", down ? 0x0008 : 0x0010', ms)
+        # (AutoQuester has no mouse lock: each call of another file's function guarded - NavRead's by MouseSteerOn,
+        # which every turn asks first)
+        lines = ms.split('\n')
+        for i, ln in enumerate(lines):
+            for fn in re.findall(r'%"(\w+)"%\.Call', ln):
+                if fn == 'NavRead':
+                    continue
+                self.assertIn('V1IsFunc("%s")' % fn, lines[i - 1] + ln, (i, fn))
+        # (the bot's own windows: read, never hidden; the press point's window looked at)
+        m = re.search(r'\nMouseSteerWindowClear\(\)\s*\{.*?\n\t\}', ms, re.S)
+        self.assertIsNotNone(m)
+        for bit in ('MouseSteerUnder(mwPx, mwPy, &mwWhat)', 'MouseSteerOwnRects()', 'MouseSteerInRects(', '&mwLines)'):
+            self.assertIn(bit, m.group(0), bit)
+        for bad in ('WinHide', '.Hide()', 'SetWindowDisplayAffinity', 'WinSetTransparent', 'WinMove'):
+            self.assertNotIn(bad, ms, bad)
+        self.assertIn('global MsYawWhy := "", MsRaw := "", MsMissWhy := ""', ms)
+        wk = '\n'.join(ahk_code(ahk_lines(os.path.join('..', 'AutoQuester', 'Walker.ahk'))))
+        self.assertIn('&& ((arcOk = 1 && Abs(steer) <= 150) || (arcOk = "" && Abs(steer) <= 100)) && MouseSteerWhyNot(false) = ""', wk)
+        self.assertEqual(wk.count('MouseSteerWhyNot(HeldW ? true : false, false, true) = ""'), 2)
+        self.assertRegex(wk, r'WalkNavSay\(why, nav\)\s*WalkMouseSay\(why\)')
+        self.assertIn('wmNow := V1IsFunc("NavRead") ? "off (Settings: Turn with the mouse while walking)"', wk)
+        self.assertIn('wmNow := "waiting for the game\'s memory ("', wk)
+        # ("ready" only while it steers by the game's memory - a count measured in a dungeon isn't that)
+        self.assertRegex(wk, r'else if \(WkNavUse\)\s*wmNow := wmSaid = "" \? "" : "ready')
+        dg = '\n'.join(ahk_code(ahk_lines('Dungeons.ahk')))
+        self.assertIn('MouseSteerWhyNot(true, false, true) = "" && MouseTurn(h, false) != ""', dg)
+        st = '\n'.join(ahk_code(ahk_lines('Settings.ahk')))
+        m = re.search(r'\nMouseLockRightFree\(free\)\s*\{.*?\n\t\}', st, re.S)
+        self.assertIsNotNone(m)
+        self.assertIn('HkTry("*RButton", "Off")', m.group(0))
+        self.assertIn('HkTry("*RButton", MouseLockSwallow, "On")', m.group(0))
+        af = '\n'.join(ahk_code(ahk_lines('Autofarmer.ahk')))
+        self.assertRegex(af, r'\nif \(SpeedSetting\(\)\)\s*SpeedNow := fast \? SpeedFactor\(\) : 1\s*SpeedSentAt := A_TickCount')
 
     def test_autofarmer(self):
         code = ahk_code(ahk_lines('Autofarmer.ahk'))

@@ -1476,7 +1476,7 @@ WalkStep()
 	;(the way out behind: turned toward it by the mouse - running, MouseTurn; standing, MouseStandTurn - and run on out,
 	;not turned back toward the mob (2026-10-24: no S key, the mouse is the steadier); the mouse can't: backed out with S)
 	if (escaping && Abs(steer) > 120 && MsK != "" && (WkNavTrusted || WkNavChecked) && !(MsTriedAt && A_TickCount - MsTriedAt < 500)
-		&& MouseSteerWhyNot(HeldW ? true : false, false) = "")
+		&& MouseSteerWhyNot(HeldW ? true : false, false, true) = "")
 		{
 		turned := MouseTurnAny(steer)
 		if (turned != "" && !HeldW)
@@ -1510,6 +1510,8 @@ WalkStep()
 	;(and only with the wizard running a moment already - MouseSteerWhyNot's "just set off": a big turn from standing goes
 	;the counted way, on the spot)
 	;(getting out of a mob's reach too - turning on the spot there, or by A/D, is how it got caught: 2026-10-24)
+	;(not sped up over 5x - MouseSteerWhyNot's slows false: the arc was looked at for the speed now, and dropping to 1x
+	;first would take it past; the turns on the spot drop to 1x and take the mouse - Turn)
 	msWalk := WkNavUse && steer = h && Abs(steer) > TurnInPlace && WkArcMouse && MsK != ""
 		&& HeldW && WkWalkFrom && A_TickCount - WkWalkFrom >= 600
 		&& ((arcOk = 1 && Abs(steer) <= 150) || (arcOk = "" && Abs(steer) <= 100)) && MouseSteerWhyNot(false) = ""
@@ -3666,7 +3668,7 @@ BackUp(ms)
 	;key (2026-10-24: the mouse is the steadier). Standing - the mouse turns only the camera then - or the mouse can't:
 	;S, as before)
 	if (MsK != "" && V1IsFunc("MouseTurnAny") && (WkNavTrusted || WkNavChecked) && !(MsTriedAt && A_TickCount - MsTriedAt < 500)
-		&& MouseSteerWhyNot(HeldW ? true : false, false) = "")
+		&& MouseSteerWhyNot(HeldW ? true : false, false, true) = "")
 		{
 		MsStandGot := ""
 		round1 := MouseTurnAny(180)
@@ -5900,10 +5902,14 @@ WalkNav(hScr, dScr)
 	global TurnRadius ; (v1 globals it sets)
 	WkNavOk := 0, WkNavUse := 0, WkNavH := "", WkNavD := "", WkNavHops := "", WkNavRouted := 0, WkNavLeft := ""
 	WkNavJump := "", WkNavJumpAt := "", WkNavMob := "", WkNavRel := ""
-	;(AutoQuester on its own has no vision helper. In a battle there's nothing to steer, and the battle
-	;shouldn't wait for it)
+	;(AutoQuester on its own has no vision helper - nor the mouse's turns: said once. In a battle there's nothing to
+	;steer, and the battle shouldn't wait for it)
 	if (!V1IsFunc("NavRead") || inbattle)
+		{
+		if (!inbattle)
+			WalkMouseSay("")
 		return
+		}
 	;(the route kept away from mobs - mobavoid, on unless it's 0 - a collect goal's too: the quest's goal line goes along,
 	;read only if the ask is sent, and the mobs it names aren't avoided - only the others. 2026-10-24: a collect goal
 	;turned avoiding off for every mob - the map's rings went and the wizard walked into crabs it didn't need)
@@ -6054,6 +6060,8 @@ WalkNav(hScr, dScr)
 	if (why != "" && relKeep != "" && A_TickCount - relAt < 2000)
 		WkNavRel := relKeep
 	WalkNavSay(why, nav)
+	;(the mouse's turns not tried at all - not steering by the game's memory, or switched off: said - MouseSteer.ahk)
+	WalkMouseSay(why)
 	WalkNavRouteSay(why = "" ? nav : "")
 	;(no way on but teleports that don't take the wizard - the helper gave them up: WalkStep stops walking)
 	if (why = "" && InStr(nav.routewhy, "teleport that doesn't take the wizard") && !WkJumpStuck)
@@ -6382,6 +6390,29 @@ WalkMedian(list)
 		}
 	n := sorted.Length
 	return Mod(n, 2) ? sorted[(n + 1) // 2] : (sorted[n // 2] + sorted[n // 2 + 1]) / 2
+	}
+
+;Why the walker can't try the mouse's turns at all now (MouseSteer.ahk): switched off, or not steering by the game's
+;memory - a mouse count's worth is measured only on a turn steered by it, and WalkStep's small corrections (MouseTurn)
+;try the mouse only while it steers so, measured or not. Said once a run and on each change, and "ready" once it can
+;after that; nothing said while all's well from the start. why: this reading's problem (WalkNavProblem - "" none).
+;Nothing read for it: the walker's own state
+WalkMouseSay(why)
+	{
+	static wmSaid := ""
+	if (!V1IsFunc("MouseSteerOn"))
+		return
+	if (!MouseSteerOn())
+		wmNow := V1IsFunc("NavRead") ? "off (Settings: Turn with the mouse while walking)" : "off (no game memory read here - AutoFarmer's vision helper reads it)"
+	else if (WkNavUse)
+		wmNow := wmSaid = "" ? "" : "ready - steering by the game's memory, the mouse tried on its turns"
+	else
+		wmNow := "waiting for the game's memory (" (why != "" ? "it " why : WkNavTrusted ? "no heading to the goal" : "its heading not checked against the arrow's yet") ")"
+	if (wmNow = wmSaid)
+		return
+	wmSaid := wmNow
+	if (wmNow != "")
+		MouseSteerNote(wmNow)
 	}
 
 ;Logs the game's memory coming and going: once each way, not every step
