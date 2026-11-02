@@ -35,7 +35,9 @@ THE MODEL (one battle, round by round, until every enemy is dead, the wizard is,
   once a treasure card was drawn) and while the slot's own sharpened cast is free -, the weakest first, at most 3 a slot
   a round, not counted in discardmax; then (DiscardSpare - whatever discardunused, a hitter) a blade slot whose two
   casts both went and that can't go again: its first copy in hand thrown, at most 3 a round, unless discardspent did
-  it; the spare Sharpen - once a blade was sharpened and no blade in hand can still take one - at most 3 a round; a
+  it - nor with reboost on when the AutoFarmer says it keeps them (reboostkeep, v1.9.1: the next hit the blade fits
+  frees both its casts, so its copies stay); the spare Sharpen - once a blade was sharpened and no blade in hand can
+  still take one - at most 3 a round; a
   Potent is never thrown; the kill check - the cheapest hit that kills its target(s) at its least damage with the
   boosts on (killmargin % to spare), first with no enchant, then with the best enchant in hand; (drawenchant -
   Draw.ahk) no kill found and no bot enchant in hand, but a payable hit - not an item card's, not enchanted - would
@@ -569,15 +571,20 @@ class Opts:
     hand or still to come (the deck's count less the slots of its kind sharpened so far, not counted down once a
     treasure card was drawn) and the slot's sharpened cast is free - Autofarmer.ahk DiscardSpent, _discard_spent; on
     only at exactly 1. Settings.ahk's default is on and this AutoFarmer always sends it - not sent: an older AutoFarmer,
-    which holds its used copies, so off here)"""
+    which holds its used copies, so off here); reboostkeep (v1.9.1 - no setting: this AutoFarmer always sends it -
+    Decks.ahk DeckSimVals -, 1 where its DiscardSpare keeps a blade's copies with reboost on - Autofarmer.ahk
+    ReboostKeepRole: set to Hitter or the party off, not Alt+2's pick -, else 0. With reboost on and it,
+    _discard_spare's both-casts rule doesn't run: the next hit a blade fits frees both its casts, so its copies stay
+    for the casts after it; on only at exactly 1. Not sent: an older AutoFarmer, which throws them under reboost too,
+    so off here)"""
     KEYS = ("cardlogic", "boostmax", "healat", "killmargin", "useblades", "usetraps", "useaura", "useheal",
             "discardunused", "discardmax", "usetower", "useabsorb", "defendat", "usereshuffle", "reboost",
-            "drawenchant", "drawneed", "drawround", "drawmax", "enemyspells", "discardspent")
+            "drawenchant", "drawneed", "drawround", "drawmax", "enemyspells", "discardspent", "reboostkeep")
 
     def __init__(self, cardlogic=1, boostmax=0, healat=40, killmargin=15, useblades=1, usetraps=1, useaura=1, useheal=1,
                  discardunused=1, discardmax=3, boss=False, usehit=True, role="hitter", usetower=1, useabsorb=1,
                  defendat=30, usereshuffle=1, reboost=0, drawenchant=0, drawneed=100, drawround=3, drawmax=6,
-                 enemyspells=1, discardspent=0):
+                 enemyspells=1, discardspent=0, reboostkeep=0):
         self.role = role if role in ("hitter", "blader", "healer") else "hitter"
         # (a number it can't read - NaN, an infinity, junk - the default: never raises)
         self.cardlogic, self.boostmax, self.healat, self.killmargin = _int(cardlogic, 1), _int(boostmax, 0), \
@@ -601,6 +608,9 @@ class Opts:
         self.enemyspells = _fnum(enemyspells, 1.0) != 0
         # (Settings.ahk discardspent - the bot's Stat("discardspent") == 1: on only at exactly 1)
         self.discardspent = _fnum(discardspent, 0.0) == 1
+        # (v1.9.1 - Decks.ahk DeckSimVals: this AutoFarmer's DiscardSpare keeps a blade's copies with reboost on - on
+        # only at exactly 1; not sent: an older AutoFarmer, which throws them under reboost too - off)
+        self.reboostkeep = _fnum(reboostkeep, 0.0) == 1
 
     @classmethod
     def of(cls, vals, boss=False):
@@ -1655,7 +1665,8 @@ class _Battle:
         """the bot's discards (discardunused): the cards it never plays, at most discardmax a round - each to the spent
         pile; a treasure card in hand (one drawn) never (Draw.ahk DiscardIsTc, CardLearn.ahk DiscardUnused); then the
         blade and trap copies it can't cast again (discardspent - _discard_spent); then DiscardSpare's two rules,
-        discardunused on or off (_discard_spare - its both-casts rule only when _discard_spent didn't run)"""
+        discardunused on or off (_discard_spare - its both-casts rule only when _discard_spent didn't run, and not
+        with reboost and reboostkeep on)"""
         if not self.opts.discardunused:
             self._discard_spare(True)
             return
@@ -1723,11 +1734,13 @@ class _Battle:
         return True
 
     def _discard_spare(self, both):
-        """Autofarmer.ahk DiscardSpare's two rules (after DiscardSpent; every look, whatever discardunused and reboost -
-        README's Discarding): a hitter only (a support's DiscardSpare is BoostMisfitDiscard), and only once a blade was
+        """Autofarmer.ahk DiscardSpare's two rules (after DiscardSpent; every look, whatever discardunused - README's
+        Discarding): a hitter only (a support's DiscardSpare is BoostMisfitDiscard), and only once a blade was
         sharpened this battle (a blade's '+' key - dsSharpUsed; none: nothing happens, the battle as before). The blade
         slots it looks at: the blades in hand that fit my school or a head of a hit in hand (the bot's SbFound, GbFound,
-        blade3 / blade4). The both-casts rule (both - DiscardSpent didn't run): a slot whose plain and sharpened casts
+        blade3 / blade4). The both-casts rule (both - DiscardSpent didn't run; v1.9.1: not with reboost on when the
+        AutoFarmer says it keeps the copies - reboostkeep: the next hit the slot fits frees both casts, so its copies
+        stay for the casts after it): a slot whose plain and sharpened casts
         both went and no copy of it in hand can go (_can_go - a treasure card's copy with its flag free keeps the slot's
         copies) - the first copy in hand thrown, at most 3 a slot a round, stopping at a treasure or item card's (the
         bot's DiscardCard takes Find's first match and won't right-click one of those: nothing goes). The spare-Sharpen
@@ -1747,7 +1760,9 @@ class _Battle:
 
         def first(test):                             # (Find's first match)
             return next((c for c in self.hand if test(c)), None)
-        if both:                                     # (the both-casts rule - DiscardSpent didn't run)
+        # (the both-casts rule - DiscardSpent didn't run; v1.9.1: not with reboost on when the AutoFarmer keeps the
+        # copies - reboostkeep: the next hit the slot fits frees both casts, so its copies stay for the casts after it)
+        if both and not (self.opts.reboost and self.opts.reboostkeep):
             for k in keys:
                 def cp(c, k=k):
                     return c.kind == "blade" and _slot("blade", c.boosts) == k
@@ -3579,9 +3594,10 @@ def main(argv=None):
         name, _, rest = spec.partition(":")
         hp, _, sch = rest.partition(":")
         foes.append(book.foe(name, hp=int(hp) if hp.isdigit() else None, school=sch or None))
-    # (as this AutoFarmer plays by default - discardspent on: Opts' own off is an older AutoFarmer's; a boss as
-    # simulate's own default has it)
-    res = simulate(cards, me, foes, Opts(boss=any(f.boss for f in foes), discardspent=1), n=a.n, seed=a.seed)
+    # (as this AutoFarmer plays by default - discardspent on, reboostkeep sent (it acts only with reboost on, which
+    # this has no option for): Opts' own offs are an older AutoFarmer's; a boss as simulate's own default has it)
+    res = simulate(cards, me, foes, Opts(boss=any(f.boss for f in foes), discardspent=1, reboostkeep=1), n=a.n,
+                   seed=a.seed)
     res["why"] = why + res["why"]
     print("\n".join(sim_lines(res, verdict(res, cards, me, foes), foes)))
     return 0

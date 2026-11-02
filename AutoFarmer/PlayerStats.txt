@@ -24,14 +24,16 @@ killmargin:15
 ; planned hit goes). 1 = counted, on the enemy they went on only. 0 = never counted (safe: another player's
 ; or a henchman's hit uses them up without the script seeing it). Set it to 1 only if you fight alone.
 solotraps:0
-; reboost: 1 = after each hit the script may cast its blades/traps again for the next hit.
+; reboost: 1 = after each hit the script may cast its blades/traps again for the next hit - a blade's copies in hand
+; are kept for that (v1.9.1 - as a Hitter or with the party off), not discarded once both its casts went.
 ; 0 = each blade/trap is cast once per battle (how AutoFarmer always played).
 reboost:0
 ; Discarding (right-click): with reboost:0 each blade and trap is cast once a battle, plus once sharpened / made potent
 ; while a Sharpen / Potent is in hand or still in the deck. discardspent:1 (with discardunused:1) discards its other
 ; copies in hand - never a treasure or item card; up to 3 of one blade or trap a round, not counted in discardmax; it
 ; needs the vision helper's read of the game's hand (without it: a blade once both its casts went, as before). A spare
-; Sharpen goes once a sharpened blade was used and no blade in hand still needs one.
+; Sharpen goes once a sharpened blade was used and no blade in hand still needs one. With reboost:1 (as a Hitter, or
+; with the party off) a blade's copies stay once both its casts went: the next hit it fits lets it go again (v1.9.1).
 ; discardunaffordable: 1 = a hit that won't cast is discarded (unless enchanted). 0 = keep it for a later round.
 ; (The script reads your pips off your nameplate and doesn't try hits you can't afford yet.)
 discardunaffordable:0
