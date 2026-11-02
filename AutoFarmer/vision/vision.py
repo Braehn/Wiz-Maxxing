@@ -475,22 +475,25 @@ Requests (all GET, answers are plain text lines, "ERR <why>" on a problem):
                                              verdict|word|text, foe|..., cast|..., note|...), or none|<why>
   /plan?school=&deck=<gid hex>&round=&blades=key~schools~%|...&traps=key~schools~%|...&trapmax=&aura=schools~%~rounds
        &boostrun=&first=1|0&vals=k:v,...&damage=&pierce=&crit=&block=&acc=&resist=&pp=&boss=1&budget=300&n=100
-       [&foes=name~max~school~boss~health|...]
+       [&foes=name~max~school~boss~health|...][&used=key~schools~%|...&draws=&drawoff=1&pshield=1]
                                           -> the round planner (vision\battlesim.py plan_round, Planner.ahk - advice
                                              only): every card in hand that can go now (and a pass) tried in the
                                              simulator from this very round - the hand, pips and health from the game's
                                              memory (/cards' read), the enemies' health (/battle's; else foes=), the
                                              blades (the bot's keys named as the hand's or deck's card: another copy of
                                              one on isn't tried), traps (on the enemy whose most health is trapmax, else
-                                             the one with the most) and aura the bot counts, the worn deck less the hand
-                                             as the draw pile (the decks' last reading - never read in a battle), the
-                                             rest of the battle played the bot's way (vals), learned plays a nudge
-                                             (vision\battlelearn.py) - within budget ms, the reads included:
-                                             battlesim.plan_lines (plan|i|slot|tid|kind|target|won %|rounds|score|why|
-                                             name|target's name|n|hp left %|kill %, alt|... the next ones, chain|... the
-                                             bot's own way, learned|, note|) + foe|index|name|health|max|boss|plate x
-                                             (target: that index; i the card's place in the hand, -1 a pass) +
-                                             planned|rollouts|ms|ms in all, or none|<why> (never an ERR)
+                                             the one with the most) and aura the bot counts, the blades and traps cast
+                                             this battle (the bot's used flags - not sent: the blades on taken as cast),
+                                             treasure cards drawn and drawing off (Draw.ahk), the worn deck's main side
+                                             less the hand as the draw pile, its treasure side drawn the bot's way (the
+                                             decks' last reading - never read in a battle), the rest of the battle
+                                             played the bot's way (vals), learned plays a nudge (vision\battlelearn.py)
+                                             - within budget ms, the reads included: battlesim.plan_lines
+                                             (plan|i|slot|tid|kind|target|won %|rounds|score|why|name|target's name|n|hp
+                                             left %|kill %, alt|... the next ones, chain|... the bot's own way,
+                                             learned|, note|) + foe|index|name|health|max|boss|plate x (target: that
+                                             index; i the card's place in the hand, -1 a pass) + planned|rollouts|ms|ms
+                                             in all, or none|<why> (never an ERR)
        [&role=hitter|blader|healer&seat=4-7&mates=name~seat~school~hp~max~role~pips~power~hand|...&teamplan=1&charms=log]
                                              (v1.0.0 batch 3 - none given: as above) the team model: mates the party's
                                              other wizards on your side (hand: tid:kind:pips:school:value[:ench[:mark]];
@@ -515,18 +518,20 @@ Requests (all GET, answers are plain text lines, "ERR <why>" on a problem):
                                              leader's bot at its round's end: those with a hand for the round and no
                                              order told it wasn't planned). This helper's own server only - never the
                                              LAN's
-  /deckfor?zone=<zone path>[&foes=name~name|name...]&school=&hp=&damage=&pierce=&crit=&block=&acc=&resist=&vals=&n=60
+  /deckfor?zone=<zone path>[&foes=name~name|name...]&school=&hp=&damage=&pierce=&crit=&block=&acc=&resist=&n=60
+       [&vals=k:v,...&dvals=<gid>~k:v,...|...]
                                           -> decks matched to a zone's enemies (battlesim.best_decks): each in-game deck
                                              in an Equipment Set (the decks' last reading - never read here), its
-                                             settings what its cards call for on top of vals, simulated against the
-                                             enemy groups fought most in that zone (the battles recorded - else foes=,
-                                             one group a |) - deckfor|gid|name|won %|rounds|hp left %|lost %|groups|
-                                             battles|why best first, group|battles|names, zone|, note|; worked out in a
-                                             thread and kept 10 minutes: the first ask answers none|working it out -
-                                             ask again; an ask after the 10 minutes gets the old lines (and a note|)
-                                             while they're worked out again (Decks.ahk DeckForZone, Settings: deckzone,
-                                             off). Every deck rolls the same dice against a group: the same cards
-                                             score the same
+                                             settings your settings (vals), and each in-game deck's bot deck profile's
+                                             own (dvals) on top - a deck with none: the settings its cards call for on
+                                             top -, simulated against the enemy groups fought most in that zone (the
+                                             battles recorded - else foes=, one group a |) - deckfor|gid|name|won
+                                             %|rounds|hp left %|lost %|groups|battles|why best first,
+                                             group|battles|names, zone|, note|; worked out in a thread and kept 10
+                                             minutes: the first ask answers none|working it out - ask again; an ask
+                                             after the 10 minutes gets the old lines (and a note|) while they're worked
+                                             out again (Decks.ahk DeckForZone, Settings: deckzone, off). Every deck
+                                             rolls the same dice against a group: the same main deck scores the same
   /quit                                   -> stops
 Add &file=<path> to /cards, /badge, /hand, /cut or /plate to look at a saved screenshot instead of the screen (for
 tests; the rectangle is then in that picture's pixels).
@@ -2767,6 +2772,12 @@ def quests_answer():
 GATED |= {'/book', '/quests'}
 
 
+def _usehit_off(vals):
+    """True when vals ({key: str}) switch every hit off - usehit1-4 all 0 (Decks.ahk DeckSimVals sends them, DeckKeys;
+    the bot's DeckFilterHand then plays no hit): /sim, /deckfor and /plan play that as Opts.usehit False, one rule"""
+    return all(str(vals.get('usehit%d' % i)) == '0' for i in range(1, 5))
+
+
 def sim_lines_for(q):
     """/sim's answer (see the docstring) - never raises"""
     import battlesim as B
@@ -2813,8 +2824,7 @@ def sim_lines_for(q):
             return ['none|no enemies named (foes=)']
         boss = q.get('boss') == '1' or any(f.boss for f in foes)
         opts = B.Opts.of(vals, boss=boss)
-        if any(vals.get('usehit%d' % i) == '0' for i in range(1, 5)) and all(
-                vals.get('usehit%d' % i) == '0' for i in range(1, 5)):
+        if _usehit_off(vals):
             opts.usehit = False
         res = B.simulate(cards, me, foes, opts, n=int(fl('n', 300)))
         res['why'] = notes + res['why']
@@ -2852,7 +2862,7 @@ def deckfor_lines_for(q, ctx=None, wait=False):
                                        "tab's From game)")]
         sig = tuple(sorted((d.get('gid'), d.get('main_n'), d.get('item_n')) for d in decks))
         key = (zone, foes_q, q.get('school') or '', q.get('hp') or '', q.get('damage') or '', q.get('vals') or '',
-               q.get('n') or '', sig)
+               q.get('n') or '', sig, q.get('dvals') or '')
         now = time.monotonic()
         with DECKFOR_LOCK:
             hit = DECKFOR['cache'].get(key)
@@ -2893,17 +2903,38 @@ def deckfor_lines_for(q, ctx=None, wait=False):
                     k, _, v = kv.partition(':')
                     if k.strip():
                         vals[k.strip().lower()] = v.strip()
+                # (each in-game deck's bot deck profile's own settings - Decks.ahk DeckForZone: gid~k:v,...|... - the
+                # first profile per in-game deck that fits your school; "gid~": a profile with none of its own. Junk
+                # entries skipped)
+                dvals = {}
+                for ent in (q.get('dvals') or '').split('|'):
+                    gid, sep, kvs = ent.partition('~')
+                    if sep and gid.strip():
+                        own = {}
+                        for kv in kvs.split(','):
+                            k, _, v = kv.partition(':')
+                            if k.strip():
+                                own[k.strip().lower()] = v.strip()
+                        dvals[gid.strip().lower()] = own
                 specs = []
                 for d in decks:
                     cards = B.deck_cards(d, facts)
-                    # (each deck's own settings - the ones its cards call for, learn_deck's - on top of yours)
+                    gk = '%x' % d['gid'] if isinstance(d.get('gid'), int) else str(d.get('gid') or '')
                     dv = dict(vals)
-                    try:
-                        dv.update({k: str(v) for k, v in B.learn_deck(d, facts, len(decks))['vals'].items()})
-                    except Exception:  # noqa: BLE001 - your settings alone
-                        pass
-                    specs.append(('%x' % d['gid'] if isinstance(d.get('gid'), int) else str(d.get('gid') or ''),
-                                  str(d.get('display') or d.get('object_name') or 'deck'), cards, B.Opts.of(dv)))
+                    if gk.lower() in dvals:
+                        # (the bot deck profile it would be played with - Decks.ahk DeckSet / Stat: its own over yours)
+                        dv.update(dvals[gk.lower()])
+                    else:
+                        # (no profile: the settings its cards call for - learn_deck's - on top of yours)
+                        try:
+                            dv.update({k: str(v) for k, v in B.learn_deck(d, facts, len(decks))['vals'].items()})
+                        except Exception:  # noqa: BLE001 - your settings alone
+                            pass
+                    o = B.Opts.of(dv)
+                    if _usehit_off(dv):
+                        # (a profile - or your settings - with every hit off: played with none, as /sim and /plan do)
+                        o.usehit = False
+                    specs.append((gk, str(d.get('display') or d.get('object_name') or 'deck'), cards, o))
                 sch = (q.get('school') or '').lower()
                 me = B.Me(sch, fl('hp', 3000), damage=fl('damage'), pierce=fl('pierce'), crit=fl('crit'),
                           block=fl('block'), accuracy=fl('acc'), resist=fl('resist'), power_pip=fl('pp', 0.4))
@@ -3202,16 +3233,25 @@ def plan_lines_for(q, cards_reader=None, battle_reader=None, ctx=None):
         # (the bot's keys for the blades on - storm/blade, blade3 - named as the hand's or deck's card: a copy in hand
         # of one on is then 'on already', never cast again or stacked in the rollouts - the bot's used flags hold it)
         blades = B.bot_blades(blades, hand + pile)
+        # (the bot's own bookkeeping of this battle: the blades and traps cast that its used flags hold back -
+        # key~schools~% |..., "-" none; not sent - an older AutoFarmer: None, the blades on taken as cast -, the
+        # treasure cards drawn - Draw.ahk DrawsBattle -, drawing off now, a support's PartyShield gone - used19)
+        draws = max(0, int(fl('draws', 0)))
+        drawoff = q.get('drawoff') == '1'
+        uq = q.get('used')
+        boosts_used = B.bot_boosts_used(boosts(uq)) if uq is not None else None
+        pshield = q.get('pshield') == '1'
         state = B.State.of_deck(hand, pile, pips=pips, power=power, hp=mer.get('health'), fhp=fhp, blades=blades,
                                 traps=traps, aura=aura, rnd=int(fl('round', 1)), boosts_run=int(fl('boostrun', 0)),
-                                me_first=None if first not in ('0', '1') else first == '1')
+                                me_first=None if first not in ('0', '1') else first == '1', draws=draws,
+                                drawoff=drawoff, boosts_used=boosts_used, pshield_used=pshield)
         vals = {}
         for kv in (q.get('vals') or '').split(','):
             k, _, v = kv.partition(':')
             if k.strip():
                 vals[k.strip().lower()] = v.strip()
         opts = B.Opts.of(vals, boss=q.get('boss') == '1' or any(f.boss for f in foes))
-        if all(vals.get('usehit%d' % i) == '0' for i in range(1, 5)):
+        if _usehit_off(vals):
             opts.usehit = False
         # (batch 3 - the team model and the log's charms; none asked: as before) my party battle role and seat, the
         # party's other wizards on my side

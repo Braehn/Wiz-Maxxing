@@ -3,9 +3,10 @@
 ; loop: one call, PlannerRound) - the vision helper is asked which card it would play (/plan - vision\vision.py
 ; plan_lines_for, vision\battlesim.py plan_round): every card in hand that can go now, and a pass, tried in the battle
 ; simulator from this very round on - your hand, pips and health from the game's memory, the enemies' health (memory),
-; the blades, traps and aura the bot counts (KillCalc.ahk AppliedBlades, BossTraps, AuraRounds), the worn deck less the
-; hand as the draw pile, the rest of the battle played your settings' way; learned plays (vision\battlelearn.py, from the
-; battles recorded) only nudge near-equal plays.
+; the blades, traps and aura the bot counts (KillCalc.ahk AppliedBlades, BossTraps, AuraRounds), the worn deck's main
+; side less the hand as the draw pile (its treasure side drawn the bot's way - DrawsBattle), the blades and traps cast
+; this battle (PlannerUsed), the rest of the battle played your settings' way; learned plays (vision\battlelearn.py,
+; from the battles recorded) only nudge near-equal plays.
 ; AutoHotkey v2, written for v2 (v1 never had this: nothing here is ported); #Included by Autofarmer.ahk only.
 ;
 ; Setting (PlayerStats.txt, the Settings window's HOW IT PLAYS ITS CARDS): planner - 0 off (the default: nothing asked,
@@ -159,8 +160,9 @@ PlannerRound()
 ;The /plan query: your school, the deck in use's in-game deck (its gid - the worn one when not linked), the log's round,
 ;the bot's own count of the blades on you (AppliedBlades), the traps on one enemy (BossTraps: on the boss picked - its
 ;most health BossMax -, else the one whose most health was TrapFoeMax), the aura (AuraRounds left, AuraSch, aura %), the
-;boosts since your last hit (BoostRun), your stats for that school and the settings - Decks.ahk DeckBeat's way
-;(DeckStatFor, DeckKeys); a boss picked: boss=1
+;boosts since your last hit (BoostRun), your stats for that school and the settings - Decks.ahk DeckSimVals, as /sim
+;and /deckfor get them -, the blades and traps cast this battle (PlannerUsed), the treasure cards drawn and drawing off
+;(Draw.ahk), a support's PartyShield gone (used19); a boss picked: boss=1
 PlannerQuery()
 	{
 	plqD := IsObject(DeckNow) ? DeckNow : ""
@@ -196,14 +198,15 @@ PlannerQuery()
 			plqQ .= "&teamplan=1&hands=party" (PartySupport() ? "&role=" BattleRole : "")
 		plqQ .= "&charms=log"
 		}
-	plqVals := ""
-	for plqI, plqK in DeckKeys()
-		{
-		plqV := DeckStatFor(plqD, plqSch, plqK)
-		if (plqV != "" && ((IsObject(plqD) && IsObject(V1At(plqD, "vals")) && plqD.vals.Has(plqK)) || Stats.Has(plqK) || (plqSch != "" && Stats.Has(plqSch "." plqK))))
-			plqVals .= (plqVals = "" ? "" : ",") plqK ":" plqV
-		}
-	plqQ .= "&vals=" NavUri(plqVals)
+	plqQ .= "&vals=" NavUri(DeckSimVals(plqD, plqSch))
+	;(this battle's bookkeeping the simulator plays on: the blades and traps cast that won't go again - PlannerUsed,
+	;"-" none, so the helper tells none from an older bot -, the treasure cards drawn - Draw.ahk DrawsBattle -, drawing
+	;off for now - DrawOff, DrawBroken, Draw greyed out under 30 minutes ago -, a support's PartyShield gone - used19)
+	plqQ .= "&used=" NavUri(PlannerUsed()) "&draws=" V1N(DrawsBattle)
+	if (DrawOff != "" || DrawBroken != "" || (DrawEmptyAt && A_TickCount - DrawEmptyAt < 1800000))
+		plqQ .= "&drawoff=1"
+	if (PartySupport() && UsedFlag(19) == 1)
+		plqQ .= "&pshield=1"
 	for plqI, plqK in [["damage", "damage"], ["pierce", "pierce"], ["crit", "critical"], ["block", "block"], ["acc", "accuracy"]]
 		{
 		plqV := DeckStatFor(plqD, plqSch, plqK[2])
@@ -255,7 +258,8 @@ PlannerMates()
 ;helper names a blade's plain key ("storm/blade", "blade3") as the card in hand or in the deck that boosts the same
 ;schools (vision\battlesim.py bot_blades), so another copy of it in hand counts as on already - never tried or stacked,
 ;as UseBlade's used flags never cast it; a sharpened ("+") or treasure / item card's copy ("@tc", "@item") keeps its
-;key and stacks with the deck's, as AddBoost counts it
+;key and stacks with the deck's, as AddBoost counts it. The used flags go as used= (PlannerUsed), so the helper holds
+;back a blade or trap cast this battle even after a hit used it up
 PlannerBoosts(list)
 	{
 	plbOut := ""
@@ -269,6 +273,35 @@ PlannerBoosts(list)
 		plbOut .= (plbOut = "" ? "" : "|") StrReplace(StrReplace(plbK, "|", " "), "~", " ") "~" plbS "~" plbP
 		}
 	return plbOut
+	}
+
+;The blades and traps cast this battle that the used flags hold back: each key whose plain cast's flag is set
+;(KillCalc.ahk KeyFlags' second - a sharpened cast's alone leaves the plain one to go) and each treasure / item
+;card copy cast (BoostSrcUsed: "storm/blade@tc") - key~schools~% |... as PlannerBoosts; "-" none
+PlannerUsed()
+	{
+	pluOut := ""
+	Loop 52
+		{
+		pluK := FlagKey(A_Index)
+		pluF := (pluK != "") ? KeyFlags(pluK) : ""
+		if (!IsObject(pluF) || pluF[2] != A_Index || UsedFlag(A_Index) != 1)
+			continue
+		pluS := BoostSchools(pluK), pluP := BoostPctFor(pluK)
+		if (pluS != "" && V1IsNum(pluP) && pluP > 0)
+			pluOut .= (pluOut = "" ? "" : "|") pluK "~" pluS "~" pluP
+		}
+	if (IsObject(BoostSrcUsed))
+		for pluK, pluV in BoostSrcUsed
+			{
+			if (!InStr(pluK, "@"))
+				continue
+			pluB := BoostBase(pluK), pluSrc := SubStr(pluK, InStr(pluK, "@") + 1)
+			pluS := BoostSchools(pluB), pluP := BoostPctFor(pluB, pluSrc)
+			if (pluS != "" && V1IsNum(pluP) && pluP > 0)
+				pluOut .= (pluOut = "" ? "" : "|") pluB "@" pluSrc "~" pluS "~" pluP
+			}
+	return (pluOut = "") ? "-" : pluOut
 	}
 
 ;The advice as logged (/plan's plan| line, the chain| line when your settings' own pick differs, learned|, planned|):

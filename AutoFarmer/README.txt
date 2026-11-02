@@ -519,62 +519,70 @@ or clear yourself on the tab is yours: never changed again (the file's
 learned| line lists the ones learning set).
 Can this deck beat it (the battle simulator - vision\battlesim.py): when a boss
 is ahead, each deck for bosses linked to an in-game deck is fought against it
-300 times in the simulator - your real cards (shuffled, 7 in hand, pips each
-round, power pips), the bot's way of playing (its card logic, boosts before a
-hit, the kill check - first with no enchant, then with the best one in hand -
-and that enchant on every other hit it casts, defending when the enemies' hits
-could finish you this round (defendat: a heal under 90% health, else Tower
-Shield, else an absorb), heals under healat, and when nothing else goes Tower
-Shield, an absorb that costs no pips or Reshuffle), your damage, pierce and
-critical for that school, the boss's max health from the game's memory, its
-resists and block from the battles recorded (learned\battles\), its spells from
-the wiki (else its hits recorded on you). Logged: "Deck: can Large deck beat
-Governor Nereus? likely: 78% won, 2% lost, 20% ran out (about 9 rounds; 300
-battles) - Governor Nereus 9000 health: Kraken at its best 2153 with
-Stormblade, Storm Trap - 5 hits"; the deck most likely to win it is the one
-picked (5 points better or more; else the priority), and "no deck for bosses is
-likely to beat it" when none wins 65%. The Cards tab shows each deck's last
-verdict under its damage. In the simulator too (v1.0.0): a hit's damage over
-time - its ticks at the start of the next 3 rounds; what each enemy does
-besides hitting, as the battles recorded show it - its heals, its shields and
-blades on itself, its traps, weaknesses and stuns on you, its damage over
-time's ticks on you (an enemy with none recorded does none of it: the verdict
-says "nothing learned yet of what X does besides hitting - optimistic"); an
-enemy's heal spell heals its side (before v1.5.0 it counted as a hit on you).
-Not in it yet (the bot doesn't play them either): minions, and the stuns and
-damage-over-time-only cards you could cast. Treasure cards are shuffled in with
-the main deck, while the bot draws them itself.
+300 times in the simulator - your real cards (the main deck shuffled, 7 in
+hand, pips each round, power pips), the bot's way of playing (its card logic,
+boosts before a hit - each blade and trap once a battle unless reboost is on -,
+the kill check - first with no enchant, then with the best one in hand - and
+that enchant on every other hit it casts, treasure cards drawn for an enchant
+that makes the kill as the bot draws them (drawenchant), defending when the
+enemies' hits could finish you this round (enemyspells, defendat: a heal under
+90% health, else Tower Shield, else an absorb), heals under healat, and when
+nothing else goes Tower Shield, an absorb that costs no pips or Reshuffle),
+your damage, pierce and critical for that school, the boss's max health from
+the game's memory, its resists and block from the battles recorded
+(learned\battles\), its spells from the wiki (else its hits recorded on you).
+Logged: "Deck: can Large deck beat Governor Nereus? likely: 78% won, 2% lost,
+20% ran out (about 9 rounds; 300 battles) - Governor Nereus 9000 health: Kraken
+at its best 2153 with Stormblade, Storm Trap - 5 hits"; the deck most likely to
+win it is the one picked (5 points better or more; else the priority), and "no
+deck for bosses is likely to beat it" when none wins 65%. The Cards tab shows
+each deck's last verdict under its damage. In the simulator too (v1.0.0): a
+hit's damage over time - its ticks at the start of the next 3 rounds; what each
+enemy does besides hitting, as the battles recorded show it - its heals, its
+shields and blades on itself, its traps, weaknesses and stuns on you, its
+damage over time's ticks on you (an enemy with none recorded does none of it:
+the verdict says "nothing learned yet of what X does besides hitting -
+optimistic"); an enemy's heal spell heals its side (before v1.5.0 it counted as
+a hit on you). Since v1.7.0 the simulator deals as the game does and casts as
+the bot does: only the main deck is dealt, so a deck's treasure cards count
+only with drawenchant on, and with reboost off (the default) a second copy of a
+blade or trap waits in hand till a Reshuffle. Decks with treasure cards, or
+with two or more copies of a blade or trap, win less often than before - that
+is how the bot plays them. Not in it yet (the bot doesn't play them either):
+minions, and the stuns and damage-over-time-only cards you could cast; nor
+Sharpen and Potent.
 Try it on the command line:
     python vision\battlesim.py --deck deck.json --foe "Governor Nereus:9000:ice"
 Decks matched to the zone's enemies (deckzone - Settings, HOW IT PLAYS ITS
-CARDS; off unless you switch it on, new and not tried in the game yet): out
-of battle with no boss ahead, each in-game deck in an Equipment Set is fought
-in the simulator against the enemy groups you've fought most in this zone
-(the battles recorded there), each with the settings its cards call for; of
-your decks for the same use as the one picked (collect, farming, dungeon,
-anything else - never a boss deck, the pinned one or a dungeon run's), the
-one that wins clearly more often (5 points, or as often in a round fewer) is
-put on - "Deck: Small deck - the simulator's pick for WizardCity/WC_Streets's
-enemies: 96% won in 3.1 rounds - Large deck 88%". Worked out by the helper in
-the background (a few seconds), kept 10 minutes; while it's worked out again
-the zone's last pick stays on. Every deck rolls the same dice against a group,
-so two decks with the same cards (one deck in two Equipment Sets) score the
-same and are never swapped for each other. A zone with no battle recorded
-yet: as before.
+CARDS; off unless you switch it on, new and not tried in the game yet): out of
+battle with no boss ahead, each in-game deck in an Equipment Set is fought in
+the simulator against the enemy groups you've fought most in this zone (the
+battles recorded there), each with the settings the bot would play it with (its
+deck profile's, then yours - no profile: yours and those its cards call for; a
+group with a boss as a boss fight); of your decks for the same use as the one
+picked (collect, farming, dungeon, anything else - never a boss deck, the
+pinned one or a dungeon run's), the one that wins clearly more often (5 points,
+or as often in a round fewer) is put on - "Deck: Small deck - the simulator's
+pick for WizardCity/WC_Streets's enemies: 96% won in 3.1 rounds - Large deck
+88%". Worked out by the helper in the background (a few seconds), kept 10
+minutes; while it's worked out again the zone's last pick stays on. Every deck
+rolls the same dice against a group, so two decks with the same main deck (one
+deck in two Equipment Sets) score the same and are never swapped for each
+other. A zone with no battle recorded yet: as before.
 The round planner (planner - Settings, HOW IT PLAYS ITS CARDS; off unless you
 switch it on, new and not tried in the game yet): in each round the bot plays
 itself - after the kill check, defending and the heals - every card in your
-hand that can go now (a hit or trap at each enemy, and a pass) is tried in
-the simulator from that very round on: your hand, pips and health and the
-enemies' health from the game's memory (read only), the blades, traps and
-aura the bot counts (another copy of a deck blade it has on isn't tried -
-the bot never casts one), the rest of your deck shuffled (the worn deck as
-every deck was last read out of battle - else more of the hand's cards), the
-rest of the battle played your settings' way; each play up to 100 times, in
-0.3 s. It is advice only: debug.log says "Plan: would play Tempest on all
-(won 92% in 3 rounds, 100 tries; ...) - your settings' way: Stormblade on
-you (won 85%) [tid ...] - advice only" and the bot then plays its own way -
-it never changes a card.
+hand that can go now (a hit or trap at each enemy, and a pass) is tried in the
+simulator from that very round on: your hand, pips and health and the enemies'
+health from the game's memory (read only), the blades, traps and aura the bot
+counts (a blade or trap it cast isn't tried till a Reshuffle - with reboost
+on, a hit - frees it), the rest of your main deck shuffled and treasure
+cards drawn the bot's way (the worn deck as every deck was last read out of
+battle - else more of the hand's cards), the rest of the battle played your
+settings' way; each play up to 100 times, in 0.3 s. It is advice only:
+debug.log says "Plan: would play Tempest on all (won 92% in 3 rounds, 100
+tries; ...) - your settings' way: Stormblade on you (won 85%) [tid ...] -
+advice only" and the bot then plays its own way - it never changes a card.
 The battle recorder keeps the advice with what was played; see how often they
 agreed, and how those battles went:
     python vision\battlelearn.py --advice

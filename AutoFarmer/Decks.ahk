@@ -544,6 +544,33 @@ DeckStatFor(d, sch, key)
 	return Stats.Has(key) ? Stats[key] : 0
 	}
 
+;The settings the vision helper's simulator plays deck d by, for school sch (/sim, /deckfor and /plan's vals=):
+;every deck setting (DeckKeys) and the ones only PlayerStats.txt or the Settings window set that it reads
+;(enemyspells, useabsorb, drawneed, drawround, drawmax) - each as DeckStatFor has it (the deck's, your school's,
+;the plain one), and only when set somewhere: useabsorb has no default (the helper's own is on, as StatOr's).
+;drawenchant 0 while drawing is off for the run (Draw.ahk DrawForKill: DrawBroken, or Draw greyed out with room
+;under 30 minutes ago - DrawEmptyAt). d "" (no deck): yours. "key:value,..."
+DeckSimVals(d, sch)
+	{
+	dsvOut := ""
+	;(a copy: DeckKeys' own list is the deck files' allowed keys too - these extra ones are never a deck's)
+	dsvKeys := DeckKeys().Clone()
+	for dsvI, dsvK in ["enemyspells", "useabsorb", "drawneed", "drawround", "drawmax"]
+		dsvKeys.Push(dsvK)
+	dsvNoDraw := (DrawBroken != "" || (DrawEmptyAt && A_TickCount - DrawEmptyAt < 1800000))
+	for dsvI, dsvK in dsvKeys
+		{
+		dsvV := DeckStatFor(d, sch, dsvK)
+		if (dsvK = "drawenchant" && dsvNoDraw)
+			dsvV := 0
+		;(only a key set somewhere - DeckStatFor's 0 for one set nowhere would switch useabsorb off in the helper)
+		if (dsvV != "" && ((IsObject(d) && IsObject(V1At(d, "vals")) && d.vals.Has(dsvK)) || Stats.Has(dsvK)
+			|| (sch != "" && Stats.Has(sch "." dsvK))))
+			dsvOut .= (dsvOut = "" ? "" : ",") dsvK ":" dsvV
+		}
+	return dsvOut
+	}
+
 ;What a hit of deck d can deal, as a range (you asked 2026-10-24): {lo, hi, hiNoCrit, loName, hiName, boosts, guess, none,
 ;crit, damage}. lo: its weakest hit at the low end of its range with nothing on it and no critical; hi: its strongest at
 ;the top of its range with every blade, trap, aura and bubble the deck plays on it (each once) and a critical (x2 - its
@@ -1521,13 +1548,7 @@ DeckBeat(d, foes, &why := "")
 	dbHp := DeckStatFor(d, sch, "maxhealth")
 	if (!dbHp && OwnHpMax)
 		dbHp := OwnHpMax
-	dbVals := ""
-	for dbI, dbK in DeckKeys()
-		{
-		dbV := DeckStatFor(d, sch, dbK)
-		if (dbV != "" && (d.vals.Has(dbK) || Stats.Has(dbK) || (sch != "" && Stats.Has(sch "." dbK))))
-			dbVals .= (dbVals = "" ? "" : ",") dbK ":" dbV
-		}
+	dbVals := DeckSimVals(d, sch)
 	;(fresh=1: the decks read again only when the worn one changed - else the last reading; out of battle: ob=1)
 	dbQ := "/sim?deck=" d.game "&foes=" NavUri(dbF) "&school=" sch "&n=300&vals=" NavUri(dbVals) (inbattle = 1 ? "" : "&fresh=1&ob=1")
 	for dbI, dbK in [["hp", dbHp], ["damage", DeckStatFor(d, sch, "damage")], ["pierce", DeckStatFor(d, sch, "pierce")]
@@ -1626,7 +1647,8 @@ DeckBeatLine(d)
 
 ;The deck DeckPick chose (p - {deck, why, boss}) swapped for the one the battle simulator says does best against the
 ;enemy groups fought most in this zone (the helper's /deckfor - vision\battlesim.py best_decks: each in-game deck in an
-;Equipment Set fought against the battles recorded there, each with the settings its cards call for): of your decks
+;Equipment Set fought against the battles recorded there, each with its deck profile's settings over yours
+;- DeckSimVals; one with no profile: yours and the ones its cards call for): of your decks
 ;linked to an in-game deck (game| - the Cards tab's From game), for this school, for a use the one picked is for too
 ;(collect, farming, dungeon, anything else - none picked: any of those; never a boss's), the one that wins most often
 ;(1 point at least, else as often in a round fewer) - and only when it wins 5 points more than the one picked, or as
@@ -1650,7 +1672,23 @@ DeckForZone(p, inBattle := false)
 	;(asked again: another zone, 10 minutes on, or 10 s on while the helper was working it out - out of battle only)
 	if (!inBattle && (dfzZ != dfzZone || A_TickCount - dfzAt > (dfzWait || SubStr(dfzAns, 1, 5) = "none|" || dfzAns = "" ? 10000 : 600000)))
 		{
-		dfzQ := "/deckfor?zone=" NavUri(dfzZ) "&school=" dfzSch "&n=60"
+		dfzQ := "/deckfor?zone=" NavUri(dfzZ) "&school=" dfzSch "&n=60&vals=" NavUri(DeckSimVals("", dfzSch))
+		;(each in-game deck's profile - the one this would put on, DeckSet: its own settings, laid over yours by the
+		;helper - gid~key:value,... |...; the first profile per in-game deck that fits your school; its drawenchant
+		;0 while drawing is off for the run, as DeckSimVals)
+		dfzNoDraw := (DrawBroken != "" || (DrawEmptyAt && A_TickCount - DrawEmptyAt < 1800000))
+		dfzDv := ""
+		for dfzI, dfzD in DeckList
+			{
+			if (dfzD.game = "" || !DeckFits(dfzD, dfzSch) || InStr("|" dfzDv, "|" dfzD.game "~"))
+				continue
+			dfzOwn := ""
+			if (IsObject(V1At(dfzD, "vals")))
+				for dfzK2, dfzV2 in dfzD.vals
+					dfzOwn .= (dfzOwn = "" ? "" : ",") dfzK2 ":" ((dfzK2 = "drawenchant" && dfzNoDraw) ? 0 : dfzV2)
+			dfzDv .= (dfzDv = "" ? "" : "|") dfzD.game "~" dfzOwn
+			}
+		dfzQ .= "&dvals=" NavUri(dfzDv)
 		for dfzI, dfzK in [["hp", "maxhealth"], ["damage", "damage"], ["pierce", "pierce"], ["crit", "critical"], ["block", "block"], ["acc", "accuracy"]]
 			{
 			dfzV := DeckStatFor("", dfzSch, dfzK[2])
