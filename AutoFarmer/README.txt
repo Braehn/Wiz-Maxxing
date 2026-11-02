@@ -542,13 +542,15 @@ Can this deck beat it (the battle simulator - vision\battlesim.py): when a boss
 is ahead, each deck for bosses linked to an in-game deck is fought against it
 300 times in the simulator - your real cards (the main deck shuffled, 7 in
 hand, pips each round, power pips), the bot's way of playing (its card logic,
-boosts before a hit - each blade and trap once a battle unless reboost is on -,
-the kill check - first with no enchant, then with the best one in hand - and
-that enchant on every other hit it casts, treasure cards drawn for an enchant
-that makes the kill as the bot draws them (drawenchant), defending when the
-enemies' hits could finish you this round (enemyspells, defendat: a heal under
-90% health, else Tower Shield, else an absorb), heals under healat, and when
-nothing else goes Tower Shield, an absorb that costs no pips or Reshuffle),
+boosts before a hit - each blade and trap once a battle, and once more
+sharpened (a trap made potent) with a Sharpen (a Potent) in hand, unless
+reboost is on -, the kill check - first with no enchant, then with
+the best one in hand - and that enchant on every other hit it casts,
+treasure cards drawn for an enchant that makes the kill as the bot
+draws them (drawenchant), defending when the enemies' hits could finish
+you this round (enemyspells, defendat: a heal under 90% health, else
+Tower Shield, else an absorb), heals under healat, and when nothing
+else goes Tower Shield, an absorb that costs no pips or Reshuffle),
 your damage, pierce and critical for that school, the boss's max health from
 the game's memory, its resists and block from the battles recorded
 (learned\battles\), its spells from the wiki (else its hits recorded on you).
@@ -578,9 +580,22 @@ party's Blader or Healer, or in dual mode, the bot keeps them and the
 simulator is told so. Where the bot can't read the game's hand, or its card
 boxes haven't lined up yet, it keeps them but the simulator still throws
 them. Not in it yet (the bot doesn't play them either): minions, and the
-stuns and damage-over-time-only cards you could cast; nor Sharpen and Potent
-(one in hand or in the deck only keeps one more copy of a blade - of a trap,
-for a Potent - from being thrown away).
+stuns and damage-over-time-only cards you could cast.
+Sharpen and Potent in the simulator (v1.9.0): played as the bot plays them - a
+Sharpened Blade (a Potent Trap) goes on a blade (a trap) being cast while that
+blade's sharpened cast is free: no pip, no turn, the card's +N% (10 when it has
+none), never on a pet's or gear's copy, nor on the copy the bot casts instead
+when the first copy in hand can't go (that one goes plain). So with reboost off
+each blade and trap can go twice a battle, once plain and once sharpened. A
+Sharpen is kept till a blade has been sharpened, then thrown once no blade in
+hand can take one; a Potent is never thrown; with discardunused on, useblades
+off throws the Sharpens away, usetraps off the Potents. A deck with Sharpens
+and no blade holds them all battle and wins less often than before v1.9.0 -
+that is how the bot plays it (the command line below says so). Measured on the
+same dice (2000 battles each, discardspent on): 8 Storm Lord + 6 Stormblade +
+6 Storm Trap + 2 Sharpened Blade + 2 Potent Trap against a 6000-health boss won
+93.5% before, 96.9% now; 10 Thunder Snake + 6 Storm Lord + 4 Sharpened Blade
+against 3 mobs 22.6% before, 18.9% now.
 Try it on the command line:
     python vision\battlesim.py --deck deck.json --foe "Governor Nereus:9000:ice"
 Decks matched to the zone's enemies (deckzone - Settings, HOW IT PLAYS ITS
@@ -606,7 +621,9 @@ hand that can go now (a hit or trap at each enemy, and a pass) is tried in the
 simulator from that very round on: your hand, pips and health and the enemies'
 health from the game's memory (read only), the blades, traps and aura the bot
 counts (a blade or trap it cast isn't tried till a Reshuffle - with reboost
-on, a hit - frees it), the rest of your main deck shuffled and treasure
+on, a hit - frees it; since v1.9.0 one whose sharpened cast hasn't gone is
+tried sharpened while a Sharpen (a Potent) is in hand: "with Sharpened Blade"
+in the advice), the rest of your main deck shuffled and treasure
 cards drawn the bot's way (the worn deck as every deck was last read out of
 battle - else more of the hand's cards), the rest of the battle played your
 settings' way; each play up to 100 times, in 0.3 s. It is advice only:
@@ -1560,8 +1577,9 @@ discardmax. Only once the vision helper reads the game's hand and the memory's
 card boxes have lined up with the screen's 3 looks in a row (see Cards and
 plates by the game's memory), as a Hitter (or with the party off), not in dual
 mode; with reboost on nothing changes. Without all that a blade goes once both
-its casts did, as before. A spare Sharpen goes once a sharpened blade was used
-and no blade in hand still needs one. PlayerStats.txt: discardunused:0
+its casts did, as before. A spare Sharpen goes once a sharpened
+blade was used and no blade in hand still needs one. The simulator
+plays those two rules too (v1.9.0). PlayerStats.txt: discardunused:0
 switches off the cards it never plays and the blade and trap copies (a blade
 whose casts both went, and a spare Sharpen, still go), discardmax: how many
 cards it never plays a round, discardspent:0 keeps the copies, as v1.7.0 did.

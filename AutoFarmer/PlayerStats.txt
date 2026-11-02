@@ -237,7 +237,7 @@ blade3:25
 blade4:20
 ; ^ Bladestorm
 sharpen:10
-; ^ extra % a Sharpened blade gets
+; ^ extra % a Sharpened blade gets (the battle simulator takes the card's own %)
 
 ; ---- Traps on the boss (%) ----
 trap:40
@@ -248,7 +248,7 @@ trap3:30
 ; ^ Hex
 feint:70
 potent:10
-; ^ extra % a Potent trap gets
+; ^ extra % a Potent trap gets (the battle simulator takes the card's own %)
 
 ; ---- Other boosts ----
 aura:25

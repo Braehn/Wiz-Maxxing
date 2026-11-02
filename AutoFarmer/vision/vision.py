@@ -480,7 +480,7 @@ Requests (all GET, answers are plain text lines, "ERR <why>" on a problem):
                                              verdict|word|text, foe|..., cast|..., note|...), or none|<why>
   /plan?school=&deck=<gid hex>&round=&blades=key~schools~%|...&traps=key~schools~%|...&trapmax=&aura=schools~%~rounds
        &boostrun=&first=1|0&vals=k:v,...&damage=&pierce=&crit=&block=&acc=&resist=&pp=&boss=1&budget=300&n=100
-       [&foes=name~max~school~boss~health|...][&used=key~schools~%|...&draws=&drawoff=1&pshield=1]
+       [&foes=name~max~school~boss~health|...][&used=key~schools~%|...&used1=key~schools~%|...&draws=&drawoff=1&pshield=1]
                                           -> the round planner (vision\battlesim.py plan_round, Planner.ahk - advice
                                              only): every card in hand that can go now (and a pass) tried in the
                                              simulator from this very round - the hand, pips and health from the game's
@@ -489,10 +489,12 @@ Requests (all GET, answers are plain text lines, "ERR <why>" on a problem):
                                              one on isn't tried), traps (on the enemy whose most health is trapmax, else
                                              the one with the most) and aura the bot counts, the blades and traps cast
                                              this battle (the bot's used flags - not sent: the blades on taken as cast),
-                                             treasure cards drawn and drawing off (Draw.ahk), the worn deck's main side
-                                             less the hand as the draw pile, its treasure side drawn the bot's way (the
-                                             decks' last reading - never read in a battle), the rest of the battle
-                                             played the bot's way (vals), learned plays a nudge (vision\battlelearn.py)
+                                             the blades' and traps' sharpened / potent casts (used1= - not sent:
+                                             inferred from the '+' ones on), treasure cards drawn and drawing off
+                                             (Draw.ahk), the worn deck's main side less the hand as the draw pile, its
+                                             treasure side drawn the bot's way (the decks' last reading - never read in
+                                             a battle), the rest of the battle played the bot's way (vals), learned
+                                             plays a nudge (vision\battlelearn.py)
                                              - within budget ms, the reads included: battlesim.plan_lines
                                              (plan|i|slot|tid|kind|target|won %|rounds|score|why|name|target's name|n|hp
                                              left %|kill %, alt|... the next ones, chain|... the bot's own way,
@@ -3306,6 +3308,17 @@ def plan_lines_for(q, cards_reader=None, battle_reader=None, ctx=None):
         drawoff = q.get('drawoff') == '1'
         uq = q.get('used')
         boosts_used = B.bot_boosts_used(boosts(uq)) if uq is not None else None
+        if boosts_used is not None:
+            u1 = q.get('used1')
+            if u1 is not None:
+                # (v1.9.0: the deck copies' sharpened / potent casts this battle - Planner.ahk PlannerUsed1, Use1;
+                # "-" none)
+                boosts_used += [(k, '+', b) for k, s, b in B.bot_boosts_used(boosts(u1)) if s == '']
+            else:
+                # (an older AutoFarmer: inferred from the sharpened / potent casts on - the raw blades= / traps= keys
+                # ending '+', only with that kind's card among the hand and the deck - bot_sharpened)
+                boosts_used += B.bot_sharpened(boosts(q.get('blades')), hand + pile, 'blade') \
+                    + B.bot_sharpened(boosts(q.get('traps')), hand + pile, 'trap')
         pshield = q.get('pshield') == '1'
         state = B.State.of_deck(hand, pile, pips=pips, power=power, hp=mer.get('health'), fhp=fhp, blades=blades,
                                 traps=traps, aura=aura, rnd=int(fl('round', 1)), boosts_run=int(fl('boostrun', 0)),

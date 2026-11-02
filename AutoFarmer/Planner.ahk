@@ -161,8 +161,9 @@ PlannerRound()
 ;the bot's own count of the blades on you (AppliedBlades), the traps on one enemy (BossTraps: on the boss picked - its
 ;most health BossMax -, else the one whose most health was TrapFoeMax), the aura (AuraRounds left, AuraSch, aura %), the
 ;boosts since your last hit (BoostRun), your stats for that school and the settings - Decks.ahk DeckSimVals, as /sim
-;and /deckfor get them -, the blades and traps cast this battle (PlannerUsed), the treasure cards drawn and drawing off
-;(Draw.ahk), a support's PartyShield gone (used19); a boss picked: boss=1
+;and /deckfor get them -, the blades and traps cast this battle (PlannerUsed), the sharpened / potent casts
+;(PlannerUsed1), the treasure cards drawn and drawing off (Draw.ahk), a support's PartyShield gone (used19); a boss
+;picked: boss=1
 PlannerQuery()
 	{
 	plqD := IsObject(DeckNow) ? DeckNow : ""
@@ -200,9 +201,10 @@ PlannerQuery()
 		}
 	plqQ .= "&vals=" NavUri(DeckSimVals(plqD, plqSch))
 	;(this battle's bookkeeping the simulator plays on: the blades and traps cast that won't go again - PlannerUsed,
-	;"-" none, so the helper tells none from an older bot -, the treasure cards drawn - Draw.ahk DrawsBattle -, drawing
-	;off for now - DrawOff, DrawBroken, Draw greyed out under 30 minutes ago -, a support's PartyShield gone - used19)
-	plqQ .= "&used=" NavUri(PlannerUsed()) "&draws=" V1N(DrawsBattle)
+	;"-" none, so the helper tells none from an older bot -, the sharpened / potent casts - PlannerUsed1, "-" none -,
+	;the treasure cards drawn - Draw.ahk DrawsBattle -, drawing off for now - DrawOff, DrawBroken, Draw greyed out under
+	;30 minutes ago -, a support's PartyShield gone - used19)
+	plqQ .= "&used=" NavUri(PlannerUsed()) "&used1=" NavUri(PlannerUsed1()) "&draws=" V1N(DrawsBattle)
 	if (DrawOff != "" || DrawBroken != "" || (DrawEmptyAt && A_TickCount - DrawEmptyAt < 1800000))
 		plqQ .= "&drawoff=1"
 	if (PartySupport() && UsedFlag(19) == 1)
@@ -257,9 +259,10 @@ PlannerMates()
 ;check counts them (KillCalc.ahk BoostSchools: "all", "fire,ice,storm"); a key whose schools aren't known left out. The
 ;helper names a blade's plain key ("storm/blade", "blade3") as the card in hand or in the deck that boosts the same
 ;schools (vision\battlesim.py bot_blades), so another copy of it in hand counts as on already - never tried or stacked,
-;as UseBlade's used flags never cast it; a sharpened ("+") or treasure / item card's copy ("@tc", "@item") keeps its
-;key and stacks with the deck's, as AddBoost counts it. The used flags go as used= (PlannerUsed), so the helper holds
-;back a blade or trap cast this battle even after a hit used it up
+;as UseBlade's used flags never cast it; a sharpened cast ("+") is named "<card>+" - it stacks with the plain one, not
+;with another sharpened one - and a treasure / item card's copy ("@tc", "@item") "<card>@tc" / "<card>@item", which
+;stacks with the deck's, as AddBoost counts it. The used flags go as used= (PlannerUsed) and used1= (PlannerUsed1), so
+;the helper holds back a blade or trap cast this battle even after a hit used it up
 PlannerBoosts(list)
 	{
 	plbOut := ""
@@ -276,8 +279,9 @@ PlannerBoosts(list)
 	}
 
 ;The blades and traps cast this battle that the used flags hold back: each key whose plain cast's flag is set
-;(KillCalc.ahk KeyFlags' second - a sharpened cast's alone leaves the plain one to go) and each treasure / item
-;card copy cast (BoostSrcUsed: "storm/blade@tc") - key~schools~% |... as PlannerBoosts; "-" none
+;(KillCalc.ahk KeyFlags' second - a sharpened cast's alone leaves the plain one to go; the sharpened casts' own:
+;PlannerUsed1) and each treasure / item card copy cast (BoostSrcUsed: "storm/blade@tc") - key~schools~% |... as
+;PlannerBoosts; "-" none
 PlannerUsed()
 	{
 	pluOut := ""
@@ -302,6 +306,25 @@ PlannerUsed()
 				pluOut .= (pluOut = "" ? "" : "|") pluB "@" pluSrc "~" pluS "~" pluP
 			}
 	return (pluOut = "") ? "-" : pluOut
+	}
+
+;The deck copies' sharpened / potent casts this battle (v1.9.0 - KillCalc.ahk KeyFlags' first, Use1: each key whose
+;Sharpen / Potent cast went) - key~schools~% |... as PlannerUsed (the plain % - BoostPctFor); "-" none. The helper
+;holds back a second sharpened cast of that blade or trap; an older helper ignores it
+PlannerUsed1()
+	{
+	pl1Out := ""
+	Loop 52
+		{
+		pl1K := FlagKey(A_Index)
+		pl1F := (pl1K != "") ? KeyFlags(pl1K) : ""
+		if (!IsObject(pl1F) || pl1F[1] != A_Index || UsedFlag(A_Index) != 1)
+			continue
+		pl1S := BoostSchools(pl1K), pl1P := BoostPctFor(pl1K)
+		if (pl1S != "" && V1IsNum(pl1P) && pl1P > 0)
+			pl1Out .= (pl1Out = "" ? "" : "|") pl1K "~" pl1S "~" pl1P
+		}
+	return (pl1Out = "") ? "-" : pl1Out
 	}
 
 ;The advice as logged (/plan's plan| line, the chain| line when your settings' own pick differs, learned|, planned|):
