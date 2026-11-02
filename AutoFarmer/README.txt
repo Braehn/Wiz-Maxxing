@@ -545,12 +545,21 @@ the verdict says "nothing learned yet of what X does besides hitting -
 optimistic"); an enemy's heal spell heals its side (before v1.5.0 it counted as
 a hit on you). Since v1.7.0 the simulator deals as the game does and casts as
 the bot does: only the main deck is dealt, so a deck's treasure cards count
-only with drawenchant on, and with reboost off (the default) a second copy of a
-blade or trap waits in hand till a Reshuffle. Decks with treasure cards, or
-with two or more copies of a blade or trap, win less often than before - that
-is how the bot plays them. Not in it yet (the bot doesn't play them either):
-minions, and the stuns and damage-over-time-only cards you could cast; nor
-Sharpen and Potent.
+only with drawenchant on, and with reboost off (the default) each blade and
+trap goes once a battle. Decks with treasure cards win less often than before
+v1.7.0 - that is how the bot plays them. In v1.7.0 a second copy of a blade or
+trap waited in hand till a Reshuffle. Since v1.8.0 the bot throws away the
+copies it can't cast again (discardspent, on - see Discarding below) and the
+simulator plays them that way, so decks with several copies of a blade or
+trap win more often again (8 Storm Lord + 6 Stormblade + 6 Storm Trap against
+a 6000-health boss: 56% won with the copies held, 93% thrown away). As a
+party's Blader or Healer, or in dual mode, the bot keeps them and the
+simulator is told so. Where the bot can't read the game's hand, or its card
+boxes haven't lined up yet, it keeps them but the simulator still throws
+them. Not in it yet (the bot doesn't play them either): minions, and the
+stuns and damage-over-time-only cards you could cast; nor Sharpen and Potent
+(one in hand or in the deck only keeps one more copy of a blade - of a trap,
+for a Potent - from being thrown away).
 Try it on the command line:
     python vision\battlesim.py --deck deck.json --foe "Governor Nereus:9000:ice"
 Decks matched to the zone's enemies (deckzone - Settings, HOW IT PLAYS ITS
@@ -909,7 +918,8 @@ restart. Defaults fills in the defaults (Save to use them).
 	  traps/Feint, bubble, aura, the wand's hit, Tower Shield, Reshuffle - a
 	  kind switched off is discarded when "Discard cards it never plays" is
 	  on), boosting again after each hit, counting traps in the kill check
-	  when you fight alone, saving pips for a finishing hit, and discarding.
+	  when you fight alone, saving pips for a finishing hit, and discarding
+	  (cards it never plays, blade and trap copies it can't cast again).
 	- The overlay: the map and the log see-through over the game - each
 	  part's corner (or Off), the map's size, the log's lines, width and text
 	  size, the dark box behind them, how solid (see The overlay above).
@@ -1362,7 +1372,10 @@ and each name plate's box (/battle), read from the memory the same way.
 	  pictures the fallback); your plate when no picture finds it and the
 	  enemies' plates are clicked where the memory has them too, and the
 	  kill check then reads no health off the screen (also with its OCR
-	  off - healthocr:0).
+	  off - healthocr:0). Since v1.8.0 the blade and trap copies the bot
+	  can't cast again (discardspent - see Discarding below) are
+	  right-clicked away only at a window size where the boxes have lined
+	  up 3 looks in a row, memclicks on or off.
 	- Fixed whatever the setting: your plate not found no longer sends a
 	  heal or Tower Shield's click onto the card just clicked (not cast -
 	  said in debug.log); nor a blade's or Reshuffle's onto nowhere when
@@ -1508,11 +1521,29 @@ it doesn't play (stun, dispel, damage over time...) or one more card of a kind
 whose slots are full - so the next round draws cards it can use; at most 3 a
 round. Its own cards stay (also one it learned again at another UI size: where
 the battle's own search finds one of its cards, nothing is discarded), and so
-do cards it doesn't know yet and learned ones whose kind it couldn't tell. Spare blades and Sharpen go once they
-can't stack any more, as before. PlayerStats.txt: discardunused:0 switches it
-off, discardmax: how many a round. Learned treasure cards are never discarded
-(that would use them up), nor spells set to Never discard on the Spells tab.
-debug.log: "Discarded learned card ... - a kind the bot doesn't play: stun".
+do cards it doesn't know yet and learned ones whose kind it couldn't tell.
+Blade and trap copies it can't cast again go too (v1.8.0 - discardspent, on, a
+deck's own too: "...and blade and trap copies it can't cast again" under
+"Discard cards it never plays"; new, not tried in the game yet -
+LIVE_CHECKS.txt 3.11). With reboost off each blade and trap is cast once a
+battle, and once more sharpened (a trap made potent) while a Sharpen (a Potent)
+is in hand or still in the worn deck - the helper's last reading of the deck
+(/deckkinds); not known, only one in hand counts. Its other copies in hand are
+right-clicked away, the weakest first (one with no enchantment before one with
+one), up to 3 of one a round, not counted in discardmax. Only once the vision
+helper reads the game's hand and the memory's card boxes have lined up with the
+screen's 3 looks in a row (see Cards and plates by the game's memory), as a
+Hitter (or with the party off), not in dual mode; with reboost on nothing
+changes. Without all that a blade goes once both its casts did, as before. A
+spare Sharpen goes once a sharpened blade was used and no blade in hand still
+needs one. PlayerStats.txt: discardunused:0 switches all of it off, discardmax:
+how many cards it never plays a round, discardspent:0 keeps the copies, as
+v1.7.0 did. Learned treasure cards are never discarded (that would use them
+up), nor a treasure or item card's blade or trap, nor spells set to Never
+discard on the Spells tab. debug.log: "Discarded learned card ... - a kind the
+bot doesn't play: stun", "Discarded Stormblade - storm/blade: 3 of the deck's
+copies in hand, 1 cast left this battle ..." and once a battle "spent copies:
+the worn deck holds 2 Sharpen and 0 Potent card(s) ...".
 Learn every card (the dashboard's Cards tab, or the tray menu): for a deck you made
 to be learned - one of every card. Switch it on and start a battle (an easy
 one). Each round the bot learns what's in hand, right-clicks away every card

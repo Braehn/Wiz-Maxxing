@@ -152,7 +152,7 @@ CfgList()
 	list.Push(V1Obj({key: "drawenchant", label: "Draw treasure cards for an enchant that kills", kind: "check", def: 0
 		, help: "No hit in hand ends the battle, but one would with an enchant on it (any - Strong's +100 counted) and there's none in hand: Draw from your treasure-card deck till one comes. Draw is greyed out with 7 cards, so one card is discarded first - never a treasure card, the hit, or an enchant. Then the kill check again: the hit goes enchanted if it kills; else the enchant's kept. At most 3 draws a round, 6 a battle."}))
 	list.Push(V1Obj({key: "reboost", label: "Boost again after each hit", kind: "check", def: 0
-		, help: "After each hit its blades and traps may be cast again for the next one. Off: each is cast once a battle."}))
+		, help: "After each hit its blades and traps may be cast again for the next one. Off: each is cast once a battle - its other copies are discarded (below)."}))
 	list.Push(V1Obj({key: "solotraps", label: "I fight alone (count my traps)", kind: "check", def: 0
 		, help: "Your traps and Feint go on the boss you picked (Alt+1), else - every battle - on the enemy with the most health. On: the kill check counts them on that enemy. Leave it off when others fight with you: their hits use your traps up without the bot seeing it."}))
 	list.Push(V1Obj({key: "pipsave", label: "Save pips for a finishing hit (rounds)", kind: "num", lo: 0, hi: 20, def: 3
@@ -160,7 +160,9 @@ CfgList()
 	list.Push(V1Obj({key: "discardunused", label: "Discard cards it never plays", kind: "check", def: 1
 		, help: "Every round, cards in hand the bot doesn't play (and kinds switched off above) are discarded with a right-click so it draws ones it can use. Not treasure cards it learned (discarding one uses it up), nor spells set to Never discard on the dashboard's Spells tab."}))
 	list.Push(V1Obj({key: "discardmax", label: "...at most this many a round", kind: "num", lo: 0, hi: 7, def: 3
-		, help: "The most cards it never plays that are discarded in one round."}))
+		, help: "The most cards it never plays that are discarded in one round (not the blade and trap copies it can't cast again)."}))
+	list.Push(V1Obj({key: "discardspent", label: "...and blade and trap copies it can't cast again", kind: "check", def: 1
+		, help: "With Boost again after each hit off, each blade and trap is cast once a battle (and once more sharpened, or made potent): its other copies in hand can't go, so they're discarded and the hand draws cards it can use. One is kept while a Sharpen (a Potent, for a trap) in hand or still in the deck could make it go. Needs the vision helper's read of the game's hand, and its card boxes seen lining up with the screen's. Never a treasure or item card's copy. Up to 3 copies of one blade or trap a round, not counted in the most a round above. Only as a Hitter (or with the party off), not in dual mode. Off: they wait in hand till a Reshuffle."}))
 	list.Push(V1Obj({key: "discardunaffordable", label: "Discard hits it can't cast yet", kind: "check", def: 0
 		, help: "A hit you haven't the pips for is discarded instead of kept for a later round."}))
 	list.Push(V1Obj({key: "learnupgrade", label: "Make room for stronger learned hits", kind: "check", def: 1

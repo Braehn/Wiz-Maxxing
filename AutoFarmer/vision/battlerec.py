@@ -233,9 +233,10 @@ MAINTAIN_MS = 3600000
 LIVE_S = 3.0                 # a line this fresh (its stamp against the wall clock) was seen live
 SETTINGS_KEYS = ("cardlogic", "boostmax", "useblades", "usetraps", "usebubble", "useaura", "usewand", "usetower",
                  "usereshuffle", "reboost", "solotraps", "healthocr", "killmargin", "drawenchant", "pipsave",
-                 "discardunused", "discardmax", "discardunaffordable", "healat", "defendat", "fleeon", "usehit1",
-                 "usehit2", "usehit3", "usehit4", "useheal", "enemyspells", "learnedhits", "roundwait", "partybattle",
-                 "navmem", "handsoff", "handsoffon", "planner", "memclicks", "deckzone", "partyhitround", "partyorders")
+                 "discardunused", "discardmax", "discardspent", "discardunaffordable", "healat", "defendat", "fleeon",
+                 "usehit1", "usehit2", "usehit3", "usehit4", "useheal", "enemyspells", "learnedhits", "roundwait",
+                 "partybattle", "navmem", "handsoff", "handsoffon", "planner", "memclicks", "deckzone", "partyhitround",
+                 "partyorders")
 STAT_KEYS = ("school", "damage", "pierce", "critical", "accuracy", "block", "maxhealth", "charid_ok")
 PIP_KINDS = ("generic", "power", "balance", "death", "fire", "ice", "life", "myth", "storm", "shadow")
 BAD_WORDS = re.compile(r"http|webhook|token|password|login", re.I)

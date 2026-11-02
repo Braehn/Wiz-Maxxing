@@ -844,8 +844,8 @@ OVERLAY_AHK = os.path.join(AF, 'Overlay.ahk')
 
 @unittest.skipUnless(os.path.exists(OVERLAY_AHK), 'no Overlay.ahk yet')
 class AhkParity(unittest.TestCase):
-    """the constants and names the Python side relies on, as Overlay.ahk, Settings.ahk, Hotkeys.ahk, Autofarmer.ahk
-    and Dashboard.ahk have them (their code - comments left out)"""
+    """the constants and names the Python side relies on, as Overlay.ahk, Settings.ahk, Hotkeys.ahk, Autofarmer.ahk,
+    Dashboard.ahk and Decks.ahk have them (their code - comments left out)"""
 
     @classmethod
     def setUpClass(cls):
@@ -918,6 +918,41 @@ class AhkParity(unittest.TestCase):
                 self.assertEqual((kind, elo, ehi, edef), ('num', lo, hi, d), key)
         self.assertEqual(entry('overlay')[0::3], ('check', 0))
         self.assertEqual(entry('overlayopacity')[:4], ('num', 20, 100, 90))
+
+    def test_discardspent_wiring(self):
+        """v1.8.0: the simulator plays discardspent only if the AutoFarmer sends it - Settings.ahk's CfgList entry a
+        check with def 1 (LoadStats puts it in Stats: Decks.ahk DeckSimVals sends only a key Stats has), Decks.ahk's
+        DeckKeys naming it (DeckSimVals' list), every DeckKey kept by the battle recorder (BattleRec.ahk BrecSetKeys ->
+        battlerec.SETTINGS_KEYS) and the simulator's Opts reading it"""
+        import battlerec
+        import battlesim
+        lines = ahk_lines('Settings.ahk')
+        code = ahk_code(lines)
+        found = [ln for ln in code if 'key: "discardspent"' in ln]
+        self.assertEqual(len(found), 1)
+        self.assertRegex(found[0], r'\bkind: "check"')
+        self.assertRegex(found[0], r'\bdef: 1\b')
+        # (no ' ;' in the strings of the entries v1.8.0 wrote - AutoHotkey would take the rest as a comment)
+        mine, follow = [], False
+        for ln in lines:
+            if re.search(r'key: "(discardspent|discardmax|reboost)"', ln):
+                mine.append(ln)
+                follow = True
+            elif follow and ln.lstrip().startswith(','):
+                mine.append(ln)
+            else:
+                follow = False
+        self.assertEqual(len(mine), 6, mine)
+        self.assertEqual(semicolon_hits(mine), [])
+        dk = '\n'.join(ahk_code(ahk_lines('Decks.ahk')))
+        m = re.search(r'DeckKeys\(\)\s*\{(.*?)return keys', dk, re.S)
+        self.assertIsNotNone(m)
+        keys = re.findall(r'"(\w+)"', m.group(1))
+        self.assertIn('discardspent', keys)
+        self.assertIn('discardmax', keys)
+        for k in keys:
+            self.assertIn(k, battlerec.SETTINGS_KEYS, k)
+        self.assertIn('discardspent', battlesim.Opts.KEYS)
 
     def test_hotkeys(self):
         lines = ahk_lines('Hotkeys.ahk')

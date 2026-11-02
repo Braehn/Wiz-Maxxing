@@ -2122,7 +2122,7 @@ ResetVariables()
 	;(blades and traps by damage school - KillCalc.ahk; SlotGame is kept: the slots' cards don't change with the battle)
 	HeadsMemo := V1Obj(), BoostPctMem := V1Obj(), AuraSch := "", PartyLastSch := "", PlanHit := "", PlanHeads := "", PlanList := ""
 	BladeDir := "", TrapDir := "", BladeU1 := "", BladeU2 := "", TrapU1 := "", TrapU2 := "", Blade2U1 := "", Blade2U2 := "", Trap2U1 := "", Trap2U2 := ""
-	SbFound := V1Obj(), GbFound := V1Obj(), BoostHand := V1Obj(), BoostSrcUsed := V1Obj(), BoostExtra := "", HammerPlan := "", BoostMemOk := 0, BoostSaid := V1Obj(), BoostMisfitDone := 0
+	SbFound := V1Obj(), GbFound := V1Obj(), BoostHand := V1Obj(), BoostSrcUsed := V1Obj(), BoostExtra := "", HammerPlan := "", BoostMemOk := 0, BoostSaid := V1Obj(), BoostMisfitDone := 0, DeckSharp := "", SpentOff := V1Obj()
 	BoostUnrec := [], BoostOneOfOff := V1Obj(), BoostMemOnly := V1Obj(), BubbleUp := ""
 	;(the negative auras put up this battle, an absorb or one in hand, your prism on the boss - 2026-10-26)
 	NegAuraOn := V1Obj(), absorb := 0, AbsorbFreeOk := 0, AbsorbOnlyFree := 0, negaura := 0, ConvertOn := ""
@@ -3021,12 +3021,17 @@ CastResult(title, &hit, dir, enchanted, consume := true)
 DiscardSpare()
 	{
 	global
-	local did := 0, dsK, dsF, dsKeys, dsI, dsSharpUsed, dsNeed, dsC
+	local did := 0, dsK, dsF, dsKeys, dsI, dsSharpUsed, dsNeed, dsC, dsDone
 	;(a party battle's blader or healer casts its blades again after each of the hitter's hits: none is spare - not with
 	;Alt+2's pick, whose hits nothing follows; but one that boosts neither the hitter's planned hit nor its own school
 	;goes - KillCalc.ahk BoostMisfitDiscard)
 	if (PartySupport() && HammerSlot)
 		return BoostMisfitDiscard()
+	;(v1.8.0: with the game's hand read and its boxes seen lining up, every blade's and trap's copies past the casts its key
+	;has left this battle go - DiscardSpent; the both-casts rule below takes only the keys it didn't settle - dsDone)
+	dsDone := V1Obj()
+	if (DiscardSpentOn())
+		did += DiscardSpent(dsDone)
 	;A blade whose sharpened and plain casts have both been used this battle won't stack again - each school's (SbFound),
 	;the group's (GbFound), Balanceblade, Bladestorm (a treasure or item card's copy still to go - the game's hand - stays)
 	dsKeys := []
@@ -3042,7 +3047,7 @@ DiscardSpare()
 	for dsI, dsK in dsKeys
 		{
 		dsF := KeyFlags(dsK)
-		if (IsObject(dsF) && UsedFlag(dsF[1]) == 1 && UsedFlag(dsF[2]) == 1 && !BoostCanGo(dsK))
+		if (!dsDone.Has(dsK) && IsObject(dsF) && UsedFlag(dsF[1]) == 1 && UsedFlag(dsF[2]) == 1 && !BoostCanGo(dsK))
 			did += InStr(dsK, "/") ? DiscardCard("blade", SubStr(dsK, 1, InStr(dsK, "/") - 1)) : DiscardCard(dsK, "resources")
 		}
 	;Sharpen is spare once a sharpened blade has been used and no blade in hand still needs sharpening (an item card's never
@@ -3066,6 +3071,163 @@ DiscardSpare()
 	if (sharpen == 1) && dsSharpUsed && !dsNeed
 		did += DiscardCard("sharpen", "resources")
 	return did
+	}
+
+;v1.8.0 (TODO goal 3): whether this wizard's used flags stay its own all battle - set to Hitter (partybattle), or the party
+;off. A Blader's or Healer's come back after its party's hitter's hits (Party.ahk PartyReblade - only with the party on),
+;those set in a round it played alone too (before the hitter joined: PartyNoteBoosts notes them at round 0) - a copy
+;thrown then would be cast again later. Decks.ahk DeckSimVals sends discardspent 0 when this says no
+DiscardSpentRole()
+	{
+	return PartyBattleSet() = "hitter" || PartyRoleSet() = "off"
+	}
+
+;v1.8.0 (TODO goal 3): whether DiscardSpent runs this look - else DiscardSpare's both-casts rule, as before.
+;discardspent:1 under "Discard cards it never plays" (discardunused); reboost off (with reboost:1 a hit frees its blades
+;and traps - KillCalc.ahk ConsumeBoosts); the game's hand read this look (BoostMemOk: each copy's kind and boosts -
+;BoostSearch's BoostHand) and its card boxes seen lining up with the screen's (KillCalc.ahk MemBoxLinedUp: the right-click
+;goes by a box laid on the game's cards by its place in the hand); not dual mode (two windows, one set of used flags);
+;DiscardSpentRole
+DiscardSpentOn()
+	{
+	global BoostMemOk, DualBattle, dualmode
+	return Stat("discardspent") == 1 && Stat("discardunused") && Stat("reboost") != 1 && BoostMemOk == 1
+		&& DualBattle != 1 && dualmode != 1 && DiscardSpentRole() && MemBoxLinedUp()
+	}
+
+;v1.8.0: the worn deck's Sharpen and Potent cards (main side and item cards - a pet's Sharpened Blade) - the helper's
+;/deckkinds, from its last reading of the decks (never a fresh read: it answers in a battle), asked once a battle
+;(DeckSharp, emptied by ResetVariables): {sharpen, potent}, each "" not known - no reading, an older helper, another deck
+;worn since the reading (its signature: sig 0) -: then only one in hand keeps a copy back. Said once a battle
+DiscardSpentDeck()
+	{
+	global VisionOn, VisionErr
+	local ddsA, ddsF, ddsOut, ddsWhy
+	ddsOut := V1Obj({sharpen: "", potent: ""})
+	ddsA := VisionOn ? Trim(VisionGet("/deckkinds", 600, true), " `r`n") : ""
+	ddsF := StrSplit(ddsA, "|")
+	if (V1At(ddsF, 1) = "kinds" && ddsF.Length >= 5 && V1IsNum(ddsF[2]) && V1IsNum(ddsF[3]) && ddsF[4] != "0")
+		{
+		ddsOut.sharpen := ddsF[2] + 0, ddsOut.potent := ddsF[3] + 0
+		DebugLog("  spent copies: the worn deck holds " ddsOut.sharpen " Sharpen and " ddsOut.potent " Potent card(s) (the helper's reading, " ddsF[5] " s old"
+			. (ddsF[4] = "" ? ", its signature not checked" : "") ") - a blade's or trap's copy kept back while one may still come")
+		return ddsOut
+		}
+	ddsWhy := (ddsA = "") ? (VisionErr != "" ? VisionErr : "no answer") : (V1At(ddsF, 4) = "0") ? "another deck worn since the helper's reading" : SubStr(ddsA, 6)
+	DebugLog("  spent copies: the worn deck's Sharpen and Potent cards not known (" ddsWhy ") - only one in hand keeps a copy back")
+	return ddsOut
+	}
+
+;v1.8.0: how many of kind's ("blade" / "trap") keys have had their sharpened / potent cast this battle (Use1 set - each a
+;Sharpen / Potent spent): DiscardSpent's count of the deck's still to come
+DiscardSpentSharpened(kind)
+	{
+	dssN := 0
+	for dssI, dssK in ["feint", "elementaltrap", "trap3", "trap4", "elementalblade", "blade3", "blade4", "spiritblade", "spirittrap"
+		, "storm/blade", "storm/trap", "fire/blade", "fire/trap", "myth/blade", "myth/trap", "ice/blade", "ice/trap"
+		, "life/blade", "life/trap", "death/blade", "death/trap"]
+		if (BoostKind(dssK) = kind && UsedFlag(KeyFlags(dssK)[1]) == 1)
+			dssN += 1
+	return dssN
+	}
+
+;v1.8.0 (TODO goal 3 - discardspent, on): a blade's or trap's copies in hand past the casts its key has left this battle
+;can't go - right-clicked away, one a key a look (the discard step looks again after each one: at most 3 looks a round -
+;Discards), not counted in discardmax. The casts left (KeyFlags: the deck's copies share them): the plain one while its
+;Use2 isn't set; the sharpened / potent one while its Use1 isn't and a Sharpen / Potent is in hand, a copy carries an
+;enchantment already, or the worn deck holds one still to come (DiscardSpentDeck less DiscardSpentSharpened) - KillCalc.ahk
+;BoostCopyCanGo's rule and the cast it would make later. Only the deck's copies the game's hand reads for sure as the key's
+;(BoostSureOf - each card under one key) count and go - a treasure or item card's never (once a battle each:
+;BoostSrcUsed) -, by their card box (KillCalc.ahk BoostMemDiscard: one with no enchantment first, the weakest); not a kind
+;switched off (DiscardSwitchedOff's), nothing while you play or the bot's off. A key it settles goes into done (DiscardSpare's
+;both-casts rule leaves it); one it can't - copies not sure, no box, a treasure card's lavender, a right-click that didn't
+;take (as many copies the next look: off for the battle - SpentOff) - is left to that rule. Returns how many
+DiscardSpent(done)
+	{
+	global
+	local dspDid := 0, dspK, dspCps, dspF, dspKind, dspI, dspC, dspDeck, dspEnc, dspLeft, dspAt, dspSay, dspSeen, dspSure
+	local dspCome, dspHas
+	if (!BotOn || !IsObject(BoostHand) || PlayerActing())
+		return 0
+	if (!IsObject(DeckSharp))
+		DeckSharp := DiscardSpentDeck()
+	if (!IsObject(SpentOff))
+		SpentOff := V1Obj()
+	if (!IsObject(SpentLook))
+		SpentLook := V1Obj()
+	dspSeen := V1Obj()
+	for dspK, dspCps in BoostHand
+		{
+		dspF := KeyFlags(dspK), dspKind := BoostKind(dspK)
+		if (!IsObject(dspF) || !IsObject(dspCps) || dspKind = "" || (dspKind = "blade" && !Stat("useblades"))
+			|| (dspKind = "trap" && !Stat("usetraps")))
+			continue
+		;(its right-click didn't take earlier this battle - SpentOff -, or no box for it this round - SpentLook "fail": the
+		;both-casts rule's)
+		if (SpentOff.Has(dspK) || (SpentLook.Has(dspK) && SpentLook[dspK] = "fail"))
+			continue
+		;(only copies read for sure as this key's - BoostMatches' fallbacks (boosts not read, an every-school card at another
+		;%) aren't -, each card of the game's hand under one key)
+		dspDeck := 0, dspEnc := 0, dspSure := true
+		for dspI, dspC in dspCps
+			{
+			if (!IsObject(dspC) || dspC.src != "")
+				continue
+			if (dspC.sure != 1 || dspSeen.Has(dspC.n))
+				{
+				dspSure := false
+				break
+				}
+			dspSeen[dspC.n] := 1, dspDeck += 1, dspEnc += (dspC.ench = 1) ? 1 : 0
+			}
+		if (!dspSure)
+			{
+			if (IsObject(BoostSaid) && !BoostSaid.Has("spent|" dspK "|unsure"))
+				BoostSaid["spent|" dspK "|unsure"] := 1, DebugLog("  spent copies of " dspK ": the game's hand doesn't say for sure which cards are its copies - the both-casts rule's (said once a battle)")
+			continue
+			}
+		;(clicked an earlier look this round and as many copies now - SpentLook, emptied at each RoundStart: the right-click
+		;didn't take - the game refused it, or it missed: this key is the both-casts rule's for the rest of the battle)
+		if (SpentLook.Has(dspK) && dspDeck >= SpentLook[dspK])
+			{
+			SpentOff[dspK] := 1
+			DebugLog("  spent copies of " dspK ": " dspDeck " in hand after a right-click on one - it didn't go; not tried again this battle")
+			continue
+			}
+		dspLeft := (UsedFlag(dspF[2]) != 1) ? 1 : 0
+		dspHas := IsObject(DeckSharp) ? (dspKind = "trap" ? DeckSharp.potent : DeckSharp.sharpen) : ""
+		dspCome := V1IsNum(dspHas) && dspHas - DiscardSpentSharpened(dspKind) > 0
+		if (UsedFlag(dspF[1]) != 1 && ((dspKind = "trap" ? potent : sharpen) == 1 || dspEnc || dspCome))
+			dspLeft += 1
+		done[dspK] := 1
+		if (dspDeck <= dspLeft)
+			continue
+		dspAt := BoostMemDiscard(dspK, 1)
+		if (dspAt.x = "" || (V1IsFunc("DiscardIsTc") && DiscardIsTc(dspAt.x)))
+			{
+			;(not this round again; the both-casts rule may take it now - said once a battle per reason)
+			done.Delete(dspK), SpentLook[dspK] := "fail"
+			dspSay := (dspAt.x = "") ? dspAt.why : "card " dspAt.n " of " dspAt.of " looks like a treasure card"
+			if (IsObject(BoostSaid) && !BoostSaid.Has("spent|" dspK "|" dspSay))
+				BoostSaid["spent|" dspK "|" dspSay] := 1, DebugLog("  spent copies of " dspK ": " dspDeck " in hand, "
+					. dspLeft " cast" (dspLeft = 1 ? "" : "s") " left this battle - not discarded: " dspSay)
+			continue
+			}
+		MoveToCard(dspAt.x, dspAt.y)
+		s(Stats.Has("clickwait") ? Stats["clickwait"] : 40)
+		Click("right")
+		SpentLook[dspK] := dspDeck
+		;(the hand has changed: a fresh look for the next key's box and the next pass)
+		VisionForget()
+		s(Stat("discardafter"))
+		dspDid += 1
+		DebugLog("  Discarded " dspAt.name " - " dspK ": " dspDeck " of the deck's copies in hand, " dspLeft " cast"
+			. (dspLeft = 1 ? "" : "s") " left this battle (card " dspAt.n " of " dspAt.of ", right-click at "
+			. dspAt.x - GameLeft "," dspAt.y - GameTop ")")
+		}
+	if (dspDid)
+		CenterMouse()
+	return dspDid
 	}
 
 ;Right-clicks one card in hand to discard it. Returns 1 if it was found
@@ -3857,6 +4019,10 @@ global PlanWait := ""
 ;their re-finds by picture skipped -, your school as the game's memory has it this round (RoundStart - "" not read), your
 ;plate taken from the memory this round (memclicks: no picture found it))
 global FoundByMem := V1Obj(), RoundMemSchool := "", PlateMem := 0
+;(v1.8.0: the round's read of the hand out of date - a discard since -; DiscardSpent's count of the worn deck's Sharpen and
+;Potent cards (asked once a battle), its keys off for the battle (a right-click that didn't take) and this round's
+;right-clicks)
+global HandStale := 0, DeckSharp := "", SpentOff := V1Obj(), SpentLook := V1Obj()
 global SbFound := V1Obj(), GbFound := V1Obj(), BoostHand := V1Obj(), BoostSrcUsed := V1Obj(), BoostExtra := "", HammerPlan := "", BoostMemOk := 0, BoostSaid := V1Obj(), BoostMisfitDone := 0
 global BoostUnrec := [], BoostOneOfOff := V1Obj()
 ;(the boosts this look found by the game's hand alone - no picture found them: cast at their card box - KillCalc.ahk
@@ -4419,7 +4585,7 @@ if (BossChoosen == 1)
 	BossX := GameLeft + Round(BossRelX * UiScale), BossY := GameTop + Round(BossRelY * UiScale)
 
 global inbattle := 1
-LearnedThisRound := 0, LastHandAnswer := "", DiscardedUnused := 0, DiscardOffCount := 0, BoostMisfitDone := 0
+LearnedThisRound := 0, LastHandAnswer := "", DiscardedUnused := 0, DiscardOffCount := 0, BoostMisfitDone := 0, HandStale := 0, SpentLook := V1Obj()
 
 ;Both windows share one record of blades/traps in dual mode, so the kill check is off for that whole battle
 if (dualmode == 1)
@@ -4735,10 +4901,21 @@ if (Manual != 1) && (!LearnedThisRound)
 ;(and cards of kinds switched off in the Settings window: Settings.ahk DiscardSwitchedOff)
 if (!LearnAll) && V1Lt(Discards, 3) && V1Add(V1Add(DiscardUnused(), DiscardSpare()), DiscardSwitchedOff())  ; (v1: a blank count made the sum blank)
 	{
-	Discards := V1N(Discards) + 1  ; (v1: never set yet - the first round left to you in roundwait, then up again - blank: "" < 3 true, ++ from 0)
+	Discards := V1N(Discards) + 1, HandStale := 1  ; (v1: never set yet - the first round left to you in roundwait, then up again - blank: "" < 3 true, ++ from 0)
 	s(Stat("discardlook"))
 	Goto("FindCards")
 	}
+
+;(v1.8.0: the round's read of the hand - LearnCards' LastHandAnswer - is out of date once something's been discarded:
+;read afresh, once, for what reads it later - a learned hit in no slot (CardLearn.ahk LearnHitReady held every one back
+;in a round that discarded), the flee check's count of cards, the planned hit; "" the helper didn't answer: none, as
+;before. The mouse off the hand first, as for LearnCards' read: a card zoomed up under it is read wrong)
+if (HandStale && LastHandAnswer != "")
+	{
+	LearnMouseClear()
+	LastHandAnswer := LearnHandRead()
+	}
+HandStale := 0
 
 CenterMouse()
 
@@ -5530,5 +5707,5 @@ AutofarmerBlank()
 	global LearnHitFails := "", RcOn := "", Tray := "", LearnAll := "", KeysDown := "", HeldW := "", LastBeat := "", BlPhase := "", BlPhaseAt := ""
 	global BlDuel := "", SeenOut := "", SpeedNow := "", PicError := "", PicMeasuredSize := "", PicMeasureSize := "", PotionResting := "", DgRun := ""
 	global MouseHomeSet := "", MouseHomeX := "", MouseHomeY := "", ManualX := "", ManualY := "", trap4 := ""
-	global FoundByMem := "", RoundMemSchool := "", PlateMem := ""
+	global FoundByMem := "", RoundMemSchool := "", PlateMem := "", HandStale := "", DeckSharp := "", SpentOff := "", SpentLook := ""
 	}

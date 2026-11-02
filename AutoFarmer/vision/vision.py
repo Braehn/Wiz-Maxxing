@@ -454,6 +454,11 @@ Requests (all GET, answers are plain text lines, "ERR <why>" on a problem):
                                              Equipment Set would make (vision\battlesim.py learn_decks):
                                              deckmem.deck_lines + learn|gid|name|school|eqset|when|k=v,...|why lines +
                                              deckage|<s>, or none|<why>
+  /deckkinds                              -> the worn deck's Sharpen and Potent copies (main side and item cards) from
+                                             the decks' last reading - never read now, so it answers in a battle
+                                             (v1.8.0 - Autofarmer.ahk DiscardSpent, once a battle): kinds|sharpen n|
+                                             potent n|sig (1 the worn deck's signature now is that reading's, 0 it
+                                             isn't, "" not known)|age s, or none|<why>
   /book[?fresh=1[&ob=1][&kinds=1]]        -> the spellbook (the spells the wizard knows) and the treasure-card book from
                                              the game's memory (deckmem, read-only - Training.ahk's new spells):
                                              deckmem.book_lines - book|template id|name|display|school|type|pips|xpip|
@@ -2570,7 +2575,7 @@ PUZZLE_WANTED = {}          # (the zone whose triggers were last asked for - pla
 # The requests that read the game's memory with the walker waiting (/nav's timeout is 150 ms): placements' builds wait
 # for them (placements.busy), and so does the battle recorder (GATE)
 GATED = {'/nav', '/mobs', '/goal', '/battle', '/navto', '/items', '/uiroot', '/blockers', '/navpass', '/deck', '/decks',
-         '/sim', '/guitree', '/duels', '/plan'}
+         '/sim', '/guitree', '/duels', '/plan', '/deckkinds'}
 
 
 class Gate:
@@ -2656,6 +2661,44 @@ def deck_lines(fresh):
     if r is None:
         return ['none|' + mob_cell(why or 'not read')]
     return deckmem.deck_lines(r) + ['deckage|%.1f' % max(0.0, time.monotonic() - (r.get('read_at') or time.monotonic()))]
+
+
+def deckkinds_lines(ctx=None):
+    """/deckkinds' answer (v1.8.0 - Autofarmer.ahk DiscardSpent asks once a battle): the worn deck's Sharpen and Potent
+    copies - its main side and item cards, kinds from the reading, else cards.jsonl's facts (battlesim.deck_cards, as
+    /plan builds its draw pile); never a treasure card's (Draw.ahk draws only an enchant for a kill) - from the decks'
+    last reading (every deck's with kinds - decks_reading -, else the worn deck's), never a fresh read: it answers in a
+    battle. kinds|<sharpen n>|<potent n>|<sig>|<age s>: sig 1 the worn deck's signature now (navmem deck_sig, about 2 ms -
+    what battlerec's sig_ok compares at each battle's start) is the worn deck reading's and that reading wears the deck
+    counted, 0 it isn't (another deck worn since: the counts not to be used), "" not known; none|<why> no worn deck
+    read. ctx: a test's stand-ins {decks, worn, sig, facts}. Never raises"""
+    import battlesim as B
+    try:
+        ctx = ctx or {}
+        reading = ctx['decks'] if 'decks' in ctx else decks_reading(False)[0]
+        worn = ctx['worn'] if 'worn' in ctx else nav_reader().deck(fresh=False)[0]
+        deck = next((d for d in (reading or {}).get('decks') or [] if d.get('equipped')), None)
+        src = reading
+        if deck is None:
+            deck = next((d for d in (worn or {}).get('decks') or [] if d.get('equipped')), None)
+            src = worn
+        if deck is None:
+            return ['none|no worn deck read (the Cards tab\'s From game, or a battle recorded since the helper started)']
+        facts = ctx['facts'] if 'facts' in ctx else sim_book()[1]
+        cards = [c for c in B.deck_cards(deck, facts) if not c.tc]
+        n = {k: sum(1 for c in cards if c.kind == k) for k in ('sharpen', 'potent')}
+        sig = ''
+        try:
+            now = ctx['sig'] if 'sig' in ctx else nav_reader().deck_sig()[0]
+            wdeck = next((d for d in (worn or {}).get('decks') or [] if d.get('equipped')), None)
+            if now is not None and worn and worn.get('sig') is not None and wdeck is not None:
+                sig = '1' if now == worn['sig'] and wdeck.get('gid') == deck.get('gid') else '0'
+        except Exception:  # noqa: BLE001 - not known
+            sig = ''
+        age = max(0.0, time.monotonic() - ((src or {}).get('read_at') or time.monotonic()))
+        return ['kinds|%d|%d|%s|%.1f' % (n['sharpen'], n['potent'], sig, age)]
+    except Exception as e:  # noqa: BLE001
+        return ['none|' + mob_cell('the worn deck couldn\'t be counted (%r)' % (e,))]
 
 
 # ---------------------------------------------------------------- the battle simulator (battlesim.py)
@@ -3275,6 +3318,10 @@ def plan_lines_for(q, cards_reader=None, battle_reader=None, ctx=None):
             else:
                 mtext, used, party_notes = P.fill_mates(q.get('mates'), prnd)
         mates = plan_mates(mtext, facts)
+        # (discardspent: a hitter mate throws its spent copies as this bot's own vals say - sent: the party runs this
+        # AutoFarmer; not sent: an older one, which holds them - Mate's own default)
+        for m in mates:
+            m.opts.discardspent = opts.discardspent
         if mates:
             state.mates = mates
             notes.append('the team model: %d mate%s on your side (%s)' % (len(mates), '' if len(mates) == 1 else 's',
@@ -4822,6 +4869,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.reply('\n'.join(deck_lines(q.get('fresh') == '1')))
             if u.path == '/decks':
                 return self.reply('\n'.join(decks_lines(q.get('fresh') == '1', q.get('ob') == '1')))
+            if u.path == '/deckkinds':
+                return self.reply('\n'.join(deckkinds_lines()))
             if u.path == '/book':
                 # (the spellbook and treasure book - vision\deckmem.py, read-only: Training.ahk's new spells)
                 return self.reply('\n'.join(book_answer(q.get('fresh') == '1', q.get('ob') == '1', q.get('kinds') == '1')))

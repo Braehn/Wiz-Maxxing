@@ -62,7 +62,7 @@ DeckKeys()
 		keys := []
 		for i, k in ["cardlogic", "boostmax", "useblades", "usetraps", "usebubble", "useaura", "usewand", "usetower"
 			, "usereshuffle", "reboost", "solotraps", "healthocr", "killmargin", "drawenchant", "pipsave", "discardunused"
-			, "discardmax", "discardunaffordable", "healat", "defendat", "fleeon", "usehit1", "usehit2", "usehit3", "usehit4", "useheal"]
+			, "discardmax", "discardspent", "discardunaffordable", "healat", "defendat", "fleeon", "usehit1", "usehit2", "usehit3", "usehit4", "useheal"]
 			keys.Push(k)
 		}
 	return keys
@@ -549,7 +549,8 @@ DeckStatFor(d, sch, key)
 ;(enemyspells, useabsorb, drawneed, drawround, drawmax) - each as DeckStatFor has it (the deck's, your school's,
 ;the plain one), and only when set somewhere: useabsorb has no default (the helper's own is on, as StatOr's).
 ;drawenchant 0 while drawing is off for the run (Draw.ahk DrawForKill: DrawBroken, or Draw greyed out with room
-;under 30 minutes ago - DrawEmptyAt). d "" (no deck): yours. "key:value,..."
+;under 30 minutes ago - DrawEmptyAt). discardspent 0 in dual mode or as a Blader / Healer with the party on (v1.8.0).
+;d "" (no deck): yours. "key:value,..."
 DeckSimVals(d, sch)
 	{
 	dsvOut := ""
@@ -562,6 +563,10 @@ DeckSimVals(d, sch)
 		{
 		dsvV := DeckStatFor(d, sch, dsvK)
 		if (dsvK = "drawenchant" && dsvNoDraw)
+			dsvV := 0
+		;(v1.8.0: discardspent 0 where this bot never runs it this session - dual mode, a Blader or Healer with the party on
+		;(Autofarmer.ahk DiscardSpentRole): the simulator then holds the copies, as the bot does)
+		if (dsvK = "discardspent" && (dualmode == 1 || (V1IsFunc("DiscardSpentRole") && !DiscardSpentRole.Call())))
 			dsvV := 0
 		;(only a key set somewhere - DeckStatFor's 0 for one set nowhere would switch useabsorb off in the helper)
 		if (dsvV != "" && ((IsObject(d) && IsObject(V1At(d, "vals")) && d.vals.Has(dsvK)) || Stats.Has(dsvK)

@@ -772,6 +772,32 @@ class PlannerRule(unittest.TestCase):
                 [4, "  planner: Storm Lord cast at Bonestriker"]]
         self.assertEqual(battlerec.classify(kill)[0], "kill")
 
+    def test_discardspent_key_and_lines(self):
+        # (v1.8.0: discardspent kept in the record's settings - BattleRec.ahk BrecSetKeys sends every DeckKey -, and
+        # Autofarmer.ahk DiscardSpent's lines are no rule's: a round is still its own rule's)
+        import battlerec
+        self.assertIn("discardspent", battlerec.SETTINGS_KEYS)
+        blade = [5, "  UseBlade storm/blade: found=1"]
+        for line in ("  spent copies: the worn deck holds 2 Sharpen and 0 Potent card(s) (the helper's reading, 812.4 s "
+                     "old) - a blade's or trap's copy kept back while one may still come",
+                     "  spent copies: the worn deck holds 1 Sharpen and 1 Potent card(s) (the helper's reading, 3.0 s "
+                     "old, its signature not checked) - a blade's or trap's copy kept back while one may still come",
+                     "  spent copies: the worn deck's Sharpen and Potent cards not known (another deck worn since the "
+                     "helper's reading) - only one in hand keeps a copy back",
+                     "  Discarded Stormblade - storm/blade: 3 of the deck's copies in hand, 1 cast left this battle "
+                     "(card 2 of 7, right-click at 512,640)",
+                     "  spent copies of storm/blade: 3 in hand, 1 cast left this battle - not discarded: the hand's card "
+                     "boxes and the game's cards don't line up (not as many, or the hand not read)",
+                     "  spent copies of storm/trap: 2 in hand, 0 casts left this battle - not discarded: card 2 of 7 "
+                     "looks like a treasure card",
+                     "  spent copies of blade3: the game's hand doesn't say for sure which cards are its copies - the "
+                     "both-casts rule's (said once a battle)",
+                     "  spent copies of storm/blade: 3 in hand after a right-click on one - it didn't go; not tried "
+                     "again this battle"):
+            with self.subTest(line=line):
+                self.assertEqual(battlerec.classify([[0, line]])[0], "other")
+                self.assertEqual(battlerec.classify([[0, line], blade])[0], "blade")
+
     def test_plan_lines_never_a_rule(self):
         # (partyorders - RULE_V 3: no "Plan:" line decides a round - advice and the leader's orders are never casts, and
         # nothing in one can spell a rule's phrase into it)
@@ -848,8 +874,8 @@ class SimOnGameDecks(unittest.TestCase):
         self.assertIn("deck|def|Spare", spare)
 
     def test_sim_settings_reach_the_opts(self):
-        """v1.7.0: /sim's vals (Decks.ahk DeckSimVals) - reboost and the rest reach the simulator; none: its defaults,
-        the bot's"""
+        """v1.7.0: /sim's vals (Decks.ahk DeckSimVals) - reboost and the rest reach the simulator; a key not sent: an
+        older AutoFarmer's (discardspent off, though this one's Settings default is on)"""
         class Wiki:
             def creature(self, name):
                 return {"missing": True}
@@ -865,8 +891,13 @@ class SimOnGameDecks(unittest.TestCase):
             for vals in ("reboost:1,drawenchant:1,drawneed:175,enemyspells:0", "reboost:0", ""):
                 out = self.V.sim_lines_for({"foes": "Rat~500", "n": "10", "vals": vals})
                 self.assertTrue(out[0].startswith("sim|"), out)
-        self.assertEqual([(o.reboost, o.drawenchant, o.drawneed, o.enemyspells) for o in seen],
+            # (v1.8.0: discardspent - this AutoFarmer always sends it, 0 where the bot never runs it this session)
+            for vals in ("reboost:0,discardspent:1", "discardspent:0", ""):
+                out = self.V.sim_lines_for({"foes": "Rat~500", "n": "10", "vals": vals})
+                self.assertTrue(out[0].startswith("sim|"), out)
+        self.assertEqual([(o.reboost, o.drawenchant, o.drawneed, o.enemyspells) for o in seen[:3]],
                          [(True, True, 175.0, False), (False, False, 100.0, True), (False, False, 100.0, True)])
+        self.assertEqual([o.discardspent for o in seen[3:]], [True, False, False])
 
     def test_decks_lines_learns_decks_with_item_cards(self):
         fake = types.ModuleType("deckmem")
@@ -1435,6 +1466,87 @@ class DeckFor(unittest.TestCase):
                 V.DECKFOR["cache"].clear()
                 V.DECKFOR["cache"].update(keep_cache)
         self.assertNotIn("/deckfor", V.GATED)          # (no memory read: the decks' last reading only)
+
+
+# ============================================================================ v1.8.0: discardspent - /plan's mates,
+# /deckkinds
+class SpentMates(unittest.TestCase):
+    """/plan's mates throw their spent copies as the asking bot's own vals say (vision.py plan_lines_for): discardspent
+    sent - the party runs this AutoFarmer; not sent - an older one, which holds them (Mate's own default)"""
+
+    @classmethod
+    def setUpClass(cls):
+        try:
+            import vision
+        except ImportError as e:
+            raise unittest.SkipTest("vision.py can't be imported here (%s)" % e)
+        cls.V = vision
+        cls.log = vision.log
+        vision.log = lambda *a, **kw: None
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.V.log = cls.log
+
+    ask = PlanTeam.ask
+
+    def test_mates_take_this_bots_discardspent(self):
+        for vals, want in (("discardspent:1", True), ("discardspent:0", False), ("", False)):
+            got = {}
+            q = {"seed": "1", "budget": "1500", "seat": "4", "role": "blader", "vals": vals,
+                 "mates": "Ann~5~storm~3000~3000~hitter~7~0~104:blade:0:storm:35%;104:blade:0:storm:35%"}
+            out = self.ask(q, spy=got)
+            self.assertTrue(out[0].startswith("plan|"), out)
+            self.assertEqual([m.opts.discardspent for m in got["state"].mates], [want], vals)
+
+
+class DeckKinds(unittest.TestCase):
+    """/deckkinds (Autofarmer.ahk DiscardSpentDeck, once a battle): the worn deck's Sharpen and Potent copies - main
+    side and item cards, never the treasure side - from the decks' last reading, and whether the worn deck's signature
+    now is that reading's"""
+
+    @classmethod
+    def setUpClass(cls):
+        try:
+            import vision
+        except ImportError as e:
+            raise unittest.SkipTest("vision.py can't be imported here (%s)" % e)
+        cls.V = vision
+
+    def test_deckkinds(self):
+        d = deckmem_deck()
+        d["cards"].append(dict(d["cards"][2], name="Sharpened Blade", display="Sharpened Blade", kind="sharpen",
+                               template_id=201, count=2, boosts_text="", value_text="+10%"))
+        d["cards"].append(dict(d["cards"][2], name="Sharpened Blade", display="Sharpened Blade", kind="sharpen",
+                               template_id=201, count=3, side="treasure", boosts_text="", value_text="+10%"))
+        d["item_cards"] = [{"name": "Potent Trap", "template_id": 202, "count": 1, "display": "Potent Trap",
+                            "from": "Pet"}]
+        facts = dict(FACTS)
+        facts[202] = {"rec": "card", "v": 1, "tid": 202, "name": "Potent Trap", "kind": "potent", "value": "+10%",
+                      "full": True}
+        reading = {"decks": [d], "equipped": 0xABC, "why": "", "read_at": time.monotonic() - 30}
+        worn = {"decks": [dict(d)], "sig": "S1", "read_at": time.monotonic()}
+        out = self.V.deckkinds_lines({"decks": reading, "worn": worn, "sig": "S1", "facts": facts})
+        self.assertEqual(len(out), 1, out)
+        f = out[0].split("|")
+        self.assertEqual(f[:4], ["kinds", "2", "1", "1"])      # (the treasure side's 3 Sharpens not counted)
+        self.assertAlmostEqual(float(f[4]), 30, delta=2)
+        # (another deck worn since the reading: sig 0; the signature not known: "")
+        self.assertEqual(self.V.deckkinds_lines({"decks": reading, "worn": worn, "sig": "S2", "facts": facts})[0]
+                         .split("|")[3], "0")
+        other = {"decks": [dict(d, gid=0xDEF)], "sig": "S1"}
+        self.assertEqual(self.V.deckkinds_lines({"decks": reading, "worn": other, "sig": "S1", "facts": facts})[0]
+                         .split("|")[3], "0")
+        self.assertEqual(self.V.deckkinds_lines({"decks": reading, "worn": None, "sig": None, "facts": facts})[0]
+                         .split("|")[3], "")
+        # (no reading with kinds: the worn deck's reading, kinds from the facts)
+        self.assertEqual(self.V.deckkinds_lines({"decks": None, "worn": worn, "sig": "S1", "facts": facts})[0]
+                         .split("|")[:4], ["kinds", "2", "1", "1"])
+        self.assertTrue(self.V.deckkinds_lines({"decks": None, "worn": None, "sig": None, "facts": {}})[0]
+                        .startswith("none|"))
+        # (junk never raises)
+        self.assertTrue(self.V.deckkinds_lines({"decks": {"decks": "x"}, "worn": 5, "sig": [], "facts": 7})[0]
+                        .startswith(("none|", "kinds|")))
 
 
 if __name__ == "__main__":

@@ -27,17 +27,22 @@ solotraps:0
 ; reboost: 1 = after each hit the script may cast its blades/traps again for the next hit.
 ; 0 = each blade/trap is cast once per battle (how AutoFarmer always played).
 reboost:0
-; Discarding (right-click): spare blades/Sharpen are always discarded once they can't stack any more
-; (with reboost:0 that's after a blade's sharpened and plain casts have both been used this battle).
+; Discarding (right-click): with reboost:0 each blade and trap is cast once a battle, plus once sharpened / made potent
+; while a Sharpen / Potent is in hand or still in the deck. discardspent:1 (with discardunused:1) discards its other
+; copies in hand - never a treasure or item card; up to 3 of one blade or trap a round, not counted in discardmax; it
+; needs the vision helper's read of the game's hand (without it: a blade once both its casts went, as before). A spare
+; Sharpen goes once a sharpened blade was used and no blade in hand still needs one.
 ; discardunaffordable: 1 = a hit that won't cast is discarded (unless enchanted). 0 = keep it for a later round.
 ; (The script reads your pips off your nameplate and doesn't try hits you can't afford yet.)
 discardunaffordable:0
 ; discardunused: 1 = every round, cards in hand the bot never plays are discarded (learned cards it has no slot
 ; for: charms, globals, minions..., or one more card of a kind whose slots are full) so it draws ones it can use.
-; Treasure cards among them go too (a discarded treasure card may be lost). 0 = keep them.
+; Treasure cards are never discarded (that would use them up), nor spells set to Never discard. 0 = keep them.
 discardunused:1
 ; discardmax: at most this many of those a round
 discardmax:3
+; discardspent: 1 = discard the blade and trap copies it can't cast again this battle (as above). 0 = keep them.
+discardspent:1
 ; fleeon: 1 = out of mana (less than the cheapest hit costs, no wand in hand) or out of cards (the deck used up)
 ; two rounds running in a battle: flee, drink a potion (or go and buy some), and try again. 0 = keep passing.
 fleeon:1
