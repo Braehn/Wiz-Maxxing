@@ -974,8 +974,9 @@ class AhkParity(unittest.TestCase):
     def test_reboostkeep_wiring(self):
         """v1.9.1: with reboost on DiscardSpare keeps a blade's copies where a hit of yours frees both its casts again
         (Autofarmer.ahk ReboostKeepRole - set to Hitter or the party off, not Alt+2's pick -, inside KillCalc.ahk
-        ConsumeBoosts' own test, left as it was) and says so once a battle a blade; Decks.ahk DeckSimVals always sends
-        reboostkeep by ReboostKeepRole, never a deck's own setting; the simulator's Opts read it"""
+        ConsumeBoosts' own test, left as it was) while a hit can still free them (BoostFreeable) and says so once a
+        battle a blade; Decks.ahk DeckSimVals always sends reboostkeep by ReboostKeepRole, never a deck's own setting;
+        the simulator's Opts read it"""
         import battlesim
         lines = ahk_lines('Autofarmer.ahk')
         af = '\n'.join(ahk_code(lines))
@@ -986,9 +987,18 @@ class AhkParity(unittest.TestCase):
         body = m.group(0)
         self.assertRegex(body, r'local did := 0, [^\n]*\bdsKeep\b')
         self.assertIn('dsKeep := Stat("reboost") == 1 && ReboostKeepRole()', body)
-        # (the both-casts test as it was; under it the throw only without dsKeep, else the once-a-battle line)
+        # (the both-casts test as it was; under it the throw without dsKeep or once no hit can free the key any more -
+        # reboost came on in the battle after a hit used both its casts up -, else the once-a-battle line)
         self.assertRegex(body, r'if \(!dsDone\.Has\(dsK\) && IsObject\(dsF\) && UsedFlag\(dsF\[1\]\) == 1 && '
-                               r'UsedFlag\(dsF\[2\]\) == 1 && !BoostCanGo\(dsK\)\)\s*\{\s*if \(!dsKeep\)\s*did \+= ')
+                               r'UsedFlag\(dsF\[2\]\) == 1 && !BoostCanGo\(dsK\)\)\s*\{\s*'
+                               r'if \(!dsKeep \|\| !BoostFreeable\(dsK\)\)\s*did \+= ')
+        # (BoostFreeable: the key's deck entry - plain or sharpened, no '@' - still in AppliedBlades or BoostUnrec,
+        # the lists KillCalc.ahk ConsumeBoosts frees the flags of)
+        self.assertRegex(af, r'\nBoostFreeable\(key\)\s*\{\s*global AppliedBlades, BoostUnrec\s*'
+                             r'if \(IsObject\(AppliedBlades\) && \(AppliedBlades\.Has\(key\) \|\| '
+                             r'AppliedBlades\.Has\(key "\+"\)\)\)\s*return true\s*'
+                             r'for bfI, bfK in \(IsObject\(BoostUnrec\) \? BoostUnrec : \[\]\)\s*'
+                             r'if \(bfK = key \|\| bfK = key "\+"\)\s*return true\s*return false\s*\}')
         self.assertRegex(body, r'\belse if \(IsObject\(BoostSaid\) && !BoostSaid\.Has\("both\|" dsK\)\)\s*'
                                r'BoostSaid\["both\|" dsK\] := 1, DebugLog\(')
         self.assertIn('its plain and sharpened casts both went - its copies kept in hand: with reboost on, the next hit '
@@ -1003,6 +1013,9 @@ class AhkParity(unittest.TestCase):
         m = re.search(r'\nConsumeBoosts\(hh := ""\)\s*\{.*?\n\t\}', kc, re.S)
         self.assertIsNotNone(m)
         self.assertIn('if (Stat("reboost") == 1 && !PartySupport())', m.group(0))
+        # (and the lists it frees the flags of are BoostFreeable's: AppliedBlades' entries it uses up, BoostUnrec's)
+        self.assertIn('for cbI, cbList in [AppliedBlades, BossTraps]', m.group(0))
+        self.assertIn('for cbJ, cbKey in (IsObject(BoostUnrec) ? BoostUnrec : [])', m.group(0))
         dk = '\n'.join(ahk_code(ahk_lines('Decks.ahk')))
         m = re.search(r'\nDeckSimVals\(d, sch\)\s*\{.*?\n\t\}', dk, re.S)
         self.assertIsNotNone(m)

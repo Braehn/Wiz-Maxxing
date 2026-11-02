@@ -3053,7 +3053,9 @@ DiscardSpare()
 		dsF := KeyFlags(dsK)
 		if (!dsDone.Has(dsK) && IsObject(dsF) && UsedFlag(dsF[1]) == 1 && UsedFlag(dsF[2]) == 1 && !BoostCanGo(dsK))
 			{
-			if (!dsKeep)
+			;(kept only while a hit of yours can still free it - a deck cast of it still on you: BoostFreeable; one used
+			;up before reboost came on in the battle - Alt+1's boss deck, the Settings window - never is: thrown, as before)
+			if (!dsKeep || !BoostFreeable(dsK))
 				did += InStr(dsK, "/") ? DiscardCard("blade", SubStr(dsK, 1, InStr(dsK, "/") - 1)) : DiscardCard(dsK, "resources")
 			else if (IsObject(BoostSaid) && !BoostSaid.Has("both|" dsK))
 				BoostSaid["both|" dsK] := 1, DebugLog("  " dsK ": its plain and sharpened casts both went - its copies kept in hand: with reboost on, the next hit it fits lets it go again (said once a battle)")
@@ -3095,13 +3097,28 @@ DiscardSpentRole()
 ;v1.9.1: whether DiscardSpare keeps a blade's copies once both its casts went, with reboost:1 (its both-casts rule off):
 ;where a hit of yours frees the blades it fits to be cast again - KillCalc.ahk ConsumeBoosts, reboost and no support:
 ;this is inside that test -, set to Hitter or the party off (DiscardSpentRole: a Blader's or Healer's with the party on
-;throws them as before, whatever round it plays), not with Alt+2's pick (Manual: the blades go on the plate picked -
-;another wizard's, whose casts a hit of yours doesn't free -, thrown as before). Decks.ahk DeckSimVals sends
-;reboostkeep by it
+;throws them as before, whatever round it plays), not with Alt+2's pick (Manual: thrown as before, on purpose - its
+;blades mostly go on another wizard's plate, whose casts a hit of yours doesn't free; a Bladestorm, or your own plate
+;picked, would be freed too). Decks.ahk DeckSimVals sends reboostkeep by it
 ReboostKeepRole()
 	{
 	global Manual
 	return Manual != 1 && !PartySupport() && DiscardSpentRole()
+	}
+
+;v1.9.1: whether a hit of yours can still free blade key's deck casts (KillCalc.ahk ConsumeBoosts frees the flags
+;of the AppliedBlades / BoostUnrec entries it uses up): its plain or sharpened entry, not a treasure or item copy's
+;('@'), still there. Always so with reboost on all battle, as a Hitter or with the party off (each deck cast adds one -
+;UseBlade -, and a hit that takes it frees its flag); not when reboost came on in the battle after a hit used both up
+BoostFreeable(key)
+	{
+	global AppliedBlades, BoostUnrec
+	if (IsObject(AppliedBlades) && (AppliedBlades.Has(key) || AppliedBlades.Has(key "+")))
+		return true
+	for bfI, bfK in (IsObject(BoostUnrec) ? BoostUnrec : [])
+		if (bfK = key || bfK = key "+")
+			return true
+	return false
 	}
 
 ;v1.8.0 (TODO goal 3): whether DiscardSpent runs this look - else DiscardSpare's both-casts rule, as before (v1.9.1:

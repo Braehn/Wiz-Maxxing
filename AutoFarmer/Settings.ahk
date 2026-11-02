@@ -152,7 +152,7 @@ CfgList()
 	list.Push(V1Obj({key: "drawenchant", label: "Draw treasure cards for an enchant that kills", kind: "check", def: 0
 		, help: "No hit in hand ends the battle, but one would with an enchant on it (any - Strong's +100 counted) and there's none in hand: Draw from your treasure-card deck till one comes. Draw is greyed out with 7 cards, so one card is discarded first - never a treasure card, the hit, or an enchant. Then the kill check again: the hit goes enchanted if it kills; else the enchant's kept. At most 3 draws a round, 6 a battle."}))
 	list.Push(V1Obj({key: "reboost", label: "Boost again after each hit", kind: "check", def: 0
-		, help: "After each hit its blades and traps may be cast again for the next one - a blade's other copies stay in hand for it (as a Hitter, or with the party off). Off: each is cast once a battle - its other copies are discarded (below)."}))
+		, help: "After each hit its blades and traps may be cast again for the next one - a blade's other copies stay in hand for it (as a Hitter, or with the party off - not with {key:boost}'s pick). Off: each is cast once a battle - its other copies are discarded (below)."}))
 	list.Push(V1Obj({key: "solotraps", label: "I fight alone (count my traps)", kind: "check", def: 0
 		, help: "Your traps and Feint go on the boss you picked (Alt+1), else - every battle - on the enemy with the most health. On: the kill check counts them on that enemy. Leave it off when others fight with you: their hits use your traps up without the bot seeing it."}))
 	list.Push(V1Obj({key: "pipsave", label: "Save pips for a finishing hit (rounds)", kind: "num", lo: 0, hi: 20, def: 3

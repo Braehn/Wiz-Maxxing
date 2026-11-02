@@ -126,17 +126,17 @@ Before you start
 	    <your 1x key, F13 by default> (a mouse turn)" ("(a turn)" before a
 	    turn on the spot), and no "not now - sped up over 5x".
 	2.10 reboost (v1.9.1 - this one acts, only with "Boost again after each
-	    hit" on, as a Hitter or with the party off): a deck with a
-	    Sharpened Blade and 2 or more copies of one blade (Stormblade, say).
-	    Once that blade has gone both sharpened and plain, debug.log says
-	    once a battle "storm/blade: its plain and sharpened casts both
-	    went - its copies kept in hand: with reboost on, the next hit it
-	    fits lets it go again (said once a battle)", and no "Discarded
-	    blade" line follows for it. After the next hit that fits it, a
-	    kept copy goes again (a later round's "UseBlade blade: found=1").
-	    A spare Sharpen still goes ("Discarded sharpen"). Send a battle's
-	    lines. With reboost off, or with Alt+2's pick: "Discarded blade"
-	    as before, and no such line.
+	    hit" on, as a Hitter or with the party off): a deck with 2 or more
+	    Sharpened Blades and 3 or more copies of one blade (Stormblade,
+	    say). Once that blade has gone both sharpened and plain with a copy
+	    still in hand, debug.log says once a battle "storm/blade: its plain
+	    and sharpened casts both went - its copies kept in hand: with
+	    reboost on, the next hit it fits lets it go again (said once a
+	    battle)", and no "Discarded blade" line follows for it. After the
+	    next hit that fits it, a kept copy goes again (a later round's
+	    "UseBlade blade: found=1"). A spare Sharpen still goes ("Discarded
+	    sharpen"). Send a battle's lines. With reboost off, or with Alt+2's
+	    pick: "Discarded blade" as before, and no such line.
 
 3. The new settings - one at a time, in this order
    (turn it on, play a while, send the lines named; turn it off again if
