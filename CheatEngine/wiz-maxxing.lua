@@ -2,8 +2,9 @@
 -- Setup.exe's "Cheat Engine speedhack" copies this into Cheat Engine's autorun folder (<Cheat Engine>\autorun\
 -- wiz-maxxing.lua), with the bot's PlayerStats.txt written in below. Cheat Engine runs it every time it starts:
 --   * It attaches Cheat Engine to Wizard101 (WizardGraphicalClient.exe) once the game is running, and again after
---     the game restarts - only while Cheat Engine has nothing else open (never a process you opened yourself). It
---     stays on that game window while it runs: a second one started (another account) is never sped up.
+--     the game restarts - only while Cheat Engine has nothing else open (never a process you opened yourself). With
+--     two game windows it stays on the one it has, and never moves onto one that ran beside it (another account):
+--     when the one it has closes, it waits for a new one. (Started with two already open, it takes the newest.)
 --   * The bot's two speedhack keys (its Settings: "...Cheat Engine's walking key" and "...Cheat Engine's 1x key",
 --     F13-F24 - no keyboard has them) set the game's speed: the walking key to "...the speed its walking key sets",
 --     the 1x key to 1. Read from PlayerStats.txt every 2 s: a change in the bot's Settings needs no restart here.
@@ -14,7 +15,7 @@
 local GAME = "WizardGraphicalClient.exe"
 local STATS = [[PLAYERSTATS]]   -- the bot's AutoFarmer\PlayerStats.txt (Setup writes it in)
 
-local wm = {pid = 0, factor = 2, said = {}}
+local wm = {pid = 0, factor = 2, said = {}, beside = {}}
 
 -- The bot's speedhack settings: its PlayerStats.txt's "key:value" lines (";" starts a comment), its defaults where
 -- a line isn't there - speedfactor 2, speedkeyfast 2 (F14), speedkeynormal 1 (F13)
@@ -88,29 +89,45 @@ local function bindKeys()
 end
 
 -- Wizard101 opened: once it's running with nothing open in Cheat Engine, or when the one it had is gone and a new one
--- runs (the game restarted). Never over a process you opened yourself
+-- runs (the game restarted). Never over a process you opened yourself, and never onto a game window that ran beside
+-- the one it had (another account's - it would get the bot's keys): with one of those open, a restart is waited for
 local function attach()
   local pid = getProcessIDFromProcessName(GAME)
   if pid == nil or pid == 0 then
     return
   end
   local cur = getOpenedProcessID()
-  if cur == pid then
-    wm.pid = pid
+  if cur ~= 0 and cur ~= wm.pid and cur ~= pid then
     return
   end
-  if cur ~= 0 and cur ~= wm.pid then
-    return
+  -- (Cheat Engine names the newest game window; the process list says which others run. Can't it list them: as
+  -- before v1.9.1 - the newest, whenever the one it had isn't it)
+  local ok, pl = pcall(getProcesslist)
+  if not ok or type(pl) ~= "table" then
+    pl = nil
   end
-  -- (the one it had still running: a second Wizard101 started - Cheat Engine names the newest. It stays on the first:
-  -- moving would leave that one at the walking speed, out of reach of the bot's 1x key. When Cheat Engine can't list
-  -- the processes it moves, as before v1.9.1)
-  if cur ~= 0 then
-    local ok, pl = pcall(getProcesslist)
-    local name = ok and type(pl) == "table" and pl[cur] or nil
-    if type(name) == "string" and name:upper() == GAME:upper() then
-      return
+  local function isGame(p)
+    return pl ~= nil and type(pl[p]) == "string" and pl[p]:upper() == GAME:upper()
+  end
+  if pl ~= nil then
+    for p in pairs(wm.beside) do
+      if not isGame(p) then
+        wm.beside[p] = nil
+      end
     end
+  end
+  if cur ~= 0 and (cur == pid or isGame(cur)) then
+    -- (the one it had still runs: every other game window is another account's - stay, and never move onto those)
+    wm.pid = cur
+    for p in pairs(pl or {}) do
+      if p ~= cur and isGame(p) then
+        wm.beside[p] = true
+      end
+    end
+    return
+  end
+  if wm.beside[pid] then
+    return
   end
   wm.pid = pid
   openProcess(pid)
