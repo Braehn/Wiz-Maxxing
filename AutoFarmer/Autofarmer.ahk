@@ -3769,8 +3769,9 @@ DebugLog("Speedhack: " speedKeyName " pressed (for Cheat Engine's hotkey box)")
 return
 }
 ;Cheat Engine for the speedhack (Settings: speedhack on), when Setup's "Cheat Engine speedhack" put the bot's script in it
-;(CheatEngine.ahk): started, minimized, if it isn't running - the script attaches it to Wizard101 and sets the bot's speed
-;keys by itself. Without the script it's yours to start, attach and set up, as before (said once a run). why: for debug.log
+;(CheatEngine.ahk): started, its window minimized once it shows, if it isn't running - the script attaches it to Wizard101
+;and sets the bot's speed keys by itself. Without the script it's yours to start, attach and set up, as before (said once
+;a run). why: for debug.log
 SpeedCheatEngine(why) {
 static saidNoScript := false
 if (Stat("speedhack") != 1)
@@ -3784,7 +3785,7 @@ if (sceDir = "" || !FileExist(CeScriptPath(sceDir)))
 	}
 if (CeRunning())
 	return DebugLog("Speedhack: on - Cheat Engine is running, the bot's script in it (" why ")")
-DebugLog("Speedhack: on - " (CeStart(sceDir) ? "Cheat Engine started, minimized" : "Cheat Engine (" CeExe(sceDir) ") couldn't be started") " (" why "): its Wiz-Maxxing script attaches it to Wizard101 and sets the speed keys")
+DebugLog("Speedhack: on - " (CeStart(sceDir) ? "Cheat Engine started (its window minimized once it shows)" : "Cheat Engine (" CeExe(sceDir) ") couldn't be started") " (" why "): its Wiz-Maxxing script attaches it to Wizard101 and sets the speed keys")
 }
 ;##############################################
 MenuMap(A_ThisMenuItem:="", A_ThisMenuItemPos:="", MyMenu:="", *) { ; (v1: a label)

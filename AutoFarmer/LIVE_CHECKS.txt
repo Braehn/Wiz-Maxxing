@@ -240,13 +240,22 @@ Before you start
 	5.2 Windows asks for admin once; the log says the script is in
 	    <Cheat Engine>\autorun\wiz-maxxing.lua and names the two keys. Say
 	    yes to switching the speedhack on (the bot closed).
-	5.3 Start the bot: debug.log "Speedhack: on - Cheat Engine started,
-	    minimized". Cheat Engine's title shows WizardGraphicalClient.exe
-	    within a few seconds of the game running - no attaching by hand.
+	5.3 Start the bot with Cheat Engine closed (before v1.9.1 an error box
+	    "ceDir has not been assigned a value" came up here): debug.log
+	    "Speedhack: on - Cheat Engine started (its window minimized once it
+	    shows)". Cheat Engine's window opens and goes down to the taskbar
+	    within a second or two, and the window you had gets the focus back.
+	    Cheat Engine's title (open it from the taskbar) shows
+	    WizardGraphicalClient.exe within a few seconds of the game running -
+	    no attaching by hand.
 	5.4 Walking: "speed: 2x - F14 (walking)" and the wizard runs faster;
 	    "speed: 1x - F13" at battles and talking. No "speed: off for this run".
 	5.5 Restart Wizard101 with Cheat Engine open: it attaches to the new one by
-	    itself. A box from Cheat Engine starting "Wiz-Maxxing
+	    itself. Start a second Wizard101 (another account) while the bot
+	    walks fast in the first: Cheat Engine stays on the first, and the
+	    second never runs faster (v1.9.1's script - after updating, run
+	    Setup.exe once: "Cheat Engine speedhack" is ticked, press Install).
+	    A box from Cheat Engine starting "Wiz-Maxxing
 	    (autorun\wiz-maxxing.lua)": send its text.
 
 To send back, in one place

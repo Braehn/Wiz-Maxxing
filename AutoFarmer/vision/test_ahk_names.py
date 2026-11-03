@@ -248,6 +248,27 @@ class HiddenCalls(unittest.TestCase):
         self.assertRegex(af, r'\bsceDir := CeDir\(\)')
         self.assertNotRegex(af + ce, r'(?i)\bcedir\s*:=|\bceexe\s*:=')
 
+    def test_cheat_engine_window_and_second_game(self):
+        """v1.9.1: CeStart has Cheat Engine's own window minimized once it shows ("Cheat Engine.exe" is a launcher: Run's
+        "Min" never reaches that window) - on a timer, as its minimize button does, never one of its message boxes; the
+        script stays on a Wizard101 that still runs when a second one starts"""
+        ce = '\n'.join(self.texts[os.path.join(ROOT, 'CheatEngine.ahk')].splitlines())
+        start = re.search(r'(?ms)^CeStart\(dir\)\n\t\{\n(.*?)^\t\}', ce).group(1)
+        self.assertRegex(start, r'(?m)^\tCeMinimizeSoon\(true\)\n\treturn true$')
+        mini = re.search(r'(?ms)^CeMinimizeSoon\(start := false\)\n\t\{\n(.*?)^\t\}', ce).group(1)
+        for must in ('SetTimer(CeMinimizeSoon, -250)', 'DetectHiddenWindows(false)', '!= "#32770"',
+                     'PostMessage(0x0112, 0xF020, 0, , "ahk_id " cmsHwnd)', '"Cheat Engine"'):
+            self.assertIn(must, mini)
+        # (the caller's thread never searches - DetectHiddenWindows is set only on the timer's own thread)
+        self.assertLess(mini.index('return'), mini.index('DetectHiddenWindows'))
+        with open(os.path.join(ROOT, 'CheatEngine', 'wiz-maxxing.lua'), encoding='utf-8') as f:
+            lua = f.read()
+        attach = re.search(r'(?ms)^local function attach\(\)\n(.*?)^end$', lua).group(1)
+        keep = attach.index('pcall(getProcesslist)')
+        self.assertLess(attach.index('if cur ~= 0 and cur ~= wm.pid then'), keep)
+        self.assertLess(keep, attach.index('name:upper() == GAME:upper()'))
+        self.assertLess(attach.index('name:upper() == GAME:upper()'), attach.index('openProcess(pid)'))
+
 
 if __name__ == '__main__':
     unittest.main()

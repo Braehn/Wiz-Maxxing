@@ -65,11 +65,42 @@ CeRunning()
 	return 0
 	}
 
-;Cheat Engine started from its folder, minimized. False if Windows wouldn't
+;Cheat Engine started from its folder, its window minimized once it shows (CeMinimizeSoon: "Cheat Engine.exe" only
+;starts the build that suits this PC, at full size - Run's "Min" never reaches that window). False if Windows wouldn't
 CeStart(dir)
 	{
 	csExe := CeExe(dir)
-	if (csExe = "")
+	if (csExe = "" || V1Run("`"" csExe "`"", dir, "Min") != 0)
 		return false
-	return V1Run("`"" csExe "`"", dir, "Min") = 0
+	CeMinimizeSoon(true)
+	return true
+	}
+
+;Cheat Engine's main window minimized as soon as it shows: looked for 4 times a second for 20 s after CeStart, on a
+;timer - nothing waits for it. A shown window of one of its builds whose title starts "Cheat Engine" ("Cheat Engine
+;7.5"); never one of its message boxes (a box from the bot's script stays for you to read). Minimized the way its
+;own minimize button does it (WM_SYSCOMMAND SC_MINIMIZE), so Cheat Engine minimizes itself; Windows gives the focus
+;back to the window you had. start: true from CeStart - only (re)starts the 20 s
+CeMinimizeSoon(start := false)
+	{
+	static cmsLeft := 0
+	if (start)
+		{
+		cmsLeft := 80
+		SetTimer(CeMinimizeSoon, -250)
+		return
+		}
+	cmsLeft--
+	DetectHiddenWindows(false)
+	for each, cmsName in ["cheatengine-x86_64-SSE4-AVX2.exe", "cheatengine-x86_64.exe", "cheatengine-i386.exe"]
+		for each, cmsHwnd in V1Try(WinGetList, "ahk_exe " cmsName) || []
+			if (SubStr(V1Try(WinGetTitle, "ahk_id " cmsHwnd), 1, 12) = "Cheat Engine"
+				&& V1Try(WinGetClass, "ahk_id " cmsHwnd) != "#32770")
+				{
+				cmsLeft := 0
+				try PostMessage(0x0112, 0xF020, 0, , "ahk_id " cmsHwnd)
+				return
+				}
+	if (cmsLeft > 0)
+		SetTimer(CeMinimizeSoon, -250)
 	}

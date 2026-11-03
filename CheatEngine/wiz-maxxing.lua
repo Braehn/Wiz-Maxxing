@@ -2,7 +2,8 @@
 -- Setup.exe's "Cheat Engine speedhack" copies this into Cheat Engine's autorun folder (<Cheat Engine>\autorun\
 -- wiz-maxxing.lua), with the bot's PlayerStats.txt written in below. Cheat Engine runs it every time it starts:
 --   * It attaches Cheat Engine to Wizard101 (WizardGraphicalClient.exe) once the game is running, and again after
---     the game restarts - only while Cheat Engine has nothing else open (never a process you opened yourself).
+--     the game restarts - only while Cheat Engine has nothing else open (never a process you opened yourself). It
+--     stays on that game window while it runs: a second one started (another account) is never sped up.
 --   * The bot's two speedhack keys (its Settings: "...Cheat Engine's walking key" and "...Cheat Engine's 1x key",
 --     F13-F24 - no keyboard has them) set the game's speed: the walking key to "...the speed its walking key sets",
 --     the 1x key to 1. Read from PlayerStats.txt every 2 s: a change in the bot's Settings needs no restart here.
@@ -100,6 +101,16 @@ local function attach()
   end
   if cur ~= 0 and cur ~= wm.pid then
     return
+  end
+  -- (the one it had still running: a second Wizard101 started - Cheat Engine names the newest. It stays on the first:
+  -- moving would leave that one at the walking speed, out of reach of the bot's 1x key. When Cheat Engine can't list
+  -- the processes it moves, as before v1.9.1)
+  if cur ~= 0 then
+    local ok, pl = pcall(getProcesslist)
+    local name = ok and type(pl) == "table" and pl[cur] or nil
+    if type(name) == "string" and name:upper() == GAME:upper() then
+      return
+    end
   end
   wm.pid = pid
   openProcess(pid)
