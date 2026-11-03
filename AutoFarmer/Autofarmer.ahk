@@ -3769,8 +3769,8 @@ DebugLog("Speedhack: " speedKeyName " pressed (for Cheat Engine's hotkey box)")
 return
 }
 ;Cheat Engine for the speedhack (Settings: speedhack on), when Setup's "Cheat Engine speedhack" put the bot's script in it
-;(CheatEngine.ahk): started if it isn't running - Windows asks for admin first (Cheat Engine 7.4 / 7.5 run only as admin;
-;the bot doesn't wait for the answer) - and the script attaches it to Wizard101 and sets the bot's speed keys by itself.
+;(CheatEngine.ahk): started if it isn't running, its window minimized once it shows (7.4 / 7.5 ask for admin first - the
+;bot doesn't wait for the answer) - and the script attaches it to Wizard101 and sets the bot's speed keys by itself.
 ;Without the script it's yours to start, attach and set up, as before (said once a run). why: for debug.log
 SpeedCheatEngine(why) {
 static saidNoScript := false
@@ -3785,7 +3785,7 @@ if (sceDir = "" || !FileExist(CeScriptPath(sceDir)))
 	}
 if (CeRunning())
 	return DebugLog("Speedhack: on - Cheat Engine is running, the bot's script in it (" why ")")
-DebugLog("Speedhack: on - " (CeStart(sceDir) ? "starting Cheat Engine (" CeExe(sceDir) "): Windows asks for admin first, then its window opens - click back into the game" : "Cheat Engine (" CeExe(sceDir) ") couldn't be started") " (" why "). Its Wiz-Maxxing script attaches it to Wizard101 and sets the speed keys")
+DebugLog("Speedhack: on - " (CeStart(sceDir) ? "starting Cheat Engine (" CeExe(sceDir) "), its window minimized once it shows - Cheat Engine 7.4 / 7.5 ask for admin first: say Yes (the bot doesn't wait)" : "Cheat Engine (" CeExe(sceDir) ") couldn't be started") " (" why "). Its Wiz-Maxxing script attaches it to Wizard101 and sets the speed keys")
 }
 ;##############################################
 MenuMap(A_ThisMenuItem:="", A_ThisMenuItemPos:="", MyMenu:="", *) { ; (v1: a label)

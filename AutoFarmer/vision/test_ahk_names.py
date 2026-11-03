@@ -248,23 +248,20 @@ class HiddenCalls(unittest.TestCase):
         self.assertRegex(af, r'\bsceDir := CeDir\(\)')
         self.assertNotRegex(af + ce, r'(?i)\bcedir\s*:=|\bceexe\s*:=')
 
-    def test_cheat_engine_start_and_second_game(self):
+    def test_cheat_engine_start(self):
         """v1.9.1: CeStart doesn't wait for Windows' admin question (Cheat Engine 7.4 / 7.5 run only as admin - a plain
-        Run waits for the answer): cmd's start asks in its own hidden window. The script stays on the game window it
-        has, never moves onto one that ran beside it (another account's), and still follows a restart"""
+        Run waits for the answer): cmd's start asks in its own hidden window. Then its own window is minimized once it
+        shows ("Cheat Engine.exe" is a launcher: Run's "Min" never reaches that window) - on a timer, the way the
+        taskbar does it, never one of its message boxes; the search runs only on the timer's own thread"""
         ce = '\n'.join(self.texts[os.path.join(ROOT, 'CheatEngine.ahk')].splitlines())
         start = re.search(r'(?ms)^CeStart\(dir\)\n\t\{\n(.*?)^\t\}', ce).group(1)
-        self.assertIn('V1Run("`"" A_ComSpec "`" /c start `"`" `"" csExe "`"", dir, "Hide")', start)
-        self.assertNotIn('CeMinimizeSoon', ce)
-        with open(os.path.join(ROOT, 'CheatEngine', 'wiz-maxxing.lua'), encoding='utf-8') as f:
-            lua = f.read()
-        self.assertIn('beside = {}', lua)
-        attach = re.search(r'(?ms)^local function attach\(\)\n(.*?)^end$', lua).group(1)
-        order = ['if cur ~= 0 and cur ~= wm.pid and cur ~= pid then', 'pcall(getProcesslist)',
-                 'if cur ~= 0 and (cur == pid or isGame(cur)) then', 'wm.beside[p] = true',
-                 'if wm.beside[pid] then', 'openProcess(pid)']
-        at = [attach.index(o) for o in order]
-        self.assertEqual(at, sorted(at))
+        self.assertIn('V1Run("`"" A_ComSpec "`" /c start `"`" `"" csExe "`"", dir, "Hide") != 0', start)
+        self.assertRegex(start, r'(?m)^\tCeMinimizeSoon\(true\)\n\treturn true$')
+        mini = re.search(r'(?ms)^CeMinimizeSoon\(start := false\)\n\t\{\n(.*?)^\t\}', ce).group(1)
+        for must in ('SetTimer(CeMinimizeSoon, -500)', 'DetectHiddenWindows(false)', '!= "#32770"',
+                     'PostMessage(0x0112, 0xF020, 0, , "ahk_id " cmsHwnd)', '"Cheat Engine"'):
+            self.assertIn(must, mini)
+        self.assertLess(mini.index('return'), mini.index('DetectHiddenWindows'))
 
 
 if __name__ == '__main__':

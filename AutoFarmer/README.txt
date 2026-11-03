@@ -175,18 +175,13 @@ the bot's script (CheatEngine\wiz-maxxing.lua) in its autorun folder (asks for
 admin). Each time Cheat Engine starts, the script attaches it to Wizard101 -
 again after the game restarts, never over a process you opened yourself - and
 the bot's two keys set the speed, read from PlayerStats.txt (a change in
-Settings needs no restart). With two game windows it stays on the one it has
-and never moves onto one that ran beside it (another account): when the one
-it has closes, it waits for a new one (to use the other, restart Cheat
-Engine; started with two already open, it takes the newest). With the script
-there, the bot starts Cheat Engine when it starts with the speedhack on, or
-when you switch it on: Windows asks for admin first (Cheat Engine 7.4 and 7.5
-run only as admin - the bot doesn't wait for your answer), then its window
-opens: click back into the game. After an update that changes the script,
-Setup.exe ticks "Cheat Engine speedhack" again: press Install to put the new
-one in. Without the script, Cheat Engine is yours to install, attach and set
-up as below. The keys: the walking key while it walks, the 1x key for battles
-(pressed at every round), talking,
+Settings needs no restart). With the script there, the bot starts Cheat Engine
+when it starts with the speedhack on, or when you switch it on, and minimizes
+its window as it shows. Cheat Engine 7.4 and 7.5 ask for admin first (7.6 and
+later, which Setup installs, don't): say Yes before the bot starts walking -
+it doesn't wait for your answer. Without the script, Cheat Engine is yours to
+install, attach and set up as below. The keys: the walking key while it walks,
+the 1x key for battles (pressed at every round), talking,
 dialogues, shops, near the goal, collecting, dungeon runs, a teleport ahead,
 getting round an obstacle, when you play, F6 and when it stops. Its turn and
 wait times are divided by the speed; above 5x turns are made at 1x. In Cheat
