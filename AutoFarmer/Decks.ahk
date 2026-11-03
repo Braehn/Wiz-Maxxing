@@ -550,6 +550,8 @@ DeckStatFor(d, sch, key)
 ;the plain one), and only when set somewhere: useabsorb has no default (the helper's own is on, as StatOr's).
 ;drawenchant 0 while drawing is off for the run (Draw.ahk DrawForKill: DrawBroken, or Draw greyed out with room
 ;under 30 minutes ago - DrawEmptyAt). discardspent 0 in dual mode or as a Blader / Healer with the party on (v1.8.0).
+;reboostkeep (v1.9.1 - no setting, never a deck's: always sent): 1 where this AutoFarmer's DiscardSpare keeps a blade's
+;copies with reboost on (Autofarmer.ahk ReboostKeepRole), else 0 - an older AutoFarmer sends none.
 ;d "" (no deck): yours. "key:value,..."
 DeckSimVals(d, sch)
 	{
@@ -573,6 +575,11 @@ DeckSimVals(d, sch)
 			|| (sch != "" && Stats.Has(sch "." dsvK))))
 			dsvOut .= (dsvOut = "" ? "" : ",") dsvK ":" dsvV
 		}
+	;(v1.9.1: reboostkeep - this AutoFarmer's own, no setting: 1 where its DiscardSpare keeps a blade's copies with
+	;reboost on - set to Hitter or the party off, not Alt+2's pick: Autofarmer.ahk ReboostKeepRole -, else 0: the
+	;simulator then throws them under reboost, as the bot does. An older AutoFarmer sends none: thrown, as it does)
+	dsvRk := (V1IsFunc("ReboostKeepRole") && !ReboostKeepRole.Call()) ? 0 : 1
+	dsvOut .= (dsvOut = "" ? "" : ",") "reboostkeep:" dsvRk
 	return dsvOut
 	}
 

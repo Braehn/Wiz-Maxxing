@@ -2659,7 +2659,9 @@ BladeOnUs(card)
 ;fit one of its schools go - a Power Nova leaves an Elemental Blade on, a Hydra takes it; one whose schools aren't known
 ;goes - and the party's told its schools (PartyLastSch: a support's blades that fit none stay on); with reboost:1 only
 ;those are cast again, and the blades cast on you that weren't seen there (BoostUnrec: UseBlade) that fit it. Not known:
-;all of them, as before
+;all of them, as before. With reboost:1 Autofarmer.ahk DiscardSpare keeps a blade's copies in hand for that (v1.9.1 -
+;ReboostKeepRole, inside this test; and while a hit can still free them - BoostFreeable, by the lists this frees the
+;flags of: change them together)
 ConsumeBoosts(hh := "")
 	{
 	global PartyLastSch, AppliedBlades, BossTraps, PartyHits, PartyHitR, BoostUnrec ; (v1 globals it sets)

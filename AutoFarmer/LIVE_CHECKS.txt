@@ -125,6 +125,18 @@ Before you start
 	    unticked. Above 5x (speedhack): before a mouse turn "speed: 1x -
 	    <your 1x key, F13 by default> (a mouse turn)" ("(a turn)" before a
 	    turn on the spot), and no "not now - sped up over 5x".
+	2.10 reboost (v1.9.1 - this one acts, only with "Boost again after each
+	    hit" on, as a Hitter or with the party off): a deck with 2 or more
+	    Sharpened Blades and 3 or more copies of one blade (Stormblade,
+	    say). Once that blade has gone both sharpened and plain with a copy
+	    still in hand, debug.log says once a battle "storm/blade: its plain
+	    and sharpened casts both went - its copies kept in hand: with
+	    reboost on, the next hit it fits lets it go again (said once a
+	    battle)", and no "Discarded blade" line follows for it. After the
+	    next hit that fits it, a kept copy goes again (a later round's
+	    "UseBlade blade: found=1"). A spare Sharpen still goes ("Discarded
+	    sharpen"). Send a battle's lines. With reboost off, or with Alt+2's
+	    pick: "Discarded blade" as before, and no such line.
 
 3. The new settings - one at a time, in this order
    (turn it on, play a while, send the lines named; turn it off again if
@@ -228,9 +240,17 @@ Before you start
 	5.2 Windows asks for admin once; the log says the script is in
 	    <Cheat Engine>\autorun\wiz-maxxing.lua and names the two keys. Say
 	    yes to switching the speedhack on (the bot closed).
-	5.3 Start the bot: debug.log "Speedhack: on - Cheat Engine started,
-	    minimized". Cheat Engine's title shows WizardGraphicalClient.exe
-	    within a few seconds of the game running - no attaching by hand.
+	5.3 Start the bot with Cheat Engine closed (before v1.9.1 an error box
+	    "This local variable has not been assigned a value ... ceDir" came
+	    up here): debug.log "Speedhack: on - starting Cheat Engine (...), its
+	    window minimized once it shows ...". Cheat Engine 7.4 / 7.5: Windows
+	    asks for admin (its box, or a blinking button on the taskbar) and the
+	    bot keeps going meanwhile - say Yes; 7.6 and later don't ask. Cheat
+	    Engine's window goes down to the taskbar by itself once it opens - if
+	    it stays open, say so. Open it from the taskbar: the line at the top
+	    inside its window (not its title - "Cheat Engine", or "Cheat Engine
+	    7.5") shows 0000xxxx-WizardGraphicalClient.exe within a few seconds
+	    of the game running - no attaching by hand.
 	5.4 Walking: "speed: 2x - F14 (walking)" and the wizard runs faster;
 	    "speed: 1x - F13" at battles and talking. No "speed: off for this run".
 	5.5 Restart Wizard101 with Cheat Engine open: it attaches to the new one by

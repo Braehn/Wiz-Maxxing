@@ -569,6 +569,15 @@ class PlanLinesFor(unittest.TestCase):
         self.assertEqual((o.reboost, o.drawenchant, o.drawneed, o.drawround, o.drawmax, o.enemyspells),
                          (False, False, 100.0, 3, 6, True))
 
+    def test_reboostkeep_reaches_the_opts(self):
+        # (v1.9.1: Decks.ahk DeckSimVals sends reboostkeep - this AutoFarmer keeps a blade's copies with reboost on;
+        # not sent: an older one's, off)
+        for vals, want in (("reboost:1,reboostkeep:1", (True, True)), ("reboost:1", (True, False)),
+                           ("reboost:0,reboostkeep:1", (False, True)), ("reboost:1,reboostkeep:0", (True, False)),
+                           ("", (False, False))):
+            o = self.spy_ask({"vals": vals})["opts"]
+            self.assertEqual((o.reboost, o.reboostkeep), want, vals)
+
     def test_place_in_hand_counts_every_card(self):
         """review fix: i (plan|'s field 1) is the card's place among every card read - one with no name read before it
         still counts"""
@@ -823,6 +832,18 @@ class PlannerRule(unittest.TestCase):
                 self.assertEqual(battlerec.classify([[0, line]])[0], "other")
                 self.assertEqual(battlerec.classify([[0, line], blade])[0], "blade")
 
+    def test_reboost_keep_lines(self):
+        # (v1.9.1: Autofarmer.ahk DiscardSpare's lines under reboost are no rule's: a round is still its own rule's)
+        import battlerec
+        blade = [5, "  UseBlade storm/blade: found=1"]
+        for line in ("  storm/blade: its plain and sharpened casts both went - its copies kept in hand: with reboost on, "
+                     "the next hit it fits lets it go again (said once a battle)",
+                     "  blade3: its plain and sharpened casts both went - its copies kept in hand: with reboost on, the "
+                     "next hit it fits lets it go again (said once a battle)"):
+            with self.subTest(line=line):
+                self.assertEqual(battlerec.classify([[0, line]])[0], "other")
+                self.assertEqual(battlerec.classify([[0, line], blade])[0], "blade")
+
     def test_plan_lines_never_a_rule(self):
         # (partyorders - RULE_V 3: no "Plan:" line decides a round - advice and the leader's orders are never casts, and
         # nothing in one can spell a rule's phrase into it)
@@ -923,6 +944,27 @@ class SimOnGameDecks(unittest.TestCase):
         self.assertEqual([(o.reboost, o.drawenchant, o.drawneed, o.enemyspells) for o in seen[:3]],
                          [(True, True, 175.0, False), (False, False, 100.0, True), (False, False, 100.0, True)])
         self.assertEqual([o.discardspent for o in seen[3:]], [True, False, False])
+
+    def test_sim_reboostkeep_reaches_the_opts(self):
+        """v1.9.1: /sim's reboostkeep (Decks.ahk DeckSimVals - this AutoFarmer always sends it) reaches the simulator;
+        not sent: an older AutoFarmer's, off"""
+        class Wiki:
+            def creature(self, name):
+                return {"missing": True}
+        seen = []
+        real = S.simulate
+
+        def spy(cards, me, foes, opts=None, **kw):
+            seen.append(opts)
+            return real(cards, me, foes, opts, **kw)
+        with mock.patch.object(self.V, "decks_reading", lambda fresh, out=False: (self.reading(), "")), \
+                mock.patch.object(self.V, "sim_book", lambda: (S.FoeBook(battles=[]), FACTS)), \
+                mock.patch.object(self.V, "enemy_state", lambda: (Wiki(), None)), mock.patch.object(S, "simulate", spy):
+            for vals in ("reboost:1,reboostkeep:1", "reboost:1", "reboostkeep:0", ""):
+                out = self.V.sim_lines_for({"foes": "Rat~500", "n": "10", "vals": vals})
+                self.assertTrue(out[0].startswith("sim|"), out)
+        self.assertEqual([(o.reboost, o.reboostkeep) for o in seen],
+                         [(True, True), (True, False), (False, False), (False, False)])
 
     def test_decks_lines_learns_decks_with_item_cards(self):
         fake = types.ModuleType("deckmem")
@@ -1270,6 +1312,34 @@ class DeckFor(unittest.TestCase):
             self.V.DECKFOR["cache"].clear()
             self.V.DECKFOR["cache"].update(keep)
 
+    def test_deckfor_reboostkeep_every_deck(self):
+        """v1.9.1: reboostkeep rides in vals= (Decks.ahk DeckSimVals) for every deck, a profile's or not - never a
+        profile's own (not a DeckKey); not sent: an older AutoFarmer's, off"""
+        c = self.ctx()
+        plain = dict(deckmem_deck(), gid=0xA1, display="Plain", sets=[3],
+                     cards=[x for x in deckmem_deck()["cards"] if x["kind"] != "blade"])
+        c["decks"] = {"decks": [plain] + [d for d in c["decks"]["decks"] if d["gid"] == 0xDEF]}
+        specs = {}
+        real = S.best_decks
+
+        def spy(ds, *a, **kw):
+            specs.clear()
+            specs.update({key: o for key, _n, _c, o in ds})
+            return real(ds, *a, **kw)
+        keep = dict(self.V.DECKFOR["cache"])
+        try:
+            self.V.DECKFOR["cache"].clear()
+            q = {"zone": "Z/Graveyard", "school": "storm", "n": "10", "dvals": "A1~reboost:1"}
+            with mock.patch.object(S, "best_decks", spy):
+                for vals, want in (("reboost:0,reboostkeep:1", [(True, True), (False, True)]),
+                                   ("reboost:0", [(True, False), (False, False)])):
+                    out = self.V.deckfor_lines_for(dict(q, vals=vals), c, wait=True)
+                    self.assertTrue(out[0].startswith("deckfor|"), out)
+                    self.assertEqual([(specs[k].reboost, specs[k].reboostkeep) for k in ("a1", "def")], want, vals)
+        finally:
+            self.V.DECKFOR["cache"].clear()
+            self.V.DECKFOR["cache"].update(keep)
+
     def test_profile_with_every_hit_off(self):
         """a deck profile with usehit1-4 all 0 (a support's - Decks.ahk DeckFilterHand then plays no hit): its deck
         played with none, the rule /sim and /plan use - not scored a hitter that wins with the hits it never casts"""
@@ -1532,6 +1602,17 @@ class SpentMates(unittest.TestCase):
             self.assertEqual([m.opts.discardspent for m in got["state"].mates], [want], (role, vals))
             # (the asking bot itself plays as its own vals say - a support never throws: its role gate)
             self.assertEqual(got["opts"].discardspent, vals == "discardspent:1", (role, vals))
+
+    def test_mates_never_take_reboostkeep(self):
+        # (v1.9.1: a mate's Opts never get reboost - Mate's own default -, so not reboostkeep either: its both-casts rule
+        # as before; the asking bot's own Opts take it)
+        got = {}
+        q = {"seed": "1", "budget": "1500", "seat": "4", "vals": "reboost:1,reboostkeep:1,discardspent:1",
+             "mates": "Ann~5~storm~3000~3000~hitter~7~0~104:blade:0:storm:35%;104:blade:0:storm:35%"}
+        out = self.ask(q, spy=got)
+        self.assertTrue(out[0].startswith("plan|"), out)
+        self.assertEqual([(m.opts.reboost, m.opts.reboostkeep) for m in got["state"].mates], [(False, False)])
+        self.assertEqual((got["opts"].reboost, got["opts"].reboostkeep), (True, True))
 
     def test_a_support_leaders_hitter_mate_throws(self):
         """a Blader leader's team plan (vals discardspent:0 - its role's): the hitter mate's spent Stormblades go, as

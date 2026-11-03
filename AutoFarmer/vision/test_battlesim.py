@@ -3112,6 +3112,61 @@ class SharpenPotent(unittest.TestCase):
         b.discard()
         self.assertEqual(names(b.hand).count("Stormblade"), 4)
 
+    def test_reboost_keeps_the_copies(self):
+        # (v1.9.1 - this AutoFarmer, reboostkeep:1 - Autofarmer.ahk ReboostKeepRole: with reboost on the next hit a
+        # blade fits frees both its casts - KillCalc.ahk ConsumeBoosts -, so its copies stay in hand; no random number
+        # drawn. discardunused, discardspent: the same - DiscardSpent never runs under reboost)
+        for o in (S.Opts(reboost=1, reboostkeep=1), S.Opts(reboost=1, reboostkeep=1, discardunused=0),
+                  S.Opts(reboost=1, reboostkeep=1, discardspent=1)):
+            b = battle([stormblade()] * 4 + [lord()], pips=0, fhp=[9000], opts=o)
+            b.boosts_used = dict(U)
+            st = b.rng.getstate()
+            b.discard()
+            self.assertEqual((names(b.hand).count("Stormblade"), b.spent), (4, []), (o.discardunused, o.discardspent))
+            self.assertEqual(b.rng.getstate(), st)
+        # (not sent - an older AutoFarmer, which still throws them under reboost -, reboost off, or either at another
+        # number: the both-casts rule, as before)
+        for o in (S.Opts(reboost=1), S.Opts(reboostkeep=1), S.Opts(reboost=2, reboostkeep=1),
+                  S.Opts(reboost=1, reboostkeep=2), S.Opts(reboost=1, reboostkeep=0.5)):
+            b = battle([stormblade()] * 4 + [lord()], pips=0, fhp=[9000], opts=o)
+            b.boosts_used = dict(U)
+            b.discard()
+            self.assertEqual(names(b.hand).count("Stormblade"), 1, (o.reboost, o.reboostkeep))
+        rk = S.Opts(reboost=1, reboostkeep=1)
+        # (the spare-Sharpen rule still runs: no blade in hand can take one - the Sharpen goes, the blades stay)
+        b = battle([SHARPEN, stormblade(), stormblade(), lord()], pips=0, fhp=[9000], opts=rk)
+        b.boosts_used = dict(U)
+        b.discard()
+        self.assertEqual(names(b.hand), ["Stormblade", "Stormblade", "Storm Lord"])
+        # (a support: its DiscardSpare is BoostMisfitDiscard - nothing here, as before)
+        b = battle([stormblade()] * 4 + [lord()], pips=0, fhp=[9000],
+                   opts=S.Opts(role="blader", reboost=1, reboostkeep=1))
+        b.boosts_used = dict(U)
+        b.discard()
+        self.assertEqual(names(b.hand).count("Stormblade"), 4)
+        # (the whole turn: sharpened, plain, the copy kept - an older AutoFarmer's thrown -, the hit frees both casts,
+        # the kept copy goes again)
+        for o, kept in ((rk, 1), (S.Opts(reboost=1), 0)):
+            b = battle([stormblade()] * 3 + [SHARPEN, lord()], pips=7, fhp=[9000], opts=o)
+            self.assertTrue(b.cast(b.pick_boost(lord())))
+            self.assertTrue(b.cast(b.pick_boost(lord())))
+            self.assertEqual(sorted(b.boosts_used), [("blade", "storm", ""), ("blade", "storm", "+")])
+            b.discard()
+            self.assertEqual(names(b.hand).count("Stormblade"), kept, o.reboostkeep)
+            self.assertTrue(b.cast(b.hand[-1]))                              # (Storm Lord: both casts free again)
+            self.assertEqual(b.boosts_used, {})
+            c = b.pick_boost(lord())
+            self.assertEqual(c is not None and c.name, "Stormblade" if kept else False, o.reboostkeep)
+
+    def test_opts_reboostkeep(self):
+        # (v1.9.1: on only at exactly 1, like discardspent - not sent, junk, NaN: off; never raises)
+        self.assertIs(S.Opts().reboostkeep, False)
+        self.assertIn("reboostkeep", S.Opts.KEYS)
+        for v, want in (("1", True), ("1.0", True), ("0", False), ("2", False), ("0.5", False), ("x", False),
+                        ("nan", False), ("inf", False), ("", False)):
+            self.assertIs(S.Opts.of({"reboostkeep": v}).reboostkeep, want, v)
+        self.assertIs(S.Opts.of({}).reboostkeep, False)
+
     def test_planner_state(self):
         blades = S.bot_blades([("storm/blade+", {"storm": 45.0})], [stormblade(), lord()])
         self.assertEqual(blades, [("Stormblade+", {"storm": 45.0})])
@@ -3179,6 +3234,30 @@ class SharpenPotent(unittest.TestCase):
         self.assertEqual(tuple(rb[k] for k in keys), (0.94, 0.0, 0.06, 11.0, 16, 62.0, 95, 11.0))
         self.assertEqual(run(S.Opts(discardunused=0)), r)
         # (HEAD v1.8.1 gave Opts() 0.88 / ON 1.0 in 21 / 22 rounds, discardunused 0 0.51)
+
+    def test_sharpen_deck_reboostkeep_pinned(self):
+        # (v1.9.1: test_sharpen_deck_pinned's deck - reboost with this AutoFarmer's reboostkeep: the blade's copies kept
+        # for the cast after the hit; the marker alone, or with discardspent, changes nothing)
+        sh = {"name": "Sharpened Blade", "display": "Sharpened Blade", "kind": "sharpen", "school": "", "pips": 0,
+              "value": "+10%", "count": 2, "side": "main"}
+        deck = S.deck_cards({"cards": [hit(count=8), boost("blade", "Stormblade", 35, count=6),
+                                       boost("trap", "Storm Trap", 30, count=6), sh,
+                                       dict(sh, name="Potent Trap", display="Potent Trap", kind="potent")]})
+        foe = S.Foe("Boss", 6000, spells=[("Hit", 1.0, {"pips": 2, "min": 150, "max": 200, "accuracy": 100})],
+                    boss=True)
+        keys = SpentCopies.KEYS
+
+        def run(o):
+            return S.simulate(deck, sure(damage=40), [foe], o, n=200, seed=7)
+        rk = run(S.Opts(reboost=1, reboostkeep=1))
+        self.assertEqual(tuple(rk[k] for k in keys), (0.985, 0.0, 0.015, 12, 16, 61.0, 93, 12))
+        self.assertEqual(rk["casts"], {"Storm Trap": 3.33, "Stormblade": 3.29, "Storm Lord": 2.44, "Potent Trap": 1.23,
+                                       "Sharpened Blade": 1.05})
+        self.assertEqual(run(S.Opts(reboost=1, reboostkeep=1, discardspent=1)), rk)
+        self.assertEqual(run(S.Opts(reboost=1, reboostkeep=1, discardunused=0)), rk)
+        self.assertEqual(run(S.Opts(reboostkeep=1)), run(S.Opts()))
+        self.assertEqual(run(S.Opts(discardspent=1, reboostkeep=1)), run(ON))
+        # (HEAD v1.9.0 - no reboostkeep: 0.94 in 16 rounds, Stormblade 2.69 a battle - test_sharpen_deck_pinned's rb)
 
 
 if __name__ == "__main__":

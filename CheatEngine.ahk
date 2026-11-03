@@ -22,9 +22,9 @@ CeDir()
 				ceKey := A_LoopRegKey "\" A_LoopRegName
 				if (!RegExMatch(A_LoopRegName, "i)^Cheat Engine") && !RegExMatch(V1Try(RegRead, ceKey, "DisplayName"), "i)^Cheat Engine"))
 					continue
-				ceDir := RTrim(V1Try(RegRead, ceKey, "InstallLocation"), "\")
-				if (ceDir != "" && CeExe(ceDir) != "")
-					return ceDir
+				cdDir := RTrim(V1Try(RegRead, ceKey, "InstallLocation"), "\")
+				if (cdDir != "" && CeExe(cdDir) != "")
+					return cdDir
 				}
 			}
 		}
@@ -65,11 +65,46 @@ CeRunning()
 	return 0
 	}
 
-;Cheat Engine started from its folder, minimized. False if Windows wouldn't
+;Cheat Engine started from its folder, without waiting, its window minimized once it shows (CeMinimizeSoon). Without
+;waiting: Cheat Engine 7.4 / 7.5 run only as admin, so Windows asks first, and a plain Run would wait for the answer (the
+;bot's start, or the Settings window after Save) - cmd's "start" asks and waits in its own hidden window instead; 7.6
+;and later don't ask. Minimized by the bot: "Cheat Engine.exe" only starts the build that suits this PC, at full size,
+;so Run's "Min" never reaches that window. False only if cmd couldn't be run
 CeStart(dir)
 	{
-	ceExe := CeExe(dir)
-	if (ceExe = "")
+	csExe := CeExe(dir)
+	if (csExe = "" || V1Run("`"" A_ComSpec "`" /c start `"`" `"" csExe "`"", dir, "Hide") != 0)
 		return false
-	return V1Run("`"" ceExe "`"", dir, "Min") = 0
+	CeMinimizeSoon(true)
+	return true
+	}
+
+;Cheat Engine's main window minimized as soon as it shows: looked for twice a second for 2 minutes after CeStart (time
+;for Windows' admin question with 7.4 / 7.5), on a timer - nothing waits for it. A shown window of one of its builds
+;whose title starts "Cheat Engine" ("Cheat Engine" from 7.6 on, "Cheat Engine 7.5"); never one of its message boxes (a
+;box from the bot's script stays for you to read). Minimized the way the taskbar does it (WM_SYSCOMMAND SC_MINIMIZE -
+;the taskbar counts on Windows passing it on to a window that runs as admin too), so Cheat Engine minimizes itself and
+;Windows gives the focus back to the window you had. start: true from CeStart - only (re)starts the 2 minutes
+CeMinimizeSoon(start := false)
+	{
+	static cmsLeft := 0
+	if (start)
+		{
+		cmsLeft := 240
+		SetTimer(CeMinimizeSoon, -500)
+		return
+		}
+	cmsLeft--
+	DetectHiddenWindows(false)
+	for each, cmsName in ["cheatengine-x86_64-SSE4-AVX2.exe", "cheatengine-x86_64.exe", "cheatengine-i386.exe"]
+		for each, cmsHwnd in V1Try(WinGetList, "ahk_exe " cmsName) || []
+			if (SubStr(V1Try(WinGetTitle, "ahk_id " cmsHwnd), 1, 12) = "Cheat Engine"
+				&& V1Try(WinGetClass, "ahk_id " cmsHwnd) != "#32770")
+				{
+				cmsLeft := 0
+				try PostMessage(0x0112, 0xF020, 0, , "ahk_id " cmsHwnd)
+				return
+				}
+	if (cmsLeft > 0)
+		SetTimer(CeMinimizeSoon, -500)
 	}

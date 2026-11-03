@@ -3021,7 +3021,7 @@ CastResult(title, &hit, dir, enchanted, consume := true)
 DiscardSpare()
 	{
 	global
-	local did := 0, dsK, dsF, dsKeys, dsI, dsSharpUsed, dsNeed, dsC, dsDone
+	local did := 0, dsK, dsF, dsKeys, dsI, dsSharpUsed, dsNeed, dsC, dsDone, dsKeep
 	;(a party battle's blader or healer casts its blades again after each of the hitter's hits: none is spare - not with
 	;Alt+2's pick, whose hits nothing follows; but one that boosts neither the hitter's planned hit nor its own school
 	;goes - KillCalc.ahk BoostMisfitDiscard)
@@ -3044,11 +3044,22 @@ DiscardSpare()
 	for dsI, dsK in ["blade3", "blade4"]
 		if (%dsK% == 1)
 			dsKeys.Push(dsK)
+	;(v1.9.1: not with reboost:1 where a hit of yours frees both its casts again - ReboostKeepRole: set to Hitter or the
+	;party off, not Alt+2's pick -: its copies stay in hand for the casts after that hit, said once a battle a blade.
+	;Decks.ahk DeckSimVals tells the simulator - reboostkeep)
+	dsKeep := Stat("reboost") == 1 && ReboostKeepRole()
 	for dsI, dsK in dsKeys
 		{
 		dsF := KeyFlags(dsK)
 		if (!dsDone.Has(dsK) && IsObject(dsF) && UsedFlag(dsF[1]) == 1 && UsedFlag(dsF[2]) == 1 && !BoostCanGo(dsK))
-			did += InStr(dsK, "/") ? DiscardCard("blade", SubStr(dsK, 1, InStr(dsK, "/") - 1)) : DiscardCard(dsK, "resources")
+			{
+			;(kept only while a hit of yours can still free it - a deck cast of it still on you: BoostFreeable; one used
+			;up before reboost came on in the battle - Alt+1's boss deck, the Settings window - never is: thrown, as before)
+			if (!dsKeep || !BoostFreeable(dsK))
+				did += InStr(dsK, "/") ? DiscardCard("blade", SubStr(dsK, 1, InStr(dsK, "/") - 1)) : DiscardCard(dsK, "resources")
+			else if (IsObject(BoostSaid) && !BoostSaid.Has("both|" dsK))
+				BoostSaid["both|" dsK] := 1, DebugLog("  " dsK ": its plain and sharpened casts both went - its copies kept in hand: with reboost on, the next hit it fits lets it go again (said once a battle)")
+			}
 		}
 	;Sharpen is spare once a sharpened blade has been used and no blade in hand still needs sharpening (an item card's never
 	;does: it can't be enchanted)
@@ -3076,13 +3087,42 @@ DiscardSpare()
 ;v1.8.0 (TODO goal 3): whether this wizard's used flags stay its own all battle - set to Hitter (partybattle), or the party
 ;off. A Blader's or Healer's come back after its party's hitter's hits (Party.ahk PartyReblade - only with the party on),
 ;those set in a round it played alone too (before the hitter joined: PartyNoteBoosts notes them at round 0) - a copy
-;thrown then would be cast again later. Decks.ahk DeckSimVals sends discardspent 0 when this says no
+;thrown then would be cast again later. Decks.ahk DeckSimVals sends discardspent 0 when this says no (and reboostkeep
+;0 - ReboostKeepRole, v1.9.1)
 DiscardSpentRole()
 	{
 	return PartyBattleSet() = "hitter" || PartyRoleSet() = "off"
 	}
 
-;v1.8.0 (TODO goal 3): whether DiscardSpent runs this look - else DiscardSpare's both-casts rule, as before.
+;v1.9.1: whether DiscardSpare keeps a blade's copies once both its casts went, with reboost:1 (its both-casts rule off):
+;where a hit of yours frees the blades it fits to be cast again - KillCalc.ahk ConsumeBoosts, reboost and no support:
+;this is inside that test -, set to Hitter or the party off (DiscardSpentRole: a Blader's or Healer's with the party on
+;throws them as before, whatever round it plays), not with Alt+2's pick (Manual: thrown as before, on purpose - its
+;blades mostly go on another wizard's plate, whose casts a hit of yours doesn't free; a Bladestorm, or your own plate
+;picked, would be freed too). Decks.ahk DeckSimVals sends reboostkeep by it
+ReboostKeepRole()
+	{
+	global Manual
+	return Manual != 1 && !PartySupport() && DiscardSpentRole()
+	}
+
+;v1.9.1: whether a hit of yours can still free blade key's deck casts (KillCalc.ahk ConsumeBoosts frees the flags
+;of the AppliedBlades / BoostUnrec entries it uses up): its plain or sharpened entry, not a treasure or item copy's
+;('@'), still there. Always so with reboost on all battle, as a Hitter or with the party off (each deck cast adds one -
+;UseBlade -, and a hit that takes it frees its flag); not when reboost came on in the battle after a hit used both up
+BoostFreeable(key)
+	{
+	global AppliedBlades, BoostUnrec
+	if (IsObject(AppliedBlades) && (AppliedBlades.Has(key) || AppliedBlades.Has(key "+")))
+		return true
+	for bfI, bfK in (IsObject(BoostUnrec) ? BoostUnrec : [])
+		if (bfK = key || bfK = key "+")
+			return true
+	return false
+	}
+
+;v1.8.0 (TODO goal 3): whether DiscardSpent runs this look - else DiscardSpare's both-casts rule, as before (v1.9.1:
+;not with reboost:1 where ReboostKeepRole says so - the copies kept).
 ;discardspent:1 under "Discard cards it never plays" (discardunused); reboost off (with reboost:1 a hit frees its blades
 ;and traps - KillCalc.ahk ConsumeBoosts); the game's hand read this look (BoostMemOk: each copy's kind and boosts -
 ;BoostSearch's BoostHand) and its card boxes seen lining up with the screen's (KillCalc.ahk MemBoxLinedUp: the right-click
@@ -3729,22 +3769,23 @@ DebugLog("Speedhack: " speedKeyName " pressed (for Cheat Engine's hotkey box)")
 return
 }
 ;Cheat Engine for the speedhack (Settings: speedhack on), when Setup's "Cheat Engine speedhack" put the bot's script in it
-;(CheatEngine.ahk): started, minimized, if it isn't running - the script attaches it to Wizard101 and sets the bot's speed
-;keys by itself. Without the script it's yours to start, attach and set up, as before (said once a run). why: for debug.log
+;(CheatEngine.ahk): started if it isn't running, its window minimized once it shows (7.4 / 7.5 ask for admin first - the
+;bot doesn't wait for the answer) - and the script attaches it to Wizard101 and sets the bot's speed keys by itself.
+;Without the script it's yours to start, attach and set up, as before (said once a run). why: for debug.log
 SpeedCheatEngine(why) {
 static saidNoScript := false
 if (Stat("speedhack") != 1)
 	return
-ceDir := CeDir()
-if (ceDir = "" || !FileExist(CeScriptPath(ceDir)))
+sceDir := CeDir()
+if (sceDir = "" || !FileExist(CeScriptPath(sceDir)))
 	{
 	if (!saidNoScript)
-		saidNoScript := true, DebugLog("Speedhack: on - " (ceDir = "" ? "Cheat Engine isn't installed" : "Cheat Engine (" ceDir ") doesn't have the bot's script") ": start, attach and set it up yourself, or let Setup.exe's `"Cheat Engine speedhack`" do it")
+		saidNoScript := true, DebugLog("Speedhack: on - " (sceDir = "" ? "Cheat Engine isn't installed" : "Cheat Engine (" sceDir ") doesn't have the bot's script") ": start, attach and set it up yourself, or let Setup.exe's `"Cheat Engine speedhack`" do it")
 	return
 	}
 if (CeRunning())
 	return DebugLog("Speedhack: on - Cheat Engine is running, the bot's script in it (" why ")")
-DebugLog("Speedhack: on - " (CeStart(ceDir) ? "Cheat Engine started, minimized" : "Cheat Engine (" CeExe(ceDir) ") couldn't be started") " (" why "): its Wiz-Maxxing script attaches it to Wizard101 and sets the speed keys")
+DebugLog("Speedhack: on - " (CeStart(sceDir) ? "starting Cheat Engine (" CeExe(sceDir) "), its window minimized once it shows - Cheat Engine 7.4 / 7.5 ask for admin first: say Yes (the bot doesn't wait)" : "Cheat Engine (" CeExe(sceDir) ") couldn't be started") " (" why "). Its Wiz-Maxxing script attaches it to Wizard101 and sets the speed keys")
 }
 ;##############################################
 MenuMap(A_ThisMenuItem:="", A_ThisMenuItemPos:="", MyMenu:="", *) { ; (v1: a label)

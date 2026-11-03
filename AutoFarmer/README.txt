@@ -176,10 +176,12 @@ admin). Each time Cheat Engine starts, the script attaches it to Wizard101 -
 again after the game restarts, never over a process you opened yourself - and
 the bot's two keys set the speed, read from PlayerStats.txt (a change in
 Settings needs no restart). With the script there, the bot starts Cheat Engine
-(minimized) when it starts with the speedhack on, or when you switch it on.
-Without it, Cheat Engine is yours to install, attach and set up as below. The
-keys: the walking key while it walks, the 1x key for battles (pressed at every
-round), talking,
+when it starts with the speedhack on, or when you switch it on, and minimizes
+its window as it shows. Cheat Engine 7.4 and 7.5 ask for admin first (7.6 and
+later, which Setup installs, don't): say Yes before the bot starts walking -
+it doesn't wait for your answer. Without the script, Cheat Engine is yours to
+install, attach and set up as below. The keys: the walking key while it walks,
+the 1x key for battles (pressed at every round), talking,
 dialogues, shops, near the goal, collecting, dungeon runs, a teleport ahead,
 getting round an obstacle, when you play, F6 and when it stops. Its turn and
 wait times are divided by the speed; above 5x turns are made at 1x. In Cheat
@@ -595,7 +597,11 @@ that is how the bot plays it (the command line below says so). Measured on the
 same dice (2000 battles each, discardspent on): 8 Storm Lord + 6 Stormblade +
 6 Storm Trap + 2 Sharpened Blade + 2 Potent Trap against a 6000-health boss won
 93.5% before, 96.9% now; 10 Thunder Snake + 6 Storm Lord + 4 Sharpened Blade
-against 3 mobs 22.6% before, 18.9% now.
+against 3 mobs 22.6% before, 18.9% now. Since v1.9.1, with reboost on, the
+bot keeps a blade's copies once both its casts went (the next hit it fits
+frees them - see Discarding below), and so does the simulator: 8 Storm Lord,
+3 Stormblade and 3 Sharpened Blade against 3 mobs won 44.5% in v1.9.0, 57.0%
+now (2000 battles each, the same dice).
 Try it on the command line:
     python vision\battlesim.py --deck deck.json --foe "Governor Nereus:9000:ice"
 Decks matched to the zone's enemies (deckzone - Settings, HOW IT PLAYS ITS
@@ -1577,12 +1583,18 @@ discardmax. Only once the vision helper reads the game's hand and the memory's
 card boxes have lined up with the screen's 3 looks in a row (see Cards and
 plates by the game's memory), as a Hitter (or with the party off), not in dual
 mode; with reboost on nothing changes. Without all that a blade goes once both
-its casts did, as before. A spare Sharpen goes once a sharpened
-blade was used and no blade in hand still needs one. The simulator
-plays those two rules too (v1.9.0). PlayerStats.txt: discardunused:0
+its casts did, as before - but not with reboost on (v1.9.1), as a Hitter (or
+with the party off) and not with Alt+2's pick: the next hit the blade fits
+lets both its casts go again, so its copies stay in hand for them (debug.log,
+once a battle: "storm/blade: its plain and sharpened casts both went - its
+copies kept in hand ..."). A spare Sharpen goes once a sharpened blade was
+used and no blade in hand still needs one, reboost or not. The simulator
+plays those two rules too (v1.9.0), keeping the copies with reboost on when
+the AutoFarmer says it does (v1.9.1). PlayerStats.txt: discardunused:0
 switches off the cards it never plays and the blade and trap copies (a blade
-whose casts both went, and a spare Sharpen, still go), discardmax: how many
-cards it never plays a round, discardspent:0 keeps the copies, as v1.7.0 did.
+whose casts both went - with reboost off -, and a spare Sharpen, still go),
+discardmax: how many cards it never plays a round, discardspent:0 keeps the
+copies, as v1.7.0 did.
 Learned treasure cards are never discarded (that would use them up), nor a
 treasure or item card's blade or trap, nor spells set to Never discard on the
 Spells tab - but a blade left to the both-casts rule goes as before, and the
