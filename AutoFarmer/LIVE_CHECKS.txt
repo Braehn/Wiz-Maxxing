@@ -247,13 +247,14 @@ Before you start
 	    work as ever. While it's in the tray, Bot on/off, Buy potions now
 	    and Quick sell say "show Wizard101 first". Then, each time with it
 	    in the tray: Windows+Esc - it comes back, not in front;
-	    Windows+1 - back, and the new bot starts off (F6 starts it); End
-	    task on the bot in Task Manager, then start the bot - back as it
-	    starts ("Put Wizard101 in the tray: Wizard101 was still in the
-	    tray ..."); with "Open with Wizard101" on, End task again and wait
-	    5 s - the watcher shows it. traygame switched off in Settings with
-	    it in the tray: back, not in front. Borderless (no title bar):
-	    Alt+F4 still sends it to the tray, minimised it stays minimised.
+	    Windows+1 - back, and the new bot starts off (F6 starts it); with
+	    "Open with Wizard101" off (the bot's tray menu), End task on the
+	    bot in Task Manager, then start the bot - back as it starts ("Put
+	    Wizard101 in the tray: Wizard101 was still in the tray ..."); with
+	    it on, End task again and wait 5 s - the watcher shows it.
+	    traygame switched off in Settings with it in the tray: back, not
+	    in front. Borderless (no title bar): Alt+F4 still sends it to the
+	    tray, minimised it stays minimised.
 	    Two game windows open: Alt+F4 says "two Wizard101 windows are
 	    open" and nothing closes. Send the "Wizard101 in the tray",
 	    "Wizard101 out of the tray", "Wizard101 to the tray" and
