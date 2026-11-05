@@ -92,7 +92,9 @@ PotionCheck()
 		return
 	PotionNextCheck := A_TickCount + 4000
 	hp := PotionHealth()
-	if (hp = "")
+	;(Wizard101 gone to the tray during the look - Settings: traygame: nothing more - Ctrl+O and a run's keys would go
+	;to the window in front)
+	if (hp = "" || GameInTray)
 		return
 	most := PotionMost()
 	;(v1: most blank - PotionMaxHp never set - compared as text: hp is more)
@@ -224,6 +226,9 @@ PotionNoteMax(n, exact := true)
 ;Drinks a potion (Ctrl+O). True if health went up
 PotionDrink(before)
 	{
+	;(Wizard101 gone to the tray - Settings: traygame: Ctrl+O would go to the window in front - none drunk)
+	if (GameInTray)
+		return false
 	ReleaseKeys()
 	Send("{Blind}^o")
 	Sleep(2500)
@@ -260,6 +265,9 @@ PotionRun()
 	;1. Mark here (unless a run that stopped half way already did)
 	if (!(PotionMarkZone != "" && A_TickCount - PotionMarkAt < 15 * 60000))
 		{
+		;(Wizard101 gone to the tray - Settings: traygame: no run - its keys would go to the window in front)
+		if (GameInTray)
+			return false
 		Send("{Blind}{PgDn}")
 		PotionMarkZone := startZone, PotionMarkAt := A_TickCount
 		DebugLog("Potions: marked this spot (Page Down) in " startZone)
@@ -559,6 +567,9 @@ PotionRecall()
 PotionTeleport(key, what, arrived := "")
 	{
 	before := WalkZone(true)
+	;(Wizard101 gone to the tray - Settings: traygame: not pressed - the key would go to the window in front)
+	if (GameInTray)
+		return false
 	Send("{Blind}" key)
 	t0 := A_TickCount, started := false
 	while (A_TickCount - t0 < 60000)

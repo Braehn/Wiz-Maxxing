@@ -89,6 +89,14 @@ handsoff:10
 ; I play" or the dashboard's "Wait for me" button switches it)
 handsoffon:1
 
+; ---- Windows ----
+; traybot: 1 = the dashboard's X or minimise button puts it in the tray and the bot plays on (double-click
+; the tray icon to bring it back, the tray menu's Exit stops the bot). 0 = its X stops the bot, as before
+traybot:0
+; traygame: 1 = Alt+F4 in Wizard101, its X or (windowed) its minimise button hides it in the tray - the game
+; still running, the bot off till it's back (tray menu "Show Wizard101"). 0 = they close or minimise it
+traygame:0
+
 ; ---- Walking ----
 ; battlesonly: 1 = battles only - for a wizard riding another's mount (the driver takes it everywhere): out of battle the
 ; bot moves nothing - quest walking stays off at every start (F8 says why), no party following, dungeon run, puzzle try or

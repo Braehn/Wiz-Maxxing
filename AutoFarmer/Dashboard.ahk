@@ -2,9 +2,11 @@
 ; Dashboard.ahk - a window with the bot's statistics, what it sees right now, and a live log (every line
 ; of debug.log as it's written). AHK v1.1, functions and labels only; #Included by Autofarmer.ahk.
 ;
-; Windows+2 or the tray menu shows / hides it; closing it only hides it. It opens on a monitor the game
-; isn't on (if there is one) and remembers where you put it (dashboard.ini). It never takes the focus by
-; itself - clicking into it does, and the walker waits while Wizard101 isn't the active window.
+; Windows+2 or the tray menu shows / hides it; its X stops the bot - or, with "Put the bot's window in the
+; tray" on (Settings: traybot), its X and minimize button put it in the tray and the bot plays on (DashToTray).
+; It opens on a monitor the game isn't on (if there is one) and remembers where you put it (dashboard.ini). It
+; never takes the focus by itself - clicking into it does, and the walker waits while Wizard101 isn't the active
+; window.
 ;
 ; The numbers come from the log lines (DashLog sees every DebugLog line) plus a few calls from the battle
 ; code: DashCast (a card was cast), DashSee (what the bot sees: the hand, enemies, your health...).
@@ -474,6 +476,16 @@ DashApplyView()
 DashShow()
 	{
 	global DashShown ; (v1 globals it sets)
+	;(minimized - its minimize button put it in the tray (Settings: traybot - DashToTray), or Windows+2 hid it so: its
+	;place wasn't saved (DashSaveWin can't), Windows kept it. Shown with no x/y/w/h it comes back there, nothing
+	;moves it)
+	if (DashHwnd && DllCall("IsIconic", "Ptr", DashHwnd))
+		{
+		Dash.Show("NoActivate")
+		DashShown := 1
+		DashRefresh()
+		return
+		}
 	section := DashSimple ? "simple" : "window"
 	x := IniRead(A_ScriptDir "\dashboard.ini", section, "x", "")
 	y := IniRead(A_ScriptDir "\dashboard.ini", section, "y", "")
@@ -574,6 +586,35 @@ DashToggle()
 	else
 		DashShow()
 	V1Do(IniWrite, DashShown, A_ScriptDir "\dashboard.ini", "window", "shown")
+	}
+
+;Settings: traybot ("Put the bot's window in the tray") - its X or minimize button (how, for the log) puts it in the
+;tray and the bot plays on: its place kept (minimized: Windows keeps it - DashShow), hidden. The tray icon's double-click
+;(DashFromTray) or Windows+2 brings it back, the tray menu's Exit stops the bot - a tray tip says so the first time
+DashToTray(how)
+	{
+	static said := false
+	global DashShown ; (v1 globals it sets)
+	if (!DashHwnd)
+		return
+	DashSavePlace()
+	Dash.Hide()
+	DashShown := 0
+	DebugLog("Dashboard in the tray (" how " - Settings: traybot) - the bot plays on: the tray icon brings it back, the tray menu's " HkMenu("quit") " stops the bot")
+	if (!said)
+		said := true, TrayTip("The bot plays on - its window is in the tray. Double-click the tray icon to bring it back - " HkMenu("quit") " in the tray menu stops the bot.", "Wizard101 bot", 1)
+	}
+
+;The tray menu's "Show the bot's window" - the tray icon's double-click while traybot is on (Settings): the window
+;shown where it was - never hidden, as DashToggle hides it when it's up - and brought to the front (you asked)
+DashFromTray()
+	{
+	if (!DashHwnd)
+		return
+	if (!DashShown || V1Try(WinGetMinMax, "ahk_id " DashHwnd) = -1)
+		DashShow()
+	V1Do(IniWrite, 1, A_ScriptDir "\dashboard.ini", "window", "shown")
+	V1Try(WinActivate, "ahk_id " DashHwnd)
 	}
 
 DashSavePlace()
@@ -1220,7 +1261,10 @@ DashRefresh()
 	up := (A_TickCount - DashStart) // 1000
 	upText := Format("{:02}:{:02}:{:02}", up // 3600, Mod(up // 60, 60), Mod(up, 60))
 	;What it's doing
-	if (!BotOn)
+	;(Wizard101 in the tray - Settings: traygame - Autofarmer.ahk GameTrayHide: the bot off till it's shown again)
+	if (GameInTray)
+		doing := "Wizard101 is in the tray - tray menu: Show Wizard101"
+	else if (!BotOn)
 		doing := BotEverOn ? "Off - " HkText("bot") " turns the bot on" : "Standby - press " HkText("bot") " to start the bot"
 	else if (PotionRecording)
 		doing := "Recording potion buying"
@@ -1881,7 +1925,8 @@ DashHandsToggle:
 DashHandsToggle()
 	return
 
-;(the window's X stops the bot - minimise it, or Windows+2, to just put it away)
+;(v1's label, never run: the window's X runs DashGuiClose(*) - it stops the bot, or with traybot on puts the window
+;in the tray)
 DashGuiClose:
 DashGuiClose()
 	ExitApp()
@@ -2144,6 +2189,13 @@ DashHandsToggle(A_GuiEvent:="", A_GuiControl:="", Info:="", *) { ; (v1: a label 
 DashGuiClose(*) { ; (v1: a label - its code ran in the global scope)
 	global
 	local v1Keep := V1Thread() ; (v1: each thread had its own ErrorLevel)
+	;(Settings: traybot - "Put the bot's window in the tray": the X puts it there and the bot plays on - DashToTray.
+	;True: v2 doesn't hide it once more itself)
+	if (V1IsFunc("TrayBotOn") && TrayBotOn.Call())
+		{
+		DashToTray("its X")
+		return true
+		}
 	DebugLog("Dashboard closed - the bot stops")
 	ExitApp()
 }
@@ -2152,7 +2204,12 @@ DashGuiClose(*) { ; (v1: a label - its code ran in the global scope)
 DashGuiSize(thisGui:="", MinMax:="", A_GuiWidth:="", A_GuiHeight:="") { ; (v1: a label - its code ran in the global scope)
 	global
 	if (MinMax = -1)
+		{
+		;(Settings: traybot - minimized: into the tray instead, the bot plays on - DashToTray)
+		if (V1IsFunc("TrayBotOn") && TrayBotOn.Call())
+			DashToTray("its minimize button")
 		return
+		}
 	;(GuiControl Move places a tab's controls from the tabs' inside, not the window's: where that starts, measured
 	;once the window's up - a control moved to 0,0 there and where it lands read)
 	if (DashTabOX = "")

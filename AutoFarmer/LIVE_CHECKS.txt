@@ -18,8 +18,9 @@ Before you start
 	  gearswap, gearsets (THE BACKPACK); memclicks, planner, deckzone,
 	  discardspent (HOW IT PLAYS ITS CARDS - discardspent is on by default:
 	  switch it off till its step, 3.11); partytpdoors, partyhitround,
-	  partyorders (PARTY); overlay (THE OVERLAY); deckadd, trainspells,
-	  spellquests (not built - leave them off).
+	  partyorders (PARTY); overlay (THE OVERLAY); traybot, traygame (THE
+	  MOUSE AND WAITS); deckadd, trainspells, spellquests (not built -
+	  leave them off).
 	- The commands run in a command prompt in the AutoFarmer folder, with
 	  Wizard101 running and your wizard in the world unless a step says
 	  otherwise. They only read the game's memory or files: nothing in the
@@ -225,7 +226,40 @@ Before you start
 	    more copy stays till it's used. Cast a Reshuffle later: do the
 	    discarded copies come back into the deck? As a party's blader or
 	    healer, with reboost on, or in dual mode: no such lines.
-	3.12 memclicks LAST - only once 2.3's lines say the boxes line up (three
+	3.12 traybot, then traygame (the bot's window and Wizard101 in the
+	    tray - nothing is sent into the game). First start the bot once
+	    with both off: the dashboard's X stops the bot, Alt+F4 closes the
+	    game and the tray icon's double-click switches walking, as before.
+	    traybot on: the dashboard's X, then its minimise button - each
+	    puts it in the tray and the bot plays on (a tray tip the first
+	    time); the tray icon's double-click brings it back in front, and
+	    doesn't hide it when it's up; the tray menu's Exit stops the bot.
+	    Move and resize it, minimise it, double-click the tray icon: it's
+	    back where you left it, that size. traygame on, Wizard101 windowed
+	    (a title bar), the bot on: Alt+F4 in the game, then a click on its
+	    X, then its minimise button - each time its window and taskbar
+	    button go, the bot goes off, the dashboard says "Wizard101 is in
+	    the tray", and the tray menu's Show Wizard101 brings it back in
+	    front with the bot on again (one "Wizard101 out of the tray"
+	    line). Alt+F4 in the middle of a battle round, while the bot
+	    casts: nothing is clicked or typed outside the game. A click
+	    elsewhere on its title bar (drag it) and every click in the game
+	    work as ever. While it's in the tray, Bot on/off, Buy potions now
+	    and Quick sell say "show Wizard101 first". Then, each time with it
+	    in the tray: Windows+Esc - it comes back, not in front;
+	    Windows+1 - back, and the new bot starts off (F6 starts it); End
+	    task on the bot in Task Manager, then start the bot - back as it
+	    starts ("Put Wizard101 in the tray: Wizard101 was still in the
+	    tray ..."); with "Open with Wizard101" on, End task again and wait
+	    5 s - the watcher shows it. traygame switched off in Settings with
+	    it in the tray: back, not in front. Borderless (no title bar):
+	    Alt+F4 still sends it to the tray, minimised it stays minimised.
+	    Two game windows open: Alt+F4 says "two Wizard101 windows are
+	    open" and nothing closes. Send the "Wizard101 in the tray",
+	    "Wizard101 out of the tray", "Wizard101 to the tray" and
+	    "Dashboard in the tray" lines, and say if anything closed, stayed
+	    hidden or took the focus by itself.
+	3.13 memclicks LAST - only once 2.3's lines say the boxes line up (three
 	    looks in a row within 10 pixels: "trusted"). Cards and plates are
 	    then clicked where the game's memory has them.
 

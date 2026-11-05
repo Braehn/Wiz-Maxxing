@@ -8,6 +8,7 @@
 ; (a new process) with no bot running: the update check (it asks only if there's a newer release), then the bot in
 ; standby (AutoFarmer\Autofarmer.exe /standby). A bot already running (from any folder) is left alone - never a
 ; second one. One watcher at a time. Its tray icon: stop watching, or don't open with Wizard101 any more.
+; While no bot runs it also shows a Wizard101 the bot put in the tray and left hidden (WatchTrayBack).
 
 ;How one of the bot's programs is started - rel: its path without .exe / .ahk (e.g. ...\AutoFarmer\Autofarmer):
 ;{target, args}. Started as a script ourselves (AutoHotkey running a .ahk - Windows 11's Smart App Control blocks
@@ -121,6 +122,65 @@ WatchBotKey(dir)
 	return t (StrLen(key) = 1 ? Format("{:U}", key) : Format("{:T}", SubStr(key, 1, 1)) SubStr(key, 2))
 	}
 
+;---- A Wizard101 the bot left in the tray ----
+
+;The bot puts Wizard101 in the tray (its Settings: traygame) and keeps the hidden window in dashboard.ini [gametray]
+;(hwnd, pid, min) till it's shown again - at the latest as the bot closes. A bot that ended without that (Task Manager, a
+;crash, an update's forced close) left it hidden: this shows it again - minimized if it was, never taking the focus -
+;and forgets it. dir: the AutoFarmer folder. Run by the bot as it starts, and by the watcher while no bot runs
+;(WatchTrayLeft). wait: ms to wait for the window to be up. What was done, for the bot's log ("" nothing to do)
+WatchTrayBack(dir, wait := 0)
+	{
+	wtIni := dir "\dashboard.ini"
+	try
+		{
+		wtHwnd := IniRead(wtIni, "gametray", "hwnd", "")
+		if (wtHwnd = "")
+			return ""
+		wtPid := IniRead(wtIni, "gametray", "pid", "")
+		wtMin := IniRead(wtIni, "gametray", "min", 0)
+		wtSaid := "the Wizard101 window a run had left in the tray is gone - forgotten"
+		if (IsInteger(wtHwnd) && IsInteger(wtPid) && DllCall("IsWindow", "Ptr", wtHwnd))
+			{
+			;(the same window: its process and class - a handle Windows gave something else since is left alone)
+			wtWinPid := 0, wtCls := Buffer(512, 0)
+			DllCall("GetWindowThreadProcessId", "Ptr", wtHwnd, "UInt*", &wtWinPid)
+			DllCall("GetClassName", "Ptr", wtHwnd, "Ptr", wtCls, "Int", 256)
+			if (wtWinPid = wtPid && StrGet(wtCls) = "Wizard Graphical Client")
+				{
+				if (DllCall("IsWindowVisible", "Ptr", wtHwnd))
+					wtSaid := "the Wizard101 window a run had put in the tray is up again - forgotten"
+				else
+					{
+					;(SW_SHOWMINNOACTIVE 7 / SW_SHOWNA 8: as it was, never activated - async: a hung game doesn't hold it)
+					DllCall("ShowWindowAsync", "Ptr", wtHwnd, "Int", wtMin = 1 ? 7 : 8)
+					wtTries := wait // 25
+					Loop wtTries
+						{
+						if (DllCall("IsWindowVisible", "Ptr", wtHwnd))
+							break
+						Sleep(25)
+						}
+					wtSaid := "Wizard101 was still in the tray, left by a run that ended without showing it - shown again" (wtMin = 1 ? " (minimized)" : "") ", without taking the focus"
+					}
+				}
+			}
+		IniDelete(wtIni, "gametray")
+		return wtSaid
+		}
+	catch
+		return ""
+	}
+
+;A Wizard101 window kept in dashboard.ini [gametray] (dir: the AutoFarmer folder) - WatchTrayBack's to show
+WatchTrayLeft(dir)
+	{
+	try
+		return IniRead(dir "\dashboard.ini", "gametray", "hwnd", "") != ""
+	catch
+		return false
+	}
+
 ;Starts the bot from dir (the AutoFarmer folder) in standby
 WatchStartBot(dir)
 	{
@@ -182,6 +242,10 @@ WatchGame(dir)
 					}
 				}
 			}
+		;(a Wizard101 the bot had put in the tray and left hidden - it ended without showing it: shown again, without
+		;taking the focus - only while no bot runs: a running one keeps its own)
+		if (WatchTrayLeft(dir) && !WatchBotRunning())
+			WatchTrayBack(dir)
 		;(the bot's key changed on the Keys tab: the item says the new one)
 		now := "Opens the bot when Wizard101 starts (" WatchBotKey(dir) " starts it)"
 		if (now != watchItem)

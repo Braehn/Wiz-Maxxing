@@ -38,6 +38,10 @@ CfgList()
 		, help: "While the bot has the mouse - a battle round, a click, a mouse turn while walking, a potion, login or quick sell click - your mouse can't move the pointer, and over Wizard101 its buttons and wheel do nothing (what you do with it then doesn't count as you playing). The keyboard always stays free: {key:bot} stops the bot and frees the mouse, and with Wait for me on any key leaves the round to you. Freed at once when Wizard101 isn't the window in front (Alt+Tab), and if nothing's renewed it for 15 s. Off: your mouse always works - moving it makes the bot wait for you, as Wait for me says."}))
 	list.Push(V1Obj({key: "gamefront", label: "Bring Wizard101 to the front when needed", kind: "check", def: 0
 		, help: "When the quest arrow shows (walking) or a battle round is up and Wizard101 isn't the window in front, the bot brings it to the front - walking, only once you've left the keyboard and mouse alone 3 s. Off: click into it yourself. Also the dashboard's 'Game to front' button."}))
+	list.Push(V1Obj({key: "traybot", label: "Put the bot's window in the tray (untried)", kind: "check", def: 0
+		, help: "New, not tried in the game yet. On: the dashboard's X (Alt+F4 in it too) and its minimise button put it in the tray instead - the bot plays on. Double-click the tray icon, or {key:dash}, to bring it back - the tray menu's Exit, or {key:quit}, stops the bot. Off: its X stops the bot, as before."}))
+	list.Push(V1Obj({key: "traygame", label: "Put Wizard101 in the tray (untried)", kind: "check", def: 0
+		, help: "New, not tried in the game yet. On: Alt+F4 in Wizard101, its own X and - windowed - its minimise button hide it in the tray instead: the game keeps running, and the bot is off meanwhile (on again once it's back, if it was on). The tray menu's Show Wizard101 brings it back - so do switching this off and the bot closing or starting. Not with two game windows open or during a reconnect. The taskbar's Close window, the game's own Quit and Task Manager still close it. Off: as ever."}))
 	list.Push(V1Obj({key: "hungload", label: "Restart Wizard101 stuck on a loading screen (minutes, 0 = never)", kind: "num", lo: 0, hi: 120, def: 5
 		, help: "A zone change that never finishes - the game's log says it began this long ago and has written nothing but its memory notes for 3 minutes, and neither the spellbook nor a battle round has shown since: asks (yes in 60 s if nobody answers), closes Wizard101 and starts it again, logging in with the saved login (tray menu: Set Wizard101 login...). Needs Auto-reconnect on. 2026-10-23: a defeat's trip back hung 69 minutes."}))
 	list.Push(V1Obj({key: "mousereturn", label: "Put the mouse back afterwards", kind: "check", def: 1
@@ -243,7 +247,7 @@ CfgSimpleKeys()
 	if (!IsObject(keys))
 		{
 		keys := V1Obj()
-		for each, k in ["handsoffon", "mouselock", "gamefront", "healat", "potionat", "potionwalk", "fleeon", "quicksell", "enemyspells", "defendat", "battlesonly", "mobavoid", "mousesteer", "speedhack"
+		for each, k in ["handsoffon", "mouselock", "gamefront", "traybot", "traygame", "healat", "potionat", "potionwalk", "fleeon", "quicksell", "enemyspells", "defendat", "battlesonly", "mobavoid", "mousesteer", "speedhack"
 			, "cardlogic", "healthocr", "drawenchant", "alertson", "partyrole", "partybattle", "overlay"]
 			keys[k] := 1
 		}
@@ -574,6 +578,10 @@ CfgSaveNow()
 	for each, cfgKv in cfgPairs
 		if (cfgKv[1] = "speedhack" && cfgKv[2] = 1 && V1IsFunc("SpeedCheatEngine"))
 			SpeedCheatEngine.Call("the speedhack switched on in Settings")
+	;(the tray settings: the tray menu's items and double-click, Alt+F4's hotkey in Wizard101, the watch on its window -
+	;traygame off: a Wizard101 in the tray shown again - Autofarmer.ahk TrayWinTick)
+	if (V1IsFunc("TrayWinTick"))
+		TrayWinTick.Call()
 	Cfg["CfgNote"].Value := "Saved " cfgPairs.Length " change" (cfgPairs.Length = 1 ? "" : "s") " - used from now on" (cfgFixed = "" ? "" : " (" SubStr(cfgFixed, 3) ")")
 	}
 

@@ -84,6 +84,9 @@ FleeCheck()
 	;and the next tries again - the counts kept)
 	if (!CastWentOut())
 		{
+		;(Wizard101 gone to the tray - Settings: traygame: not again - the click would land on the window behind it)
+		if (GameInTray)
+			return false
 		fx := Round(w.x + w.w / 2), fy := Round(w.y + w.h / 2)
 		MouseMove(fx, fy + Px(70), MouseSpeedNow())
 		Sleep(150)

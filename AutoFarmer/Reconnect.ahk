@@ -1216,6 +1216,16 @@ RcStatus(text)
 	A_IconTip := "Wizard101 bot " BotVersion() ": " SubStr(text, 1, 100)
 	}
 
+;Wizard101 back from the tray (AutoFarmer's GameTrayForget - its Settings: traygame): the bot was off meanwhile, so what
+;Reconnect times - a disconnect box's first minute, its looks and peeks - starts afresh (none ran on while it was hidden)
+RcAfterTray()
+	{
+	global RcStateAt, RcLookAt, RcPeekAt ; (v1 globals it sets)
+	if (RcState != "" && RcState != "stopped")
+		RcStateAt := A_TickCount
+	RcLookAt := 0, RcPeekAt := 0
+	}
+
 ;Tray menu: switches auto-reconnect on and off
 ReconnectToggle()
 	{

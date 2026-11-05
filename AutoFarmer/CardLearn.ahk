@@ -174,6 +174,9 @@ DiscardUnused()
 		why := LearnWhyUnused(pid)
 		MoveToCard(Round(c.x), Round(c.y))
 		s(Stats.Has("clickwait") ? Stats["clickwait"] : 40)
+		;(Wizard101 gone to the tray - Settings: traygame: not clicked - it would land on the window behind it)
+		if (GameInTray)
+			break
 		Click("right")
 		did += 1
 		DebugLog("  Discarded learned card " pid " - " why " (right-click at " Round(c.x) - GameLeft "," Round(c.y) - GameTop ")")
@@ -538,6 +541,9 @@ LearnAllRound()
 			}
 		MoveToCard(Round(c.x), Round(c.y))
 		s(Stats.Has("clickwait") ? Stats["clickwait"] : 40)
+		;(Wizard101 gone to the tray - Settings: traygame: not clicked - it would land on the window behind it)
+		if (GameInTray)
+			break
 		Click("right")
 		did += 1
 		cards.RemoveAt(i)

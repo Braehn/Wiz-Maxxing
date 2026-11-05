@@ -902,7 +902,9 @@ party, alerts, the bot itself - the Colours button over the log changes them,
 kept in dashboard.ini [logcolors]). Windows+2 or the tray menu shows /
 hides it; it opens on a monitor the game isn't on and remembers where you put
 it (dashboard.ini). It never takes the focus by itself. Its X (close) stops
-the bot; minimise it (or Windows+2) to just put it away. Next to STATISTICS:
+the bot; minimise it (or Windows+2) to just put it away - with "Put the bot's
+window in the tray" on (below), its X and minimise put it in the tray and the
+bot plays on. Next to STATISTICS:
 the CPU and RAM in use, every second - the bot (with its vision helper), the
 game and the whole PC (CPU share of all cores, RAM in use). Its tabs: Bot (all
 that), Dungeons (below), Spells (the cards it learned - see "Learned spells"
@@ -913,6 +915,45 @@ card button, and the enemies' spells (see Enemy spells) - each enemy's school,
 rank and health, the chance it hits you, its pips, and under it every spell it
 has, likeliest first: the chance it casts it this round, its pips and damage,
 the rounds it cast it this battle, and how often it was seen casting it.
+
+The bot's window in the tray (Settings > THE MOUSE AND WAITS, "Put the bot's
+window in the tray"; traybot:1 in PlayerStats.txt): the dashboard's X (Alt+F4
+in it too) and its minimise button put it in the tray instead - the bot plays
+on. Double-click the tray icon (the tray menu's "Show the bot's window") or
+press Windows+2 to bring it back; while this is on, that double-click no
+longer switches walking on/off. The tray menu's "Exit" (or Windows+Esc) stops
+the bot - a tray tip says so the first time. Minimising every window
+(Windows+M) puts it in the tray too. Off by default (its X stops the bot, as
+before); not tried in the game yet. debug.log: "Dashboard in the tray (its
+X - Settings: traybot) - the bot plays on ...".
+
+Wizard101 in the tray (Settings > THE MOUSE AND WAITS, "Put Wizard101 in the
+tray"; traygame:1 in PlayerStats.txt): Alt+F4 with Wizard101 in front, a
+click on its own X and its minimise button hide its window in the tray
+instead - the game keeps running, its taskbar button goes, nothing is sent
+into it. The X and minimise only when it's windowed: a borderless or full
+screen game minimises as ever. The bot is switched off meanwhile (as with F6,
+every key let go first; a click or key press it had under way is dropped,
+never sent to another window) and on again once the game is back, if it was
+on. The tray menu's "Show Wizard101" brings it back to the front. It's shown
+again by itself too - without taking the focus, minimised if it was - when
+you switch the setting off, when the bot closes (Windows+Esc, Exit, a
+restart, an update) and, if the bot ended without that (End task, a crash),
+at the bot's next start or by the "Open with Wizard101" watcher. While it's
+in the tray the bot can't be switched on, and the tray menu's potion buying,
+potion recording and quick sell say "show Wizard101 first"; the dashboard
+says "Wizard101 is in the tray". Not sent there - a tray tip says why - with
+two Wizard101 windows open, while auto-reconnect is getting it back online,
+or during a potion run, potion recording or quick sell you started. These
+can't be caught and still close it, as before: the taskbar's "Close window",
+the X on a taskbar thumbnail or in Alt+Tab, Close in the window's own menu
+(Alt+Space), Task Manager and the game's own Quit. A click on its X while the
+bot is too busy to check it in time closes it too. Minimising every window
+(Windows+M) puts it in the tray. A restart or an update while it's in the
+tray starts the bot off (F6 starts it). Off by default; not tried in the game
+yet. debug.log: "Wizard101 in the tray (Alt+F4 - Settings: traygame) ...",
+"Wizard101 out of the tray: ...", "Wizard101 to the tray (...): not now -
+...".
 
 The overlay (Settings > THE OVERLAY, "Show the map and the log over the game";
 overlay:1 in PlayerStats.txt; the tray menu's "Overlay over the game on/off";
@@ -949,7 +990,8 @@ restart. Defaults fills in the defaults (Save to use them).
 	  done, unless you used the mouse or keys meanwhile), mouse speed, the
 	  wait before each click (plus a random bit, so clicks aren't evenly
 	  timed), the wait after clicks, before playing a round, after a discard
-	  and before looking at the hand again.
+	  and before looking at the hand again; the bot's window and Wizard101
+	  in the tray (see above).
 	- Health: heal under %, drink a potion under %, flee when out of cards.
 	- The backpack: quick sell it when it's full, pets too, after a dungeon
 	  too (see Quick sell below); compare gear before selling, and pieces of
