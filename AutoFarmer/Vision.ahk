@@ -28,7 +28,8 @@ global VisionPhaseWhy, VisionPhaseWaitUntil
 ;a top-level := never runs here
 global VisionLookN
 
-;Starts the helper (after stopping one left over from before) and waits up to 8 s for it to answer
+;Starts the helper (after stopping one left over from before, and waiting till it has stopped) and waits up to 8 s
+;for it to answer - when it doesn't, debug.log says why: the line it wrote in vision\vision.log (VisionStartWhy)
 VisionStart()
 	{
 	global VisionOn, VisionPort, VisionMissing, VisionPid, VisionFails, ErrorLevel ; (v1 globals it sets)
@@ -39,6 +40,19 @@ VisionStart()
 	if (VisionMissing = "")
 		VisionMissing := ","
 	VisionGet("/quit", 300)
+	;(the old one holds the port till it has stopped - a new one started before that finds the port taken and stops:
+	;waited for till it no longer answers, up to 5 s)
+	vsQuitAt := A_TickCount
+	vsOldUp := (SubStr(VisionGet("/ping", 250, true), 1, 2) = "OK")
+	while (vsOldUp && A_TickCount - vsQuitAt < 5000)
+		{
+		Sleep(250)
+		vsOldUp := (SubStr(VisionGet("/ping", 250, true), 1, 2) = "OK")
+		}
+	if (vsOldUp)
+		DebugLog("Vision: the old helper still answers 5 s after it was told to stop - starting the new one anyway")
+	else if (A_TickCount - vsQuitAt > 1500)
+		DebugLog("Vision: the old helper took " Round((A_TickCount - vsQuitAt) / 1000, 1) " s to stop")
 	Sleep(300)
 	py := VisionPython()
 	if (py = "")
@@ -52,6 +66,10 @@ VisionStart()
 		DebugLog("Vision: " dir "\vision.py isn't there - cards are found with ImageSearch")
 		return false
 		}
+	;(vision.log's size now - what the helper writes from here on says why, if it stops: vision.py's log is
+	;vision.log next to it)
+	vsLog := dir "\vision.log"
+	vsLogAt := V1N(V1Try(FileGetSize, vsLog))
 	V1Run("`"" py "`" `"" dir "\vision.py`" --parent " DllCall("GetCurrentProcessId") " --port " VisionPort, dir, "Hide", &VisionPid)
 	if (ErrorLevel)
 		{
@@ -59,6 +77,7 @@ VisionStart()
 		return false
 		}
 	startedAt := A_TickCount
+	vsGone := false
 	while (A_TickCount - startedAt < 8000)
 		{
 		Sleep(400)
@@ -71,14 +90,56 @@ VisionStart()
 		;(it stopped: no point waiting)
 		ErrorLevel := ProcessExist(VisionPid)
 		if (!ErrorLevel)
+			{
+			vsGone := true
 			break
+			}
 		}
-	DebugLog("Vision: the helper didn't answer - cards are found with ImageSearch (see vision\vision.log)")
+	;(why: the line it wrote in vision.log since it was started - none: Python couldn't even run vision.py)
+	vsWhy := VisionStartWhy(vsLog, vsLogAt)
+	if (vsGone && vsWhy != "")
+		DebugLog("Vision: the helper stopped at start - vision\vision.log: " vsWhy " - cards are found with ImageSearch")
+	else if (vsGone)
+		DebugLog("Vision: the helper stopped at start without a line in vision\vision.log - the Python at " py " couldn't run it at all (Setup.exe's `"Python 3`" and `"numpy and Pillow`" parts set it up again) - cards are found with ImageSearch")
+	else
+		DebugLog("Vision: the helper is still starting after 8 s - vision\vision.log: " (vsWhy != "" ? vsWhy : "nothing yet") " - it's stopped, cards are found with ImageSearch")
 	;(don't leave it running, holding the port)
 	if (VisionPid)
 		ErrorLevel := ProcessClose(VisionPid)
 	VisionPid := 0
 	return false
+	}
+
+;For debug.log when the helper stopped at start or didn't answer: what it wrote in vision.log (path) since the file was
+;fromBytes long - its last "can't start", "port ... taken" or error line, else its last line, without its time, at most
+;300 characters; "" nothing (no file, or it couldn't be read). The file shorter than that: moved to vision.log.old as the
+;helper started (over 512 KB) - all of it is new
+VisionStartWhy(vswPath, vswFrom)
+	{
+	vswIn := V1Try(FileOpen, vswPath, "r", "UTF-8")
+	if (!IsObject(vswIn))
+		return ""
+	try
+		{
+		if (vswIn.Length >= vswFrom)
+			vswIn.Seek(vswFrom)
+		vswText := vswIn.Read()
+		}
+	catch
+		vswText := ""
+	vswIn.Close()
+	vswLast := "", vswTold := ""
+	Loop Parse, vswText, "`n", "`r"
+		{
+		vswLine := Trim(A_LoopField)
+		if (vswLine = "")
+			continue
+		vswLast := vswLine
+		if (RegExMatch(vswLine, "i)can't start|port \d+ taken|error|exception"))
+			vswTold := vswLine
+		}
+	vswLine := RegExReplace(vswTold != "" ? vswTold : vswLast, "^\d\d:\d\d:\d\d ")
+	return StrLen(vswLine) > 300 ? SubStr(vswLine, 1, 297) "..." : vswLine
 	}
 
 ;Stops the helper (on exit)
