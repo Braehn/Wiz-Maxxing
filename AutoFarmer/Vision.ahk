@@ -40,8 +40,9 @@ VisionStart()
 	if (VisionMissing = "")
 		VisionMissing := ","
 	VisionGet("/quit", 300)
-	;(the old one holds the port till it has stopped - a new one started before that finds the port taken and stops:
-	;waited for till it no longer answers, up to 5 s)
+	;(the old one answers on the port till it has stopped - a new one started before that binds the port beside it
+	;(Windows lets it: Python's server sets SO_REUSEADDR), and its pings may reach the old one: waited for till it no
+	;longer answers, up to 5 s)
 	vsQuitAt := A_TickCount
 	vsOldUp := (SubStr(VisionGet("/ping", 250, true), 1, 2) = "OK")
 	while (vsOldUp && A_TickCount - vsQuitAt < 5000)
@@ -100,7 +101,7 @@ VisionStart()
 	if (vsGone && vsWhy != "")
 		DebugLog("Vision: the helper stopped at start - vision\vision.log: " vsWhy " - cards are found with ImageSearch")
 	else if (vsGone)
-		DebugLog("Vision: the helper stopped at start without a line in vision\vision.log - the Python at " py " couldn't run it at all (Setup.exe's `"Python 3`" and `"numpy and Pillow`" parts set it up again) - cards are found with ImageSearch")
+		DebugLog("Vision: the helper stopped at start without a line in vision\vision.log - the Python at " py " couldn't run it at all (repair or reinstall that Python - Windows Settings > Apps - Setup.exe's `"Python 3`" leaves a Python it finds alone) - cards are found with ImageSearch")
 	else
 		DebugLog("Vision: the helper is still starting after 8 s - vision\vision.log: " (vsWhy != "" ? vsWhy : "nothing yet") " - it's stopped, cards are found with ImageSearch")
 	;(don't leave it running, holding the port)
@@ -112,7 +113,7 @@ VisionStart()
 
 ;For debug.log when the helper stopped at start or didn't answer: what it wrote in vision.log (path) since the file was
 ;fromBytes long - its last "can't start", "port ... taken" or error line, else its last line, without its time, at most
-;300 characters; "" nothing (no file, or it couldn't be read). The file shorter than that: moved to vision.log.old as the
+;500 characters; "" nothing (no file, or it couldn't be read). The file shorter than that: moved to vision.log.old as the
 ;helper started (over 512 KB) - all of it is new
 VisionStartWhy(vswPath, vswFrom)
 	{
@@ -139,7 +140,7 @@ VisionStartWhy(vswPath, vswFrom)
 			vswTold := vswLine
 		}
 	vswLine := RegExReplace(vswTold != "" ? vswTold : vswLast, "^\d\d:\d\d:\d\d ")
-	return StrLen(vswLine) > 300 ? SubStr(vswLine, 1, 297) "..." : vswLine
+	return StrLen(vswLine) > 500 ? SubStr(vswLine, 1, 497) "..." : vswLine
 	}
 
 ;Stops the helper (on exit)

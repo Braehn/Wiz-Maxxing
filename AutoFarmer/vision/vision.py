@@ -590,8 +590,13 @@ try:
     import numpy as np
     from PIL import Image
 except Exception as e:  # noqa: BLE001 - a broken install fails with more than ImportError (a DLL, a version clash)
+    # (a numpy that's there but won't load wraps the real error - a DLL that didn't load - in a long text of its own,
+    # ending "Original error was: <it>", numpy 2 chaining it as __cause__ too: that one said, kept short so debug.log's
+    # copy - VisionStartWhy - keeps the Setup hint)
+    why = e.__cause__ or e
+    why_text = one_line(str(why).split('Original error was:')[-1], 150)
     log(f"can't start: numpy and Pillow didn't load in Python {sys.version.split()[0]} at {sys.executable} "
-        f"({type(e).__name__}: {one_line(e)}) - Setup.exe's \"numpy and Pillow\" installs them")
+        f"({type(why).__name__}: {why_text}) - Setup.exe's \"numpy and Pillow\" installs them")
     if __name__ != '__main__':
         raise
     sys.exit(1)

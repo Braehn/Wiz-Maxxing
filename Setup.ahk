@@ -555,7 +555,15 @@ SuInstallPackages()
 		return SuLogLine("needs Python first")
 	SuRun("`"" py "`" -m pip install --user --upgrade numpy pillow")
 	ok := SuRun("`"" py "`" -c `"import numpy, PIL; print('numpy', numpy.__version__, '- Pillow', PIL.__version__)`"") = 0
-	SuLogLine(ok ? "the vision helper's packages load" : "they don't load - see the messages above")
+	;(installed but broken - a DLL that won't load, a half-finished update: pip calls that "already satisfied" and leaves
+	;it, so the packages are put in again from scratch, once)
+	if (!ok)
+		{
+		SuLogLine("they don't load - installing them again from scratch")
+		SuRun("`"" py "`" -m pip install --user --upgrade --force-reinstall --no-cache-dir numpy pillow")
+		ok := SuRun("`"" py "`" -c `"import numpy, PIL; print('numpy', numpy.__version__, '- Pillow', PIL.__version__)`"") = 0
+		}
+	SuLogLine(ok ? "the vision helper's packages load" : "they still don't load - see the messages above")
 	;(on its own and optional: the helper reads the zone files itself; katsuba is only its spare)
 	SuRun("`"" py "`" -m pip install --user --upgrade katsuba")
 	kt := SuRun("`"" py "`" -c `"import katsuba`"") = 0
