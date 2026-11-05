@@ -5,7 +5,7 @@ avbosshealth:10000
 ;
 ; AutoFarmer kill calculator settings. Each line is key:value and anything after ; is a comment.
 ; A key you delete falls back to the default shown here. Edit, then restart the script (Windows+1) - or use the
-; dashboard's Settings button: the mouse, the waits and how it plays its cards there, used at once (no restart).
+; dashboard's Settings > Settings...: the mouse, the waits and how it plays its cards there, used at once (no restart).
 ;
 ; At the start of each round the script reads every enemy's health off the nameplates at the top
 ; of the game window, works out the MINIMUM damage of each hit in your hand (no crits), and if one
@@ -86,7 +86,7 @@ logmirror:0
 ; potions - and carries on this many seconds after you stop (0 = it never waits for you)
 handsoff:10
 ; handsoffon: 1 = it waits for you as above, 0 = it carries on even while you play (tray menu "Wait while
-; I play" or the dashboard's "Wait for me" button switches it)
+; I play" or the dashboard's Bot > Wait for me switches it)
 handsoffon:1
 
 ; ---- Windows ----

@@ -603,7 +603,8 @@ CfgApply(pairs, source, note := "")
 				capFloor.Push([capS.key "floor", capV]), capSaid .= ", " capS.key "floor -> " capV
 			continue
 			}
-		capList.Push([capS.key, capV]), capSaid .= ", " capS.key " " capOld " -> " capV, capBy[capS.key] := capS
+		;(the network PIN said changed, never its numbers: debug.log's end goes into a bug report - BugReport.ahk)
+		capList.Push([capS.key, capV]), capSaid .= ", " capS.key (capS.key = "netpin" ? " changed" : " " capOld " -> " capV), capBy[capS.key] := capS
 		}
 	if (!capList.Length && !capFloor.Length)
 		return CfgUncritical(capWas, true)
@@ -702,7 +703,9 @@ CfgWrite(pairs)
 	cfgLines := StrSplit(StrReplace(cfgText, "`r"), "`n")
 	if (cfgLines.Length && cfgLines[cfgLines.Length] = "")
 		cfgLines.Pop()
-	cfgHead := "; ---- Set in the Settings window (the dashboard's Settings button) ----"
+	cfgHead := "; ---- Set in the Settings window (the dashboard's Settings menu) ----"
+	;(the heading before v1.10.0, naming the dashboard's Settings button, counts too: no second heading)
+	cfgOldHead := "; ---- Set in the Settings window (the dashboard's Settings button) ----"
 	for each, cfgKv in pairs
 		{
 		cfgFound := false
@@ -713,7 +716,7 @@ CfgWrite(pairs)
 			continue
 		cfgHas := false
 		for cfgI, cfgLn in cfgLines
-			if (cfgLn == cfgHead)
+			if (cfgLn == cfgHead || cfgLn == cfgOldHead)
 				cfgHas := true
 		if (!cfgHas)
 			cfgLines.Push(""), cfgLines.Push(cfgHead)
@@ -727,8 +730,18 @@ CfgWrite(pairs)
 	if (ErrorLevel)
 		return CfgUncritical(cfgWas, false)
 	V1Do(FileMove, cfgPath ".tmp", cfgPath, 1)
+	;(once more after a moment: a program reading it just then - Cheat Engine's script reads it every 2 s for the
+	;speedhack's keys - can keep it from being replaced)
 	if (ErrorLevel)
+		{
+		Sleep(200)
+		V1Do(FileMove, cfgPath ".tmp", cfgPath, 1)
+		}
+	if (ErrorLevel)
+		{
+		V1Do(FileDelete, cfgPath ".tmp")
 		return CfgUncritical(cfgWas, false)
+		}
 	LoadStats(true)
 	return CfgUncritical(cfgWas, true)
 	}

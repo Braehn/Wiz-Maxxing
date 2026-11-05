@@ -876,12 +876,12 @@ went wrong; Send posts it as an issue on the Wiz-Maxxing repo on GitHub, with
 the version, this PC's name, the screen, what the dashboard's STATISTICS and
 WHAT IT SEES show and (ticked) the end of debug.log and of vision\vision.log
 (the vision helper's own log) - anything that looks secret (a Discord webhook,
-a GitHub token, password=...) blanked out. It uses the updates' GitHub token,
-which needs Issues: Read and write as well: on github.com, Settings > Developer
-settings > Fine-grained tokens > the Wiz-Maxxing token > Edit > Repository
-permissions > Issues: Read and write > Update (the same token keeps working -
-nothing to change on the PCs). Closing the window keeps what you typed until
-it's sent.
+a GitHub token, password=..., the network PIN) blanked out. It uses the
+updates' GitHub token, which needs Issues: Read and write as well: on
+github.com, Settings > Developer settings > Fine-grained tokens > the
+Wiz-Maxxing token > Edit > Repository permissions > Issues: Read and write >
+Update (the same token keeps working - nothing to change on the PCs). Closing
+the window keeps what you typed until it's sent.
 
 Simple and advanced views: the dashboard's View > Simple view (ticked while
 it's simple) switches it - simple shows what the bot is doing and seeing
@@ -938,7 +938,7 @@ Statistic mode's key while the bot is on).
 	  alerts..., Party... and Wizard101 login... (as the tray menu's).
 	- Help: Check for updates ("Checking..." and greyed for 10 s after a
 	  click), Report a bug..., Read me (this file, in Notepad), About (the
-	  version, and the name of the bot's folder).
+	  version, and the name of the folder AutoFarmer is in).
 Each item that was a button, or is in the tray menu too, does the same as
 that. A tick shows what's on now, however it was switched (the menu, a
 button, F6, F8, Windows+4, the tray menu, the Settings window), within a
@@ -951,13 +951,14 @@ v..." sits at the bar's right end, as the Updates button said it: a click on
 it checks for updates. Still on the window: the bot on/off button, now at
 the top right ("Bot: on (F6)" / "Bot: off (F6)"), Play for me on the tab row
 and each tab's own buttons. With the bottom row of buttons gone, the log
-reaches the window's bottom and the simple view ends under WHAT IT SEES (a
-simple view's size saved before is kept - make it shorter if you like); the
-advanced view comes back about as tall on the screen as it was (20 less
+reaches the window's bottom; the simple view is as tall inside as before, and
+the advanced view comes back about as tall on the screen as it was (20 less
 inside, for the menu bar). A pick is yours, as a tray menu pick is: what it
-opens may take the focus - the menu bar itself never does. debug.log: "Menu:
-Bot > Play for me picked" for each pick (an item's key left out), and for a
-tray setting switched there "Menu: traybot 0 -> 1".
+opens may take the focus - the menu bar itself never does. While one of its
+menus is open (or Alt has the bar lit) the bot waits, as with the tray menu:
+pick an item or press Esc and it goes on. debug.log: "Menu: Bot > Play for
+me picked" for each pick (an item's key left out), and for a tray setting
+switched there "Menu: traybot 0 -> 1".
 
 The bot's window in the tray (Settings > THE MOUSE AND WAITS, "Put the bot's
 window in the tray"; traybot:1 in PlayerStats.txt): the dashboard's X (Alt+F4

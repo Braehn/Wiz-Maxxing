@@ -164,7 +164,7 @@ MenuNothing()
 return
 
 ;The latest release looked up now and then, out of this process (Wiz-Maxxing /latest writes updater.ini): the
-;dashboard's Help menu (Update to vX) and STATISTICS say from it whether a newer version is out - and UpdAuto installs it.
+;dashboard's menu bar (Update to vX) and STATISTICS say from it whether a newer version is out - and UpdAuto installs it.
 ;45 s after start, then every autoupdate minutes (Settings; 2 hours with it off)
 UpdPeekNow:
 UpdPeekNow()
@@ -466,9 +466,10 @@ TrayGameOn()
 		return 0
 	}
 
-;The tray settings applied (Settings' Save - CfgSaveNow - and once as the bot starts): the tray menu (TrayWinShow),
-;Alt+F4's hotkey in Wizard101 (GameTrayKeys) and the watch on its window (GameTrayTick) as they're set now. traygame
-;switched off with Wizard101 in the tray: shown again, without taking the focus. A switch said in the log
+;The tray settings applied (Settings.ahk CfgApply - the Settings window's Save, the dashboard's Settings menu, a
+;settings file loaded - and once as the bot starts): the tray menu (TrayWinShow), Alt+F4's hotkey in Wizard101
+;(GameTrayKeys) and the watch on its window (GameTrayTick) as they're set now. traygame switched off with Wizard101
+;in the tray: shown again, without taking the focus. A switch said in the log
 TrayWinTick()
 	{
 	static wasBot := "", wasGame := ""
@@ -936,9 +937,9 @@ BattlesOnlyNo(what, tell := false)
 	return true
 	}
 
-;Battles only switched (Settings' Save, the tray menu - and the main loop's look at it, each pass): said in the log, the tray
-;menu's tick. On: walking off and every key let go, a dungeon run stopped, a puzzle try dropped, the walker's notice closed. At
-;the start (StartBot's call) said only when it's on
+;Battles only switched (CfgApply - the Settings window's Save, a settings file loaded -, the tray menu - and the main loop's
+;look at it, each pass): said in the log, the tray menu's tick. On: walking off and every key let go, a dungeon run stopped, a
+;puzzle try dropped, the walker's notice closed. At the start (StartBot's call) said only when it's on
 BattlesOnlyTick()
 	{
 	static was := ""

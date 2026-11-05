@@ -28,6 +28,10 @@ TIMES = {'yyyy-MM-dd': '2026-11-05', 'yyyy-MM-dd HH:mm': '2026-11-05 14:07', 'yy
 DOCS = 'C:\\Users\\someone\\Documents'
 ESC = {'n': '\n', 'r': '\r', 't': '\t', '"': '"', "'": "'", '`': '`', ';': ';', 's': ' ', 'b': '\b'}
 DIALOGS = re.compile(r'(?<![\w.])(?:MsgBox|InputBox|FileSelect|DirSelect)\(|\.Show\(')
+# the dashboard's buttons v1.10.0's menu bar took (each is a menu item now - the window has no such button)
+GONE_BUTTONS = ('Report a bug', 'Check for updates', 'Updates', 'Settings', 'Map', 'Colours', 'Pause log', 'Clear',
+                'Open debug.log', 'Walking', 'Open bot folder', 'Wait for me', 'Game to front', 'Advanced view',
+                'Simple view')
 
 
 def read_lines(path):
@@ -490,7 +494,8 @@ class SettingsFileWiring(unittest.TestCase):
         self.assertRegex(ap, r'capV := pairs\[capS\.key\] \+ 0\s*'
                              r'capOld := Stats\.Has\(capS\.key\) \? Stats\[capS\.key\] : capS\.def\s*'
                              r'if \(V1IsNum\(capOld\) && capOld \+ 0 = capV\)\s*\{[^{}]*\bcontinue\s*\}\s*'
-                             r'capList\.Push\(\[capS\.key, capV\]\), capSaid \.= ", " capS\.key " " capOld " -> " capV')
+                             r'capList\.Push\(\[capS\.key, capV\]\), capSaid \.= ", " capS\.key '
+                             r'\(capS\.key = "netpin" \? " changed" : " " capOld " -> " capV\)')
         self.assertNotIn('CfgShownVals[capS.key]', ap)
         self.assertRegex(ap, r'if \(!capList\.Length && !capFloor\.Length\)\s*return CfgUncritical\(capWas, true\)')
         self.order(ap, 'if (!capList.Length && !capFloor.Length)', 'CfgWrite(')
@@ -555,6 +560,38 @@ class SettingsFileWiring(unittest.TestCase):
         self.assertEqual(ap.count('DebugLog('), 2)
         self.order(ap, 'if (!CfgWrite(', 'DebugLog(source ": " SubStr(capSaid, 3)', 'V1IsFunc("HandsOffShow")')
         self.assertEqual(critical_dialogs('Critical()\n' + ap), [])
+
+    def test_the_pin_never_in_the_log(self):
+        """the network PIN: CfgApply's line says it changed, never its numbers (debug.log's end goes into a public
+        bug report); Report a bug blanks one in an older line ("netpin 0 -> 1234", the Save's before v1.10.0) or
+        a netpin:1234 line, and nothing else"""
+        ap = self.fn(self.cfg, 'CfgApply')
+        said = re.findall(r'capSaid \.= ([^\n]*)', ap)
+        self.assertEqual(len(said), 2)
+        self.assertIn('(capS.key = "netpin" ? " changed" : " " capOld " -> " capV)', said[1])
+        # (the floor branch's: only mobradius / mobbody reach it)
+        self.assertRegex(ap, r'if \(\(capS\.key = "mobradius" \|\| capS\.key = "mobbody"\) && [^\n]*\s*capFloor\.Push')
+        red = self.fn(code_of(os.path.join(AF, 'BugReport.ahk')), 'BugRedact')
+        m = re.search(r's := RegExReplace\(s, "i\)(\\bnetpin[^"]*)", "netpin \[left out\]"\)', red)
+        self.assertIsNotNone(m)
+        pin = re.compile(m.group(1), re.I)
+        for line, want in (('Settings saved (used from now on): netpin 0 -> 1234, healat 30 -> 40',
+                            'Settings saved (used from now on): netpin [left out], healat 30 -> 40'),
+                           ('netpin:4821   ; the PIN', 'netpin [left out]   ; the PIN'),
+                           ('Settings: NetPin 12 -> -3', 'Settings: netpin [left out]'),
+                           ('Settings: netpin changed', 'Settings: netpin changed'),
+                           ('netpinned 5 -> 6', 'netpinned 5 -> 6')):
+            self.assertEqual(pin.sub('netpin [left out]', line), want)
+        self.order(red, 'Bearer [left out]', 'netpin [left out]', 'return RegExReplace(')
+
+    def test_write_tries_twice(self):
+        """PlayerStats.txt replaced by its .tmp - once more after 200 ms if that fails (Cheat Engine's script
+        reading it just then); still not: the .tmp gone, false"""
+        cw = self.fn(self.cfg, 'CfgWrite')
+        self.assertRegex(cw, r'V1Do\(FileMove, cfgPath "\.tmp", cfgPath, 1\)\s*if \(ErrorLevel\)\s*\{\s*Sleep\(200\)\s*'
+                             r'V1Do\(FileMove, cfgPath "\.tmp", cfgPath, 1\)\s*\}\s*if \(ErrorLevel\)\s*\{\s*'
+                             r'V1Do\(FileDelete, cfgPath "\.tmp"\)\s*return CfgUncritical\(cfgWas, false\)\s*\}\s*'
+                             r'LoadStats\(true\)')
 
     def test_apply_open_window(self):
         """the Settings window open: what it wrote shown in it (a pick chosen, a check or number its value) and in
@@ -1019,15 +1056,35 @@ class SettingsFileWiring(unittest.TestCase):
         button the menus took (Wait for me, Game to front, Check for updates...: gone from the window)"""
         helps = re.findall(r'help: "((?:[^"`]|`.)*)"', '\n'.join(self.cfg_lines))
         self.assertGreater(len(helps), 50)
-        gone = ('Report a bug', 'Check for updates', 'Updates', 'Settings', 'Map', 'Colours', 'Pause log', 'Clear',
-                'Open debug.log', 'Walking', 'Open bot folder', 'Wait for me', 'Game to front', 'Advanced view',
-                'Simple view')
         for h in helps:
-            for g in gone:
+            for g in GONE_BUTTONS:
                 self.assertNotRegex(h, r'(?i)\b%s"? button' % re.escape(g), h[:60])
         wait = [h for h in helps if h.startswith('While you use the keyboard or mouse yourself the bot waits')]
         self.assertEqual(len(wait), 1)
         self.assertIn("dashboard's Bot menu: Wait for me", wait[0])
+
+    def test_heading_names_the_menu(self):
+        """the heading CfgWrite - and Setup's SuStatSet, the same one - puts over a key PlayerStats.txt hasn't got
+        names no dashboard button the menu bar took, and the one written before v1.10.0 counts as there (no second
+        heading); the shipped PlayerStats.txt names no such button either"""
+        old = "; ---- Set in the Settings window (the dashboard's Settings button) ----"
+        cw = self.fn(self.cfg, 'CfgWrite')
+        su = self.fn(code_of(os.path.join(ROOT, 'Setup.ahk')), 'SuStatSet')
+        head = re.search(r'\bcfgHead := "([^"]*)"', cw)
+        self.assertIsNotNone(head)
+        self.assertTrue(head.group(1).startswith('; ---- Set in the Settings window ('), head.group(1))
+        for g in GONE_BUTTONS:
+            self.assertNotRegex(head.group(1), r'(?i)\b%s"? button' % re.escape(g))
+        self.assertIn('cfgLines.Push(cfgHead)', cw)
+        self.assertIn('head := "%s"' % head.group(1), su)
+        self.assertIn('lines.Push(head)', su)
+        for code, ln, var, has in ((cw, 'cfgLn', 'cfgHead', 'cfgHas'), (su, 'line', 'head', 'hasHead')):
+            m = re.search(r'if \(%s == %s \|\| %s == (\w+)\)\s*%s := true' % (ln, var, ln, has), code)
+            self.assertIsNotNone(m, var + ': the old heading counts as there too')
+            self.assertIn('%s := "%s"' % (m.group(1), old), code)
+        for ln in read_lines(os.path.join(AF, 'PlayerStats.txt')):
+            for g in GONE_BUTTONS:
+                self.assertNotRegex(ln, r'(?i)\b%s"? button' % re.escape(g), ln)
 
     def test_apply(self):
         """Apply: not with the Settings window open; PlayerStats.txt copied to backups\\ first (nothing set if that

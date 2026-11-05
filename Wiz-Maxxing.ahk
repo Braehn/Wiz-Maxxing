@@ -12,7 +12,7 @@
 ;                            UpAuto) and the bot started again as it was then
 ;   Wiz-Maxxing.exe /watch   the watcher ("Open with Wizard101" - started with Windows): opens the bot in standby
 ;                            when Wizard101 starts (Watch.ahk); F6 then starts it
-;   Wiz-Maxxing.exe /latest  only looks up the latest release, into updater.ini (the dashboard's Help menu and
+;   Wiz-Maxxing.exe /latest  only looks up the latest release, into updater.ini (the dashboard's menu bar and
 ;                            STATISTICS say from it whether a newer one is out) - nothing shown, nothing installed
 ;   Wiz-Maxxing.exe /report <file>   posts a bug report as an issue on GitHub (the dashboard's Report a bug -
 ;                            Updater.ahk UpReport); its answer in <file>.result

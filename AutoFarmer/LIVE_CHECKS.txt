@@ -266,8 +266,8 @@ Before you start
 	    buttons under the log, which reaches the window's bottom; after
 	    the update it comes back about as tall on the screen as before,
 	    its bottom not behind the taskbar (at 100% and, if you can, 125%
-	    and 150% display scaling). View > Simple view: shorter, ending
-	    under WHAT IT SEES, Pause log and Clear log greyed; again: the log
+	    and 150% display scaling). View > Simple view: shorter (no log or
+	    its heading), Pause log and Clear log greyed; again: the log
 	    is back. Each menu in turn (Alt+F, B, V, T and H open them too -
 	    with the bot on, Alt+T still opens Settings): each item does what
 	    it says - what its old button or the tray item did - and debug.log
@@ -283,8 +283,9 @@ Before you start
 	    till Wizard101 is in the tray (3.12), then brings it back
 	    ("Wizard101 out of the tray: shown again - Show Wizard101 (the
 	    dashboard's Bot menu)"). Help > Check for updates: "Checking..."
-	    and greyed for 10 s. A menu left open in a battle round: does the
-	    bot play on? Then File > Save settings as..., the name it offers:
+	    and greyed for 10 s. A menu left open in a battle round: the bot
+	    waits, as with the tray menu - Esc and it goes on. Then File >
+	    Save settings as..., the name it offers:
 	    a tray tip "N settings saved in Wiz-Maxxing settings <date>.txt.";
 	    in Notepad its first line is "; Wiz-Maxxing settings file 1 -
 	    saved by Wizard101 bot v1.10.0 on <date time>", and there's no
@@ -293,24 +294,25 @@ Before you start
 	    lists that setting, ticked, as it's set now and as the file has it
 	    (mobradius and mobbody too, if the bot widened them since you last
 	    set them in Settings: the file has the reach you set); Apply - "1
-	    setting loaded from <file> - used from now on.", backups\ has
-	    "PlayerStats before settings load <date time>.txt" and Settings
-	    shows the file's value again. In the file change v1.10.0 to v9.0.0
-	    and add a line newkey:1, then load it: the notes say "Saved by a
-	    newer bot (v9.0.0 - this is v1.10.0) ..." and "Skipped ...
-	    (newkey)"; with v1.9.0 and without that line: neither note. A
-	    PlayerStats.txt from another PC (or the one you backed up before
-	    you started): only the Settings window's settings are looked at,
-	    the rest "Skipped" in the notes. Cancel each way - the Save
-	    dialog's, the Load dialog's, then the list's Cancel, its X and Esc:
-	    nothing changes, no backup is made ("Settings: loading <file>
-	    cancelled - nothing changed" for the list). Load with the Settings
-	    window open: "Close the Settings window first - then load the
-	    settings." Save as PlayerStats.txt in the AutoFarmer folder (say
-	    Yes to Windows' question): "PlayerStats.txt is one of the bot's own
-	    files - save the settings under another name." Send the "Menu:" and
-	    "Settings" lines and the saved file, and say if a tick was wrong,
-	    an item did nothing or anything took the focus by itself.
+	    setting loaded from <file> - used from now on." (2 or 3 with the
+	    reach), backups\ has "PlayerStats before settings load
+	    <date time>.txt" and Settings shows the file's value again. In
+	    the file change v1.10.0 to v9.0.0 and add a line newkey:1, then
+	    load it: the notes say "Saved by a newer bot (v9.0.0 - this is
+	    v1.10.0) ..." and "Skipped ... (newkey)"; with v1.9.0 and without
+	    that line: neither note. A PlayerStats.txt from another PC (or
+	    the one you backed up before you started): only the Settings
+	    window's settings are looked at, the rest "Skipped" in the notes.
+	    Cancel each way - the Save dialog's, the Load dialog's, then the
+	    list's Cancel, its X and Esc: nothing changes, no backup is made
+	    ("Settings: loading <file> cancelled - nothing changed" for the
+	    list). Load with the Settings window open: "Close the Settings
+	    window first - then load the settings." Save as PlayerStats.txt
+	    in the AutoFarmer folder (say Yes to Windows' question):
+	    "PlayerStats.txt is one of the bot's own files - save the
+	    settings under another name." Send the "Menu:" and "Settings"
+	    lines and the saved file, and say if a tick was wrong, an item
+	    did nothing or anything took the focus by itself.
 	3.14 memclicks LAST - only once 2.3's lines say the boxes line up (three
 	    looks in a row within 10 pixels: "trusted"). Cards and plates are
 	    then clicked where the game's memory has them.

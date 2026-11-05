@@ -1,5 +1,5 @@
 #Warn Unreachable, Off
-; BugReport.ahk - "Report a bug" (the dashboard's button, the tray menu): a window where you say what went wrong.
+; BugReport.ahk - "Report a bug" (the dashboard's Help menu, the tray menu): a window where you say what went wrong.
 ; Send posts it as an issue on the Wiz-Maxxing repo on GitHub, with the bot's version and setup, what the dashboard's
 ; STATISTICS and WHAT IT SEES show, and the end of debug.log and of vision\vision.log (the vision helper's own log).
 ; AHK v1.1, functions and labels only; #Included by Autofarmer.ahk.
@@ -267,6 +267,8 @@ BugRedact(s)
 	s := RegExReplace(s, "i)https?://(?:ptb\.|canary\.)?discord(?:app)?\.com/api/webhooks/\S+", "[a Discord webhook - left out]")
 	s := RegExReplace(s, "\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_\w{20,})", "[a GitHub token - left out]")
 	s := RegExReplace(s, "i)\bBearer\s+\S+", "Bearer [left out]")
+	;(the network PIN: "netpin 0 -> 1234" as the Settings window's Save logged it before v1.10.0, or a netpin:1234 line)
+	s := RegExReplace(s, "i)\bnetpin\b[\s:]*-?\d+(?:\s*->\s*-?\d+)?", "netpin [left out]")
 	return RegExReplace(s, "i)\b(password|passwd|pwd|token|secret)(\s*[=:]\s*)\S+", "$1$2[left out]")
 	}
 

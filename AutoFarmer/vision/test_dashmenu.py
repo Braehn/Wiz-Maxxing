@@ -440,11 +440,15 @@ class DashMenuBar(unittest.TestCase):
         for verb in ('Check', 'Uncheck', 'Enable', 'Disable'):
             self.assertRegex(ms, r'\.%s\(\w+\)' % verb)
         self.assertRegex(ms, r'if \(was\.Has\(\w+\) && was\[\w+\] = want\)\s*return')
-        self.assertIn('.Rename(pos "&", name)', self.fn(self.dash, 'DashMenuName'))
+        # (renamed only when the name is new - "Checking..." and back, a key changed - and remembered after)
+        self.assertRegex(self.fn(self.dash, 'DashMenuName'),
+                         r'if \(named\.Has\(mnKey\) && named\[mnKey\] == name\)\s*return\s*'
+                         r'DashMenus\[which\]\.Rename\(pos "&", name\)\s*named\[mnKey\] := name\s*$')
 
     def test_the_update_item(self):
         """a newer version out (UpdState): "Update to vX" at the bar's right end ("Right" - a MenuBar's own option),
-        the dashboard's update button's pick; taken off when there's none; the bar drawn again after a change"""
+        the dashboard's update button's pick; taken off when there's none; the bar touched only when that changed (the
+        name it shows remembered) and drawn again after"""
         ticks = self.fn(self.dash, 'DashMenuTicks')
         self.assertIn('V1IsFunc("UpdState") ? UpdState.Call() : ""', ticks)
         self.assertRegex(ticks, r'\.newer\) \? "Update to " \w+\.latest : ""')
@@ -452,9 +456,11 @@ class DashMenuBar(unittest.TestCase):
         self.assertIsNotNone(m)
         bv, n = m.group(1), len(self.bar) + 1
         self.assertIn('%s := DashMenus["bar"]' % bv, ticks)
-        dl = re.search(r'if \(\w+ != ""\)\s*%s\.Delete\("%d&"\)\s*if \(%s != ""\)\s*%s\.Add\('
-                       % (bv, n, m.group(2), bv), ticks)
-        self.assertIsNotNone(dl, 'the old one taken off first, the new one only when there is one')
+        dl = re.search(r'if \(%s != (\w+)\)\s*\{\s*if \(\1 != ""\)\s*%s\.Delete\("%d&"\)\s*if \(%s != ""\)\s*%s\.Add\('
+                       r'[^\n]*\n\s*\1 := %s\n' % (m.group(2), bv, n, m.group(2), bv, m.group(2)), ticks)
+        self.assertIsNotNone(dl, 'only when it changed: the old one taken off first, the new one only when there is '
+                                 'one, and its name remembered')
+        self.assertRegex(ticks, r'(?m)^\s*static [^\n]*\b%s := ""' % dl.group(1))
         draw = 'DllCall("DrawMenuBar", "Ptr", DashHwnd)'
         self.assertLess(m.start(), ticks.index(draw))
         for verb in ('Enable', 'Disable'):
@@ -567,7 +573,8 @@ class DashMenuBar(unittest.TestCase):
     def test_sizes_without_the_bottom_row(self):
         """the tabs' inside measured with a Bot tab control, put back where it was made; the log to the window's
         bottom; the lists never under 40; the frame with the menu bar for the dashboard only (the map's 40); the simple
-        view 294 high at least, the advanced 784 by default, older saves 20 less (layout 4)"""
+        view 330 high at least (a deck's value row on the Cards tab still on the window), the advanced 784 by default,
+        older saves 20 less (layout 4)"""
         size = self.fn(self.dash, 'DashGuiSize')
         m = re.search(r'if \(DashTabOX = ""\)\s*\{\s*Dash\["(\w+)"\]\.Move\(0, 0\)\s*'
                       r'Dash\["\1"\]\.GetPos\(&DashTabOX, &DashTabOY, &DashTabOW, &DashTabOH\)\s*'
@@ -595,8 +602,22 @@ class DashMenuBar(unittest.TestCase):
         self.assertIn('V1Round(V1Mul(V1Add(h, frameH), dpi))', show)
         self.assertNotIn('V1Add(h, 40)', show)
         self.assertIn('DashFitHeight(x, y, &h)', self.fn(self.dash, 'DashMapShow'))
-        self.assertIn('Dash.Opt("+MinSize740x" (DashSimple ? 294 : 640))', self.fn(self.dash, 'DashApplyView'))
-        self.assertIn('h := (h = "") ? 294 : V1Max(294, h)', show)
+        self.assertIn('Dash.Opt("+MinSize740x" (DashSimple ? 330 : 640))', self.fn(self.dash, 'DashApplyView'))
+        self.assertIn('h := (h = "") ? 330 : V1Max(330, h)', show)
+        # (the simple view's least height holds a deck's value row - its box, Set, Not set by this deck and the first
+        # line of the note where the deck view says what it did - at the row's lowest place, DashGuiSize's floor)
+        least = re.search(r'\+MinSize740x" \(DashSimple \? (\d+) : ', self.fn(self.dash, 'DashApplyView'))
+        floor = re.search(r'DashDeckRowY := Max\(([\d +]+), A_GuiHeight - \d+\) - DashTabOY', size)
+        self.assertIsNotNone(least)
+        self.assertIsNotNone(floor)
+        for ctl in ('DeckFValT', 'DeckFVal', 'DeckFValSet', 'DeckFValClear', 'DeckFNote'):
+            made = re.search(r'Dash\.Add\("\w+", "x\d+ y\d+ w\d+ h(\d+) [^"]*\bv%s\b' % ctl, init)
+            mv = re.search(r'Dash\["%s"\]\.Move\(, DashDeckRowY(?: \+ (\d+))?[,)]' % ctl, size)
+            self.assertIsNotNone(made, ctl)
+            self.assertIsNotNone(mv, ctl)
+            tall = 18 if ctl == 'DeckFNote' else int(made.group(1))
+            low = sum(int(t) for t in floor.group(1).split('+')) + int(mv.group(1) or 0) + tall
+            self.assertLessEqual(low, int(least.group(1)), ctl + ' off the simple view at its least height')
         self.assertIn('h := (h = "") ? 784 : (V1Lt(layout, 2) ? V1Add(h, 160) : V1Lt(layout, 3) ? V1Add(h, 8) : '
                       'V1Lt(layout, 4) ? V1Sub(h, 20) : h)', show)
         self.assertIn('V1Do(IniWrite, 4, A_ScriptDir "\\dashboard.ini", "window", "layout")',

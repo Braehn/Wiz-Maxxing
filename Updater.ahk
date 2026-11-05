@@ -124,8 +124,9 @@ UpPeekSave(tag, err)
 	V1Do(IniWrite, A_Now, A_ScriptDir "\updater.ini", "latest", "at")
 	}
 
-;One update check / install at a time, across all the bot's processes (the dashboard's button clicked twice, the
-;watcher's check, the tray's): true when this one may go on - else the other one's question is brought forward
+;One update check / install at a time, across all the bot's processes (the dashboard's Help > Check for updates or
+;its Update to vX picked twice, the watcher's check, the tray's): true when this one may go on - else the other one's
+;question is brought forward
 UpOnlyOne(bringForward := true)
 	{
 	static mutex := 0

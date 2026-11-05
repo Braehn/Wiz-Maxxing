@@ -444,8 +444,8 @@ ViewSimple(what)
 	return v = 1
 	}
 
-;The view shown: simple hides the log (the window that much shorter - the Bot tab ends under WHAT IT SEES), advanced
-;shows it; the View menu's tick (and Pause log, Clear log greyed while simple: DashMenuTicks)
+;The view shown: simple hides the log (the window that much shorter - 330 at the least, for a deck's value row on the
+;Cards tab), advanced shows it; the View menu's tick (and Pause log, Clear log greyed while simple: DashMenuTicks)
 DashApplyView()
 	{
 	if (!DashHwnd)
@@ -453,7 +453,7 @@ DashApplyView()
 	act := DashSimple ? "Hide" : "Show"
 	for each, c in ["DashLogHead", "DashConsole"]
 		Dash[c].Visible := act = "Show"
-	Dash.Opt("+MinSize740x" (DashSimple ? 294 : 640))
+	Dash.Opt("+MinSize740x" (DashSimple ? 330 : 640))
 	DashMenuTicks()
 	}
 
@@ -483,7 +483,7 @@ DashShow()
 	;v1.10.0, layout 4: the menu bar over it - about 20 px on the screen - and no bottom row: 20 less, as tall on the
 	;screen as it was. The simple view's place has no layout: a saved one stays as it is)
 	if (DashSimple)
-		h := (h = "") ? 294 : V1Max(294, h)
+		h := (h = "") ? 330 : V1Max(330, h)
 	else
 		h := (h = "") ? 784 : (V1Lt(layout, 2) ? V1Add(h, 160) : V1Lt(layout, 3) ? V1Add(h, 8) : V1Lt(layout, 4) ? V1Sub(h, 20) : h)
 	;(w and h are at 100% display scaling; Windows' scaling makes the window that much bigger. Its frame - the title bar,
