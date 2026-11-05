@@ -27,7 +27,8 @@
 ;                     opened for you to click through - never silently: that takes the other programs it recommends),
 ;                     and the bot's script (CheatEngine\wiz-maxxing.lua) put in its autorun folder (Program Files: asks
 ;                     for admin) - Cheat Engine then attaches to Wizard101 by itself and the bot's two keys set the
-;                     speed. Then, if you say so, the bot's speedhack setting on: the bot starts Cheat Engine
+;                     speed (of the Wizard101 window in front, the one the bot walks). Then, if you say so, the
+;                     bot's speedhack setting on: the bot starts Cheat Engine
 ;   AutoHotkey v2     only to change the scripts and rebuild the exes (build.cmd); asks for admin
 ;   Git               only to get updates with git pull; asks for admin
 ;   GitHub updates    a read-only GitHub token, so Wiz-Maxxing can check for and download new versions when you
@@ -753,7 +754,7 @@ SuInstallCe()
 	SuLogLine("Cheat Engine: " ce)
 	if (!SuCePut(ce, text))
 		return SuLogLine("the bot's script couldn't be put in " ce "\autorun (admin not given?) - nothing else done")
-	SuLogLine("the bot's script is in its autorun folder (wiz-maxxing.lua): each time Cheat Engine starts it attaches to Wizard101 by itself (again after the game restarts), and the bot's keys set the speed - " SuCeKeys())
+	SuLogLine("the bot's script is in its autorun folder (wiz-maxxing.lua): each time Cheat Engine starts it attaches to Wizard101 by itself (again after the game exits), and the bot's keys set the speed - the walking key speeds up the Wizard101 window in front, so another account's window is never sped up - " SuCeKeys())
 	SuLogLine("Cheat Engine's own Settings > Hotkeys entries for those keys aren't needed now (clear them if you set them before)")
 	if (CeRunning())
 		SuLogLine("Cheat Engine is running - close it and start it again: the script runs when it starts")
@@ -833,20 +834,12 @@ SuSigner(file)
 	return out
 	}
 
-;The bot's script for Cheat Engine (CheatEngine\wiz-maxxing.lua) with this folder's PlayerStats.txt written in - its short
-;(8.3) path when the path has letters beyond plain English (Cheat Engine's Lua opens files by the old code page). "" if
-;the file isn't here
+;The bot's script for Cheat Engine (CheatEngine\wiz-maxxing.lua) with this folder's PlayerStats.txt written in
+;(CheatEngine.ahk CeScriptText - the bot builds it the same way, to tell an older copy in Cheat Engine). "" if the file
+;isn't here
 SuCeScript()
 	{
-	text := V1FileRead(A_ScriptDir "\CheatEngine\wiz-maxxing.lua", "UTF-8")
-	if (!InStr(text, "[[PLAYERSTATS]]"))
-		return ""
-	stats := A_ScriptDir "\AutoFarmer\PlayerStats.txt"
-	if (RegExMatch(stats, "[^\x01-\x7F]"))
-		Loop Files, stats
-			if (A_LoopFileShortPath != "")
-				stats := A_LoopFileShortPath
-	return StrReplace(text, "[[PLAYERSTATS]]", "[==[" stats "]==]")
+	return CeScriptText(A_ScriptDir)
 	}
 
 ;The bot's script into Cheat Engine's autorun folder: as you, else - Program Files - Windows asks for admin. True if it's
