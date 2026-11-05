@@ -1026,6 +1026,101 @@ class AhkParity(unittest.TestCase):
         self.assertNotIn('"reboostkeep"', m.group(1))
         self.assertIn('reboostkeep', battlesim.Opts.KEYS)
 
+    def test_boost_chain_wiring(self):
+        """v1.11.0: the simulator casts the boosts in the bot's chain order (battlesim.CHAIN, chain_slot, chain_boost) -
+        Autofarmer.ahk's chain after BoostOk, one a round: Feint, convert, negaura, the traps, the blades, bubble, aura
+        (convert, negaura, trap4 - never found - and bubble the simulator doesn't play); KillCalc.ahk BoostBest (% x
+        share, ties your school's then BadgeNumber's order - battlesim.BADGE_ORDER) and BoostOneOf (a hit of two or
+        more schools: one blade, one trap, ties in the list's order); a support's schools 1 each and no aura; the
+        every-school slots by LoadStats' defaults (battlesim.BOT_EVERY); and nothing new sent - Decks.ahk DeckSimVals
+        as it was"""
+        import battlesim
+        af = '\n'.join(ahk_code(ahk_lines('Autofarmer.ahk')))
+        i = af.index('\nBoostOk := PartySupport() ? 1 : CardBoostOk()\n')
+        j = af.index('} else if (BattleRole = "blader") && PartyShield()', i)
+        chain = af[i:j]
+        flags = re.findall(r'\bif \((\w+) == 1\)', chain)
+        self.assertEqual(flags, ['feint', 'convert', 'negaura', 'trap', 'trap2', 'trap3', 'trap4', 'blade', 'blade2',
+                                 'blade3', 'blade4', 'bubble', 'aura'])
+        self.assertEqual([f for f in flags if f not in ('convert', 'negaura', 'trap4', 'bubble')],
+                         [s for s in battlesim.CHAIN if not s.endswith('?')])
+        for cond in ('if (feint == 1) && (TrapOn == 1) && BoostOk && Stat("usetraps") && UseTrap(',
+                     'else if (trap == 1) && (TrapOn == 1) && BoostOk && Stat("usetraps") && UseTrap(',
+                     'else if (trap2 == 1) && (TrapOn == 1) && BoostOk && Stat("usetraps") && UseTrap(',
+                     'else if (trap3 == 1) && (TrapOn == 1) && BoostOk && Stat("usetraps") && UseTrap(',
+                     'else if (blade == 1) && BoostOk && Stat("useblades") && UseBlade(',
+                     'else if (blade2 == 1) && BoostOk && Stat("useblades") && UseBlade(',
+                     'else if (blade3 == 1) && BoostOk && Stat("useblades") && UseBlade(',
+                     'else if (blade4 == 1) && BoostOk && Stat("useblades") && UseBlade(',
+                     'else if (aura == 1) && BoostOk && Stat("useaura") && (AuraRounds <= 0)'):
+            self.assertEqual(chain.count(cond), 1, cond)
+        # (one a round: each trap and blade that went ends the round)
+        self.assertEqual(len(re.findall(r'\{\s*BoostRun\+\+\s*Goto\("EndRound"\)\s*\}', chain)), 11)
+        # (a support's aura is never cast)
+        self.assertRegex(af, r'\nif \(PartySupport\(\)\)\s*aura := 0\n')
+        kc = '\n'.join(ahk_code(ahk_lines('KillCalc.ahk')))
+        m = re.search(r'\nBoostPick\(\)\s*\{.*?\n\t\}', kc, re.S)
+        self.assertIsNotNone(m)
+        bp = m.group(0)
+        # (a support's plan: each of the hitter's schools 1; a hit of two or more schools: BoostOneOf's lists - the
+        # chain's slots of each kind, in its order)
+        self.assertIn('PlanHeads.heads[A_LoopField] := 1, PlanHeads.total += 1', bp)
+        self.assertRegex(bp, r'bpN := 0\s*for bpS in PlanHeads\.heads\s*bpN \+= 1')
+        m = re.search(r'if \(bpN >= 2\)\s*\{\s*BoostOneOf\(\[(.*?)\], "blade"\)\s*BoostOneOf\(\[(.*?)\], "trap"\)\s*\}',
+                      bp, re.S)
+        self.assertIsNotNone(m)
+        self.assertEqual(m.group(1), '["blade", BladeDir "/blade"], ["blade2", bladetype], ["blade3", "blade3"], '
+                                     '["blade4", "blade4"]')
+        self.assertEqual(m.group(2), '["trap", TrapDir "/trap"], ["trap2", traptype], ["trap3", "trap3"]')
+        for kind, lst in (('blade', m.group(1)), ('trap', m.group(2))):
+            self.assertEqual(re.findall(r'\["(\w+)", ', lst),
+                             [s for s in battlesim.CHAIN if s.startswith(kind) and s[-1:] != '?'])
+        self.assertIn('bpK := BoostBest(SbFound, "blade")', bp)
+        self.assertIn('bpK := BoostBest(GbFound, "blade")', bp)
+        m = re.search(r'\nBoostBest\(list, kind\)\s*\{.*?\n\t\}', kc, re.S)
+        self.assertIsNotNone(m)
+        self.assertIn('bbG := BoostPctFor(bbK) * BoostShare(bbK)', m.group(0))
+        self.assertIn('bbR := (bbS != "" && bbS = hitschool) ? 0 : (bbS != "") ? BadgeNumber(bbS) : '
+                      'InStr(bbK, "elemental") ? 8 : 9', m.group(0))
+        self.assertIn('if (bbG > bbGain || (bbG = bbGain && bbR < bbRank))', m.group(0))
+        m = re.search(r'\nBoostOneOf\(list, kind\)\s*\{.*?\n\t\}', kc, re.S)
+        self.assertIsNotNone(m)
+        self.assertIn('booBest := "", booBestG := -1', m.group(0))
+        self.assertIn('booG := BoostPctFor(booK) * BoostShare(booK)', m.group(0))
+        self.assertIn('if (booG > booBestG)', m.group(0))
+        self.assertRegex(kc, r'\nBoostShare\(key\)\s*\{\s*global PlanHeads\s*if \(BoostSchools\(key\) = "all"\)\s*'
+                             r'return 1\s')
+        # (the slots: Elemental's and Spirit's schools, the every-school ones by PlayerStats.txt's %s - LoadStats'
+        # defaults -, balance's own as blade3 / trap3)
+        m = re.search(r'\nBoostSlotFor\(kind, sch, pct, wsch := ""\)\s*\{.*?\n\t\}', kc, re.S)
+        self.assertIsNotNone(m)
+        self.assertRegex(m.group(0), r'if \(sch = "fire,ice,storm"\)\s*return "resources\\elemental" kind')
+        self.assertRegex(m.group(0), r'if \(sch = "death,life,myth"\)\s*return "resources\\spirit" kind')
+        self.assertIn('(kind = "blade" ? ["blade3", "blade4"] : ["trap3", "feint"])', m.group(0))
+        self.assertEqual({k: tuple(n for n, _p in v) for k, v in battlesim.BOT_EVERY.items()},
+                         {"blade": ("blade3", "blade4"), "trap": ("trap3", "feint")})
+        self.assertRegex(kc, r'if \(dir = "balance" && \(title = "blade" \|\| title = "trap"\)\)\s*'
+                             r'return \(title = "blade"\) \? "blade3" : "trap3"')
+        m = re.search(r'\nLoadStats\(quiet := false\)\s*\{.*?\n\t\}', kc, re.S)
+        self.assertIsNotNone(m)
+        dflt = re.findall(r'[",](blade3|blade4|trap3|feint):(\d+)', m.group(0))
+        self.assertEqual(len(dflt), 4, dflt)
+        self.assertEqual({k: float(v) for k, v in dflt}, {n: p for v in battlesim.BOT_EVERY.values() for n, p in v})
+        m = re.search(r'\nBadgeNumber\(sch\)\s*\{\s*for i, name in \[([^\]]*)\]', af)
+        self.assertIsNotNone(m)
+        self.assertEqual(tuple(re.findall(r'"(\w+)"', m.group(1))), battlesim.BADGE_ORDER)
+        # (nothing new sent: DeckSimVals' extra keys as they were, the slots' %s no Opts key)
+        dk = '\n'.join(ahk_code(ahk_lines('Decks.ahk')))
+        m = re.search(r'\nDeckSimVals\(d, sch\)\s*\{.*?\n\t\}', dk, re.S)
+        self.assertIsNotNone(m)
+        self.assertIn('for dsvI, dsvK in ["enemyspells", "useabsorb", "drawneed", "drawround", "drawmax"]', m.group(0))
+        keys = re.search(r'DeckKeys\(\)\s*\{(.*?)return keys', dk, re.S)
+        self.assertIsNotNone(keys)
+        for k in ('blade3', 'blade4', 'trap3', 'feint', 'boostorder'):
+            self.assertNotIn(k, m.group(0), k)
+            self.assertNotIn('"%s"' % k, keys.group(1), k)
+            self.assertNotIn(k, battlesim.Opts.KEYS, k)
+
     def test_hotkeys(self):
         lines = ahk_lines('Hotkeys.ahk')
         code = ahk_code(lines)

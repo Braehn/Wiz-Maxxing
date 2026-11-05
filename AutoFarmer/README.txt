@@ -566,9 +566,11 @@ Can this deck beat it (the battle simulator - vision\battlesim.py): when a boss
 is ahead, each deck for bosses linked to an in-game deck is fought against it
 300 times in the simulator - your real cards (the main deck shuffled, 7 in
 hand, pips each round, power pips), the bot's way of playing (its card logic,
-boosts before a hit - each blade and trap once a battle, and once more
-sharpened (a trap made potent) with a Sharpen (a Potent) in hand, unless
-reboost is on -, the kill check - first with no enchant, then with
+boosts before a hit in the bot's order - traps (Feint first), then blades
+(your school's, the Elemental / Spirit one, Balanceblade, Bladestorm), the
+aura last; each blade and trap once a battle, and once more sharpened (a
+trap made potent) with a Sharpen (a Potent) in hand, unless reboost is on -,
+the kill check - first with no enchant, then with
 the best one in hand - and that enchant on every other hit it casts,
 treasure cards drawn for an enchant that makes the kill as the bot
 draws them (drawenchant), defending when the enemies' hits could finish
@@ -609,21 +611,26 @@ Sharpen and Potent in the simulator (v1.9.0): played as the bot plays them - a
 Sharpened Blade (a Potent Trap) goes on a blade (a trap) being cast while that
 blade's sharpened cast is free: no pip, no turn, the card's +N% (10 when it has
 none), never on a pet's or gear's copy, nor on the copy the bot casts instead
-when the first copy in hand can't go (that one goes plain). So with reboost off
+when the first copy in hand can't go (that one goes plain). The blade the bot
+casts first takes it - your school's before Elemental Blade, a Hydra's on
+Elemental Blade - and the first trap the Potent: Feint, then your school's, a
+Hydra's on Elemental Trap, else Hex (the ones adding the most to the whole hit;
+the simulator casts in the bot's order since v1.11.0). So with reboost off
 each blade and trap can go twice a battle, once plain and once sharpened. A
 Sharpen is kept till a blade has been sharpened, then thrown once no blade in
 hand can take one; a Potent is never thrown; with discardunused on, useblades
 off throws the Sharpens away, usetraps off the Potents. A deck with Sharpens
 and no blade holds them all battle and wins less often than before v1.9.0 -
 that is how the bot plays it (the command line below says so). Measured on the
-same dice (2000 battles each, discardspent on): 8 Storm Lord + 6 Stormblade +
-6 Storm Trap + 2 Sharpened Blade + 2 Potent Trap against a 6000-health boss won
-93.5% before, 96.9% now; 10 Thunder Snake + 6 Storm Lord + 4 Sharpened Blade
-against 3 mobs 22.6% before, 18.9% now. Since v1.9.1, with reboost on, the
-bot keeps a blade's copies once both its casts went (the next hit it fits
-frees them - see Discarding below), and so does the simulator: 8 Storm Lord,
-3 Stormblade and 3 Sharpened Blade against 3 mobs won 44.5% in v1.9.0, 57.0%
-now (2000 battles each, the same dice).
+same dice (2000 battles each, discardspent on): 8 Storm Lord + 6 Stormblade + 6
+Storm Trap + 2 Sharpened Blade + 2 Potent Trap against a 6000-health boss won
+93.5% before v1.9.0, 96.9% with it (97.0% with v1.11.0's boost order); 10
+Thunder Snake + 6 Storm Lord + 4 Sharpened Blade against 3 mobs 22.6% before,
+18.9% with it. Since v1.9.1, with reboost on, the bot keeps a blade's copies
+once both its casts went (the next hit it fits frees them - see Discarding
+below), and so does the simulator: 8 Storm Lord, 3 Stormblade and 3 Sharpened
+Blade against 3 mobs won 44.5% in v1.9.0, 57.0% now (2000 battles each, the
+same dice).
 Try it on the command line:
     python vision\battlesim.py --deck deck.json --foe "Governor Nereus:9000:ice"
 Decks matched to the zone's enemies (deckzone - Settings, HOW IT PLAYS ITS
