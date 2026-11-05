@@ -51,7 +51,10 @@ THE MODEL (one battle, round by round, until every enemy is dead, the wizard is,
   bot's enemies.py does: the wiki's spells, each enemy's pips, your health; an enemy the wiki hasn't counts nothing):
   a heal on yourself under 90 % health, else Tower Shield on yourself (usetower), else an absorb whatever it costs
   (useabsorb); a heal under healat %; else, boost first (cardlogic 1, or 3 against a boss): a blade, trap or aura that
-  fits a head of the planned hit - the hit dealing the most to the enemies left, an enchant in hand counted - while
+  fits a head of the planned hit - the hit dealing the most to the enemies left, an enchant in hand counted -, in the
+  bot's chain order (v1.11.0: Feint, the school trap, the group trap, Hex, the school blade, the group blade,
+  Balanceblade, Bladestorm, the aura last - of one slot's the most % x the share of the hit it fits, ties your
+  school's; a hit of two or more schools one blade and one trap a round, the most % x share of the hit), while
   fewer than boostmax boosts went on since the last hit (0: no limit) - each blade and trap once a battle plain and
   once sharpened (made potent) while a Sharpen (Potent) is in hand (reboost off - the bot's used flags, a slot's plain
   one and its sharpened one: its kind and schools, an every-school one by its %; marked at the click, a fizzle too; a
@@ -113,8 +116,13 @@ THE MODEL (one battle, round by round, until every enemy is dead, the wizard is,
   the bot's own kill check counts (its sharpen / potent settings - the simulator takes the card's number: the same
   unless you changed them); with sharpen:0 (potent:0) the bot's key of a sharpened cast has no '+' and takes the plain
   one's place; a learned Sharpen / Potent below that % refused its slot without memclicks (CardLearn - the simulator
-  plays every one); which blade / trap the Sharpen / Potent goes on: the simulator's boost pick (the biggest fitting
-  %), not the bot's chain order (feint, traps, the school blade, the group blade, blade3, blade4); a blade or trap
+  plays every one); the boost chain's prism (convert), Attenuate (negaura) and your school's bubble (not played); an
+  every-school blade or trap told apart by the % nearest the bot's defaults (Balanceblade 25, Bladestorm 20, Hex 30,
+  Feint 70 - your PlayerStats.txt's own aren't sent); of several cards in one slot the biggest % first (the bot: the
+  copy it finds first); a blade or trap kept for a hit of two or more schools that can't go after all: the next by
+  gain (the bot: the next one held back, in the chain's order - UseHeldBack); the aura only when it fits the planned
+  hit (the bot casts your school's, no check); no boost with no hit in hand (the bot boosts for your school);
+  boostmax without the bot's escape - boosts past it while no hit is ready (Settings.ahk CardBoostOk); a blade or trap
   already carrying one in the game's hand, read as plain; the discards' 3 looks a round shared between their rules
   (here 3 a rule); the enemies' cheats. So the numbers lean optimistic against an enemy that shields or heals and has
   no battle recorded - verdict() says which ones.
@@ -214,6 +222,15 @@ ENCHANT_ADD = {"epic": 300, "colossal": 275, "gargantuan": 225, "monstrous": 175
 # copy's second cast of its slot; their +N when the card has no number: KillCalc.ahk sharpen:10 / potent:10)
 SHARP_OF = {"blade": "sharpen", "trap": "potent"}
 SHARP_ADD = 10.0
+# (the bot's boost chain - Autofarmer.ahk's, one a round: Feint, the school trap, the group trap (Elemental / Spirit),
+# trap3 (Hex), the school blade, the group blade, blade3 (Balanceblade), blade4 (Bladestorm), the aura; 'trap?' /
+# 'blade?' one of no slot of the bot's (two schools neither Elemental's nor Spirit's - the bot never casts it), last of
+# its kind. An every-school blade or trap is blade3 / blade4, trap3 / feint by its % - the nearest of PlayerStats.txt's
+# defaults, KillCalc.ahk LoadStats: the bot's own %s aren't sent - and balance's own blade / trap blade3 / trap3
+# (KillCalc.ahk BoostKey / BoostSlotFor). Ties between schools: yours, then BadgeNumber's order)
+BOT_EVERY = {"blade": (("blade3", 25.0), ("blade4", 20.0)), "trap": (("trap3", 30.0), ("feint", 70.0))}
+CHAIN = ("feint", "trap", "trap2", "trap3", "trap?", "blade", "blade2", "blade3", "blade4", "blade?", "aura")
+BADGE_ORDER = ("storm", "fire", "myth", "balance", "ice", "life", "death")     # (Autofarmer.ahk BadgeNumber)
 DEFEND_HEAL_AT = 0.9        # the defend check's heal: health under 90 % (EnemySpells.ahk EnemyDefend - not healat)
 TOWER_PCT = 50.0            # Tower Shield's "-50% to next spell" when the card has no number (KillCalc.ahk)
 # (the spell types the bot's danger estimate counts - a copy of enemies.DAMAGE_TYPES: enemies imports numpy)
@@ -334,6 +351,35 @@ def _slot(kind, b):
         return kind, ",".join(s)
     except Exception:  # noqa: BLE001 - no slot then
         return kind, ""
+
+
+def chain_slot(c):
+    """(its slot in the bot's chain - CHAIN -, its school or group for the ties: '' none) of blade / trap / aura c
+    (KillCalc.ahk BoostKey / BoostSlotFor): '<kind>' a school's own, '<kind>2' Elemental's / Spirit's, 'blade3' /
+    'blade4' / 'trap3' / 'feint' an every-school one by its % (BOT_EVERY's nearest - a tie the first) or balance's own,
+    '<kind>?' none of these, 'aura'"""
+    if c.kind == "aura":
+        return "aura", ""
+    sch = _slot(c.kind, c.boosts)[1]
+    if sch.startswith("all/"):
+        return min(BOT_EVERY[c.kind], key=lambda x: abs(x[1] - float(sch[4:])))[0], ""
+    if sch == "balance":
+        return c.kind + "3", ""
+    if sch in SCHOOLS:
+        return c.kind, sch
+    if sch == "fire,ice,storm":
+        return c.kind + "2", "elemental"
+    if sch == "death,life,myth":
+        return c.kind + "2", "spirit"
+    return c.kind + "?", ""
+
+
+def _chain_tie(grp, school):
+    """a slot's rank on equal gains (KillCalc.ahk BoostBest): 0 the wizard's own school, then BADGE_ORDER's 1-7, 8
+    Elemental, 9 Spirit, 10 none"""
+    if grp in BADGE_ORDER:
+        return 0 if grp == school else 1 + BADGE_ORDER.index(grp)
+    return 8 if grp == "elemental" else 9 if grp == "spirit" else 10
 
 
 def _bkey(c):
@@ -2154,32 +2200,66 @@ class _Battle:
         return _bkey(c) not in self.boosts_used or self._sharp_for(c) is not None
 
     def pick_boost(self, plan):
-        """a blade, trap or aura in hand that fits a head of the planned hit (the biggest %), payable, and not one cast
-        this battle (the bot's used flags - reboost; once more sharpened while a Sharpen / Potent is in hand: _can_go) -
-        None"""
+        """a blade, trap or aura in hand that fits a head of the planned hit, payable, and not one cast this battle (the
+        bot's used flags - reboost; once more sharpened while a Sharpen / Potent is in hand: _can_go), in the bot's
+        chain order (chain_boost: the share of the hit by its heads' damage) - None"""
         if plan is None:
             return None
+        return self.chain_boost(plan, plan.heads, aura=True)
+
+    def chain_boost(self, plan, weights, aura):
+        """the blade, trap or aura (aura False: none - a support's) the bot's chain casts now for hit plan
+        (Autofarmer.ahk, KillCalc.ahk BoostPick): of the ones in hand that fit a head of it, payable and whose slot can
+        still go (_can_go), the first in CHAIN's order (chain_slot); of a slot's, the most gain - its % x the share of
+        the hit it fits (weights {school: its weight}: the hitter's heads' damage, a support's 1 a school; an
+        every-school one 1; its slot's key at the least % of its copies in hand, the deck's first - BoostPctFor) -,
+        ties your school's, then BadgeNumber's order (BoostBest), then the biggest %, then the first in hand. A hit of two or more schools: one blade (of the school's, the group's, blade3, blade4) and one
+        trap (of the school's, the group's, trap3) a round, the most gain - ties in the chain's order (BoostOneOf);
+        Feint stays. None: nothing"""
         o = self.opts
-        best, best_pct = None, 0
-        for c in self.hand:
+        tot = float(sum(weights.values())) or 1.0
+        cands = []
+        for i, c in enumerate(self.hand):
             if c.kind == "blade" and not o.useblades or c.kind == "trap" and not o.usetraps \
-                    or c.kind == "aura" and (not o.useaura or self.aura) or c.kind not in ("blade", "trap", "aura"):
+                    or c.kind == "aura" and (not aura or not o.useaura or self.aura) \
+                    or c.kind not in ("blade", "trap", "aura"):
                 continue
             # (its slot cast this battle: the bot's used flag holds it - a blade still on is cast again once freed; its
             # sharpened cast still free with a Sharpen / Potent in hand: it goes again)
             if c.kind in ("blade", "trap") and not self._can_go(c):
                 continue
             pct = max((fits(c.boosts, s) for s in plan.heads), default=0)
-            if pct > best_pct and self.pay(c)[0]:
-                best, best_pct = c, pct
-        return best
+            if pct <= 0 or not self.pay(c)[0]:
+                continue
+            slot, grp = chain_slot(c)
+            share = 1.0 if "all" in c.boosts else sum(w for s, w in weights.items() if fits(c.boosts, s)) / tot
+            key = (slot, grp) if grp or slot in ("blade3", "blade4", "trap3", "feint") \
+                else (slot, _slot(c.kind, c.boosts)[1])
+            cands.append((slot, grp, pct, share, i, c, key, _src(c)))
+        # (a slot's key ranked at the least % of its copies in hand - the deck's own copies' when it has one: the bot's
+        # BoostPctFor, which BoostBest and BoostOneOf rank by; the copy cast is still the biggest %)
+        least = {}
+        for slot, grp, pct, share, i, c, key, src in cands:
+            if src == "":
+                least[key, "deck"] = min(least.get((key, "deck"), pct), pct)
+            least[key, ""] = min(least.get((key, ""), pct), pct)
+        cands = [(CHAIN.index(slot), -least.get((key, "deck"), least[key, ""]) * share, _chain_tie(grp, self.me.school),
+                  -pct, i, c, slot) for slot, grp, pct, share, i, c, key, src in cands]
+        if len(plan.heads) >= 2:
+            for pool in (("blade", "blade2", "blade3", "blade4"), ("trap", "trap2", "trap3")):
+                xs = [x for x in cands if x[6] in pool]
+                if len(xs) > 1:
+                    keep = min(xs, key=lambda x: (x[1], x[0], x[2], x[3], x[4]))
+                    cands = [x for x in cands if x[6] not in pool or x is keep]
+        return min(cands, key=lambda x: x[:5])[5] if cands else None
 
     def choose_support(self, kill=True):
         """a blader's or healer's card now (the team model - the bot's chain run by a support, Autofarmer.ahk /
         Party.ahk): the kill check (no enchant, then with the best one in hand); the defend check (on itself); a
         healer's heal on the one of us lowest under healat % (heal_to); its own heal under healat %; a healer's Tower
         Shield (PartyShield - shield_to); a blade for the hitter's planned hit on the hitter (blade_to) or a trap on the
-        enemy it goes for (no aura: an aura is on its caster) - not one its own used flags hold (Party.ahk: they come
+        enemy it goes for, in the bot's chain order (chain_boost - each of the hit's schools weighs 1, ties the
+        support's own school; no aura: an aura is on its caster) - not one its own used flags hold (Party.ahk: they come
         back at the hitter's hit that fits them); a blader's Tower Shield (PartyShield); a payable hit (the best enchant
         in hand on it); the filler on itself - None a pass. kill False: no kill check (a round the bot drew for an
         enchant and none came). Draws no random number"""
@@ -2214,18 +2294,11 @@ class _Battle:
             hits = [c for c in (hw.hand or []) if c.hit]
             plan = max(hits, key=lambda c: sum(c.heads.values())) if hits else Card(
                 "", "damage", hw.me.school or "balance", heads={hw.me.school or "balance": 1})
-            boost = None
-            for c in self.hand:
-                if c.kind not in ("blade", "trap") or (c.kind == "blade" and not o.useblades) \
-                        or (c.kind == "trap" and not o.usetraps) or not self.pay(c)[0]:
-                    continue
-                # (its own used flags - not the hitter's blades on: a blade still on is cast again, wasted, as the
-                # bot's blader does; a second, sharpened cast with a Sharpen / Potent in hand - _can_go)
-                if not self._can_go(c):
-                    continue
-                pct = max((fits(c.boosts, s) for s in plan.heads), default=0)
-                if pct > 0 and (boost is None or pct > max(fits(boost.boosts, s) for s in plan.heads)):
-                    boost = c
+            # (the bot's chain for the hitter's hit - each of its schools weighs 1 (KillCalc.ahk BoostPick's PlanHeads
+            # for "hitter"), ties the support's own school; no aura. Its own used flags - not the hitter's blades on: a
+            # blade still on is cast again, wasted, as the bot's blader does; a second, sharpened cast with a Sharpen /
+            # Potent in hand - _can_go)
+            boost = self.chain_boost(plan, {s: 1 for s in plan.heads}, aura=False)
             if boost is not None:
                 if boost.kind == "blade":
                     self.blade_to = h
