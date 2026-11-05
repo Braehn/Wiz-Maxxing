@@ -1121,6 +1121,85 @@ class AhkParity(unittest.TestCase):
             self.assertNotIn('"%s"' % k, keys.group(1), k)
             self.assertNotIn(k, battlesim.Opts.KEYS, k)
 
+    def test_no_hit_boost_wiring(self):
+        """v1.11.1: the simulator boosts with no hit in hand - for your school's hit - and past boostmax while no hit
+        in hand can be paid for (battlesim pick_boost / choose), boostmax's count at the click (cast) - KillCalc.ahk
+        BoostPick's fallback plan (PlanHeads "your school's": your school 1; your school not known: no plan),
+        Settings.ahk CardBoostOk's escape (CardHitReady: a hit in hand you can pay for and aren't saving pips against -
+        CardHitCanGo), Autofarmer.ahk's BoostRun (+1 at each boost of the chain that went, 0 at each hit that went - the
+        kill check's, CastBestHit's, the wand's - and at a battle's start / end); nothing new sent"""
+        import battlesim
+        kc = '\n'.join(ahk_code(ahk_lines('KillCalc.ahk')))
+        m = re.search(r'\nBoostPick\(\)\s*\{.*?\n\t\}', kc, re.S)
+        self.assertIsNotNone(m)
+        bp = m.group(0)
+        self.assertRegex(bp, r'PartyHitAt := "", PartyHitAtDuel := BlDuel\s*if \(hitschool = ""\)\s*return\s')
+        self.assertRegex(bp, r'if \(!IsObject\(PlanHeads\) \|\| PlanHeads\.total <= 0\)\s*\{\s*'
+                             r'PlanHeads := V1Obj\(\{heads: V1Obj\(\), total: 1, sure: 0, src: "your school\'s"\}\)\s*'
+                             r'PlanHeads\.heads\[hitschool\] := 1\s*\}')
+        # (a support's plan is never that one: the hitter's schools - choose_support's, with no boostmax -; the
+        # fallback is the others' branch, after PlanChoose and the game's hand)
+        self.assertRegex(bp, r'if \(PartySupport\(\) \|\| \(Manual = 1 && HammerSchool != hitschool\)\)\s*\{\s*'
+                             r'PlanHit := "hitter", ')
+        self.assertLess(bp.index('PlanHit := PlanChoose()'), bp.index('PlanHeads.src := "the game\'s hand"'))
+        self.assertLess(bp.index('PlanHeads.src := "the game\'s hand"'), bp.index('src: "your school\'s"'))
+        st = '\n'.join(ahk_code(ahk_lines('Settings.ahk')))
+        m = re.search(r'\nCardBoostOk\(\)\s*\{.*?\n\t\}', st, re.S)
+        self.assertIsNotNone(m)
+        self.assertRegex(m.group(0), r'cardMax := Stat\("boostmax"\)\s*'
+                                     r'if \(cardMax <= 0 \|\| V1Lt\(BoostRun, cardMax\) \|\| !CardHitReady\(\)\)\s*'
+                                     r'return true\s')
+        m = re.search(r'\nCardHitReady\(\)\s*\{(.*?)\n\t\}', st, re.S)
+        self.assertIsNotNone(m)
+        terms = re.findall(r'\((hit\d) == 1 && (?:BossChoosen = 1 && )?CardHitCanGo\("(hit\d)"\)\)', m.group(1))
+        self.assertEqual(terms, [('hit4', 'hit4'), ('hit3', 'hit3'), ('hit2', 'hit2'), ('hit1', 'hit1')])
+        self.assertIn('(hit4 == 1 && BossChoosen = 1 && CardHitCanGo("hit4"))', m.group(1))
+        self.assertIn('|| (PipsNow >= 0 && PipSaveFor = "" && LearnHitReady())', m.group(1))
+        self.assertRegex(st, r'\nCardHitCanGo\(name\)\s*\{\s*return PipsNow >= 0 && Affordable\(name\) && '
+                             r'\(PipSaveFor = "" \|\| PipSaveFor = name\)\s*\}')
+        # (BoostRun set only here: +1 in the chain - each link once it cast, a fizzle too -, 0 at a hit that went out -
+        # CastBestHit's two, the kill check's, the wand's - and at a battle's start / end (ResetVariables); besides, its
+        # global's 0 and AutofarmerBlank's blank start)
+        sets = {}
+        for name in sorted(os.listdir(AF)):
+            if name.lower().endswith('.ahk'):
+                n = len(re.findall(r'\bBoostRun\s*(?::=|\+\+|--|\+=|-=)', '\n'.join(ahk_code(ahk_lines(name)))))
+                if n:
+                    sets[name] = n
+        self.assertEqual(sets, {'Autofarmer.ahk': 5 + 13, 'Settings.ahk': 2})
+        m = re.search(r'\nCastBestHit\(\)\s*\{.*?\n\t\}', st, re.S)
+        self.assertIsNotNone(m)
+        self.assertEqual(m.group(0).count('BoostRun := 0'), 2)
+        self.assertRegex(m.group(0), r'UseHit\(&cbhP, &%cbhP%, &hitschool\)\)\s*\{\s*BoostRun := 0\s*return true')
+        self.assertRegex(m.group(0), r'\|\| CastLearnedHit\(\)\s*\{\s*BoostRun := 0\s*return true')
+        af = '\n'.join(ahk_code(ahk_lines('Autofarmer.ahk')))
+        i = af.index('\nBoostOk := PartySupport() ? 1 : CardBoostOk()\n')
+        j = af.index('} else if (BattleRole = "blader") && PartyShield()', i)
+        self.assertEqual(af[i:j].count('BoostRun++'), 13)
+        self.assertEqual(af.count('BoostRun++'), 13)
+        self.assertEqual(len(re.findall(r'\bBoostRun := 0\b', af)), 4)
+        self.assertIn('\nglobal BoostRun := 0\n', af)
+        self.assertIn(', BoostRun := "", ', af)
+        self.assertRegex(af, r'if UseHit\(&KillHit, &%KillHit%, &hitschool, KillEnchant\)\s*\{\s*'
+                             r'PipSaveRounds := 0, PipSaveTarget := "", PipSaveStall := 0, BoostRun := 0\s*'
+                             r'Goto\("EndRound"\)')
+        self.assertRegex(af, r'UseHit\(&_title := "wand", &wand, &hitschool\)\s*\{\s*BoostRun := 0\s*'
+                             r'Goto\("EndRound"\)')
+        m = re.search(r'\nResetVariables\(\)\s*\{.*?\n\t\}', af, re.S)
+        self.assertIsNotNone(m)
+        self.assertIn('\n\tBoostRun := 0\n', m.group(0))
+        # (nothing new sent: boostmax, cardlogic and usehit1-4 already are; pipsave is a DeckKey the simulator drops -
+        # its pip saving not modelled)
+        dk = '\n'.join(ahk_code(ahk_lines('Decks.ahk')))
+        keys = re.search(r'DeckKeys\(\)\s*\{(.*?)return keys', dk, re.S)
+        self.assertIsNotNone(keys)
+        for k in ('cardlogic', 'boostmax', 'pipsave', 'usehit1', 'usehit2', 'usehit3', 'usehit4'):
+            self.assertIn('"%s"' % k, keys.group(1), k)
+        self.assertIn('boostmax', battlesim.Opts.KEYS)
+        self.assertIn('cardlogic', battlesim.Opts.KEYS)
+        self.assertNotIn('pipsave', battlesim.Opts.KEYS)
+        self.assertNotIn('pipsave', vars(battlesim.Opts()))
+
     def test_hotkeys(self):
         lines = ahk_lines('Hotkeys.ahk')
         code = ahk_code(lines)

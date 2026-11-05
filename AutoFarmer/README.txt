@@ -568,7 +568,9 @@ is ahead, each deck for bosses linked to an in-game deck is fought against it
 hand, pips each round, power pips), the bot's way of playing (its card logic,
 boosts before a hit in the bot's order - traps (Feint first), then blades
 (your school's, the Elemental / Spirit one, Balanceblade, Bladestorm), the
-aura last; each blade and trap once a battle, and once more sharpened (a
+aura last; with no hit in hand too, the ones for your school's hit, and past
+"Boosts before each hit" while no hit in hand can be paid for (v1.11.1);
+each blade and trap once a battle, and once more sharpened (a
 trap made potent) with a Sharpen (a Potent) in hand, unless reboost is on -,
 the kill check - first with no enchant, then with
 the best one in hand - and that enchant on every other hit it casts,
@@ -624,13 +626,13 @@ and no blade holds them all battle and wins less often than before v1.9.0 -
 that is how the bot plays it (the command line below says so). Measured on the
 same dice (2000 battles each, discardspent on): 8 Storm Lord + 6 Stormblade + 6
 Storm Trap + 2 Sharpened Blade + 2 Potent Trap against a 6000-health boss won
-93.5% before v1.9.0, 96.9% with it (97.0% with v1.11.0's boost order); 10
-Thunder Snake + 6 Storm Lord + 4 Sharpened Blade against 3 mobs 22.6% before,
-18.9% with it. Since v1.9.1, with reboost on, the bot keeps a blade's copies
-once both its casts went (the next hit it fits frees them - see Discarding
-below), and so does the simulator: 8 Storm Lord, 3 Stormblade and 3 Sharpened
-Blade against 3 mobs won 44.5% in v1.9.0, 57.0% now (2000 battles each, the
-same dice).
+93.5% before v1.9.0, 96.9% with it (97.0% with v1.11.0's boost order, 97.6%
+with v1.11.1's boosts with no hit in hand); 10 Thunder Snake + 6 Storm Lord + 4
+Sharpened Blade against 3 mobs 22.6% before, 18.9% with it. Since v1.9.1, with
+reboost on, the bot keeps a blade's copies once both its casts went (the next
+hit it fits frees them - see Discarding below), and so does the simulator: 8
+Storm Lord, 3 Stormblade and 3 Sharpened Blade against 3 mobs won 44.5% in
+v1.9.0, 57.0% now (2000 battles each, the same dice).
 Try it on the command line:
     python vision\battlesim.py --deck deck.json --foe "Governor Nereus:9000:ice"
 Decks matched to the zone's enemies (deckzone - Settings, HOW IT PLAYS ITS
@@ -1075,7 +1077,9 @@ of your own with them: see Settings files below.
 	  the biggest hit it can cast - as always), hit first (the biggest hit it
 	  can cast as soon as it has one; boosts only in rounds it has none -
 	  quick on weak mobs), or boost first on a boss you picked (Alt+1) and
-	  hit first otherwise. Boosts before each hit (0 = all it has), the kill
+	  hit first otherwise. Boosts before each hit (0 = all it has; more
+	  while no hit can go - none it can pay for, or pips saved for a
+	  bigger one), the kill
 	  check and its margin, which kinds of cards it plays at all (blades,
 	  traps/Feint, bubble, aura, the wand's hit, Tower Shield, Reshuffle - a
 	  kind switched off is discarded when "Discard cards it never plays" is
