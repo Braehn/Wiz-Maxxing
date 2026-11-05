@@ -1,12 +1,15 @@
 #Warn Unreachable, Off
 ; CheatEngine.ahk - Cheat Engine for the speedhack (AutoFarmer's Settings: "Walk faster with Cheat Engine's speedhack"):
-; where it's installed, whether the bot's script is in its autorun folder, and starting it. #Included by Setup.ahk
-; ("Cheat Engine speedhack": installs Cheat Engine, puts the script there) and AutoFarmer\Autofarmer.ahk (starts Cheat
-; Engine when the speedhack's on). AutoHotkey v2.
+; where it's installed, the bot's script as it goes in its autorun folder and whether it's there, and starting it.
+; #Included by Setup.ahk ("Cheat Engine speedhack": installs Cheat Engine, puts the script there) and
+; AutoFarmer\Autofarmer.ahk (starts Cheat Engine when the speedhack's on, and says when its copy of the script is older).
+; AutoHotkey v2.
 ;
 ; The script, CheatEngine\wiz-maxxing.lua (its own lines say what it does): Cheat Engine runs it every time it starts -
-; it attaches itself to Wizard101 (again after the game restarts) and the bot's two speedhack keys set the speed, read
-; from the bot's PlayerStats.txt. Nobody sets up Cheat Engine's hotkeys or attaches it by hand any more.
+; it attaches itself to Wizard101 (again after the game exits) and the bot's two speedhack keys set the speed, read
+; from the bot's PlayerStats.txt. The walking key speeds up the Wizard101 window in front - the one the bot walks: Cheat
+; Engine moves to it, the window it leaves back to 1x first - so another account's window is never sped up. Nobody sets
+; up Cheat Engine's hotkeys or attaches it by hand any more.
 
 ;Cheat Engine's folder, "" if it isn't installed: its uninstall entry (Inno Setup's "Cheat Engine 7.x_is1") with
 ;Cheat Engine in it, else the usual places (Program Files, yours) - the newest name when there are several
@@ -54,6 +57,22 @@ CeExe(dir)
 CeScriptPath(dir)
 	{
 	return dir "\autorun\wiz-maxxing.lua"
+	}
+
+;The bot's script as Setup puts it there: root's CheatEngine\wiz-maxxing.lua (root: the bot's folder - Setup's own,
+;AutoFarmer's parent) with root's AutoFarmer\PlayerStats.txt written in - its short (8.3) path when the path has letters
+;beyond plain English (Cheat Engine's Lua opens files by the old code page). "" if the file isn't there
+CeScriptText(root)
+	{
+	cstText := V1FileRead(root "\CheatEngine\wiz-maxxing.lua", "UTF-8")
+	if (!InStr(cstText, "[[PLAYERSTATS]]"))
+		return ""
+	cstStats := root "\AutoFarmer\PlayerStats.txt"
+	if (RegExMatch(cstStats, "[^\x01-\x7F]"))
+		Loop Files, cstStats
+			if (A_LoopFileShortPath != "")
+				cstStats := A_LoopFileShortPath
+	return StrReplace(cstText, "[[PLAYERSTATS]]", "[==[" cstStats "]==]")
 	}
 
 ;Whether Cheat Engine is running (any of its builds): its pid, else 0

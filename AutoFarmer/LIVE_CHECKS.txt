@@ -341,9 +341,45 @@ Before you start
 	    of the game running - no attaching by hand.
 	5.4 Walking: "speed: 2x - F14 (walking)" and the wizard runs faster;
 	    "speed: 1x - F13" at battles and talking. No "speed: off for this run".
-	5.5 Restart Wizard101 with Cheat Engine open: it attaches to the new one by
-	    itself. A box from Cheat Engine starting "Wiz-Maxxing
-	    (autorun\wiz-maxxing.lua)": send its text.
+	5.5 Two game windows (v1.10.1 - the script is new: Setup's "Cheat Engine
+	    speedhack", Install once more, then restart Cheat Engine; debug.log
+	    "Speedhack: on - Cheat Engine's Wiz-Maxxing script is older - ..."
+	    says it's still the old one). 5.3 and 5.4 first, with one game
+	    window. Note Cheat Engine's version (Help > About): 7.4 / 7.5 and
+	    7.6 or later speed the game up in different ways. With two game
+	    windows the bot's auto-reconnect and its turn check can pick the
+	    other one: don't count on either in 5.5c-5.5g.
+	5.5a One game window: restart Wizard101 with Cheat Engine open - it
+	    attaches to the new one by itself.
+	5.5b One game window: close Cheat Engine while the bot walks, then
+	    start it again (or restart the bot) with the game running, and
+	    walk: the wizard is sped up again, the game neither freezes nor
+	    crashes, and no "speed: off for this run".
+	5.5c The bot walking, start a second account and log in by hand, then
+	    let the bot carry on: the bot's window is sped up. Walk the other
+	    account a few steps by hand: normal speed. Cheat Engine's process
+	    line (as in 5.3) keeps the bot's game - Task Manager > Details
+	    shows the PID in decimal, Cheat Engine in hex.
+	5.5d The other account started first (Cheat Engine attaches to it),
+	    then the bot's: the first battle round doesn't speed the other one
+	    up (walk it by hand), and the first walk moves Cheat Engine to the
+	    bot's window. 7.4 / 7.5: Process Explorer shows no
+	    speedhack-x86_64.dll in the other account's game.
+	5.5e Both closed, the other account started first, then the bot's: the
+	    bot's window is sped up and the other isn't.
+	5.5f Dual mode (Alt+D) for an hour: the speed follows whichever window
+	    walks, the other is at 1x, Cheat Engine's process line alternates;
+	    no slowdown, freeze or crash, and no "speed: off for this run".
+	5.5g Cheat Engine started with two games already running (start the
+	    bot with both open): after the first walk, only the walked one is
+	    sped up.
+	5.5h Throughout: no Cheat Engine window, Lua Engine window or Cheat
+	    Engine box comes up by itself, and the game keeps the focus. A box
+	    starting "Wiz-Maxxing (autorun\wiz-maxxing.lua)": send its text.
+	5.5i After a move, the first walk is sped up within about a second
+	    (the wizard visibly speeds up). "speed: off for this run" just after
+	    a switch means the move took too long or failed: send the debug.log
+	    lines around it.
 
 To send back, in one place
 	gearclass.txt, gear.txt, bag.txt, petread.txt, petclass.txt, book.txt,

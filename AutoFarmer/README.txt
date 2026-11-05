@@ -173,13 +173,32 @@ it: installs it if it isn't there (its installer from cheatengine.org, opened
 for you to click through - decline the other programs it recommends) and puts
 the bot's script (CheatEngine\wiz-maxxing.lua) in its autorun folder (asks for
 admin). Each time Cheat Engine starts, the script attaches it to Wizard101 -
-again after the game restarts, never over a process you opened yourself - and
-the bot's two keys set the speed, read from PlayerStats.txt (a change in
-Settings needs no restart). With the script there, the bot starts Cheat Engine
-when it starts with the speedhack on, or when you switch it on, and minimizes
-its window as it shows. Cheat Engine 7.4 and 7.5 ask for admin first (7.6 and
-later, which Setup installs, don't): say Yes before the bot starts walking -
-it doesn't wait for your answer. Without the script, Cheat Engine is yours to
+the game window in front, else the newest; again after that game exits; never
+over a process you opened yourself - and the bot's two keys set the speed,
+read from PlayerStats.txt (a change in Settings needs no restart). The walking
+key speeds up the Wizard101 window in front, the one the bot walks. With two
+game windows open (dual mode, or another account of yours) Cheat Engine moves
+to that window when it has the other one, and sets the one it leaves back to
+1x first; a second Wizard101 starting doesn't take Cheat Engine away. So
+another account's window is never sped up unless the bot walks it. With no
+game window in front the walking key speeds only the one it sped last. The 1x
+key sets the one Cheat Engine has back to 1x, only when it's sped up (it never
+switches the speedhack on). Cheat Engine follows the bot: a table of your own
+open in it is switched off when it moves (Cheat Engine does that on every
+move), and its own automatic attach with "Even autoattach when another process
+has already been selected" ticked moves it without the 1x first - leave that
+off. Cheat Engine keeps the copy of the script Setup put in: when an update
+brings a new one (v1.10.1 did), run Setup.exe once more - tick "Cheat Engine
+speedhack", Install - then restart Cheat Engine; till then debug.log says
+"Speedhack: on - Cheat Engine's Wiz-Maxxing script is older - ..." once a run.
+Before v1.10.1 the script followed the newest game window and left the first
+one sped up: a window left sped up that way (or by Cheat Engine crashing while
+it was fast) stays so till that game restarts. With the script there, the bot
+starts Cheat Engine when it starts with the speedhack on, or when you switch
+it on, and minimizes its window as it shows. Cheat Engine 7.4 and 7.5 ask for
+admin first (7.6 and later, which Setup installs, don't): say Yes before the
+bot starts walking - it doesn't wait for your answer. Without the script,
+Cheat Engine is yours to
 install, attach and set up as below. The keys: the walking key while it walks,
 the 1x key for battles (pressed at every round), talking,
 dialogues, shops, near the goal, collecting, dungeon runs, a teleport ahead,
@@ -190,7 +209,8 @@ Engine: Settings > Hotkeys, two "Speedhack speed" entries - the walking speed
 Setup's script); the tray menu's "Speedhack: press its ... key in 3 s" items
 press a key while you're in its
 hotkey box. If the wizard doesn't turn faster (Cheat Engine not attached after
-Wizard101 restarts, the key not taking) the bot stops using it for the run
+Wizard101 restarts, or too slow moving to the window in front, the key not
+taking) the bot stops using it for the run
 ("speed: off for this run" in debug.log). Risky: KingsIsle may notice.
 Mobs (mobavoid:1, the default - Settings: "Keep away from mobs"): the helper
 also reads the zone's mobs out of the game's memory (read-only) and the route

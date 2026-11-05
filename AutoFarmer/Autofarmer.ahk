@@ -4221,9 +4221,11 @@ return
 ;Cheat Engine for the speedhack (Settings: speedhack on), when Setup's "Cheat Engine speedhack" put the bot's script in it
 ;(CheatEngine.ahk): started if it isn't running, its window minimized once it shows (7.4 / 7.5 ask for admin first - the
 ;bot doesn't wait for the answer) - and the script attaches it to Wizard101 and sets the bot's speed keys by itself.
-;Without the script it's yours to start, attach and set up, as before (said once a run). why: for debug.log
+;Without the script it's yours to start, attach and set up, as before (said once a run). Cheat Engine's copy of the
+;script not the one this bot's Setup puts in (CeScriptText - an older version's, say, which still speeds the newest game
+;window): said once a run, in debug.log only. why: for debug.log
 SpeedCheatEngine(why) {
-static saidNoScript := false
+static saidNoScript := false, lookedOld := false
 if (Stat("speedhack") != 1)
 	return
 sceDir := CeDir()
@@ -4232,6 +4234,14 @@ if (sceDir = "" || !FileExist(CeScriptPath(sceDir)))
 	if (!saidNoScript)
 		saidNoScript := true, DebugLog("Speedhack: on - " (sceDir = "" ? "Cheat Engine isn't installed" : "Cheat Engine (" sceDir ") doesn't have the bot's script") ": start, attach and set it up yourself, or let Setup.exe's `"Cheat Engine speedhack`" do it")
 	return
+	}
+if (!lookedOld)
+	{
+	lookedOld := true
+	SplitPath(A_ScriptDir, , &sceRoot)
+	sceWant := CeScriptText(sceRoot)
+	if (sceWant != "" && V1FileRead(CeScriptPath(sceDir), "UTF-8") !== sceWant)
+		DebugLog("Speedhack: on - Cheat Engine's Wiz-Maxxing script is older - run Setup.exe, tick Cheat Engine speedhack, Install, then restart Cheat Engine")
 	}
 if (CeRunning())
 	return DebugLog("Speedhack: on - Cheat Engine is running, the bot's script in it (" why ")")
