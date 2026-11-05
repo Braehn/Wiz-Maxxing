@@ -1,8 +1,8 @@
 #Warn Unreachable, Off
 ; BugReport.ahk - "Report a bug" (the dashboard's button, the tray menu): a window where you say what went wrong.
 ; Send posts it as an issue on the Wiz-Maxxing repo on GitHub, with the bot's version and setup, what the dashboard's
-; STATISTICS and WHAT IT SEES show, and the end of debug.log. AHK v1.1, functions and labels only; #Included by
-; Autofarmer.ahk.
+; STATISTICS and WHAT IT SEES show, and the end of debug.log and of vision\vision.log (the vision helper's own log).
+; AHK v1.1, functions and labels only; #Included by Autofarmer.ahk.
 ;
 ; Wiz-Maxxing.exe /report posts it (Updater.ahk UpReport), with the GitHub token in Windows Credential Manager - this
 ; never reads the token. The token needs Issues: Read and write on the repo, besides Contents for updates. The report
@@ -63,7 +63,7 @@ BugBuild()
 	Bug.SetFont("s9 w400 cF2F2F2", "Segoe UI")
 	ogcEditBugText := Bug.Add("Edit", "x12 y148 w560 h220 Multi +VScroll Limit20000 vBugText Background111317")
 	Bug.SetFont("s9 w400 cDADADA", "Segoe UI")
-	ogcCheckboxBugAddLog := Bug.Add("Checkbox", "x12 y378 w560 h18 Checked vBugAddLog", "Add the end of debug.log (the last few hundred lines)")
+	ogcCheckboxBugAddLog := Bug.Add("Checkbox", "x12 y378 w560 h18 Checked vBugAddLog", "Add the end of debug.log (the last few hundred lines) and of vision\vision.log")
 	Bug.SetFont("s9 w400 c000000", "Segoe UI")
 	ogcButtonBugSendBtn := Bug.Add("Button", "x12 y406 w90 h26 vBugSendBtn", "Send")
 	ogcButtonBugSendBtn.OnEvent("Click", BugSend.Bind("Normal"))
@@ -163,8 +163,8 @@ BugSay(msg)
 	}
 
 ;The issue's text (GitHub markdown): what you wrote; the bot's version and setup; what the dashboard's STATISTICS and
-;WHAT IT SEES show now; and (addLog) as much of the end of debug.log as GitHub's 65536 characters leave room for. What
-;looks secret is blanked out (BugRedact)
+;WHAT IT SEES show now; and (addLog) as much of the end of debug.log as GitHub's 65536 characters leave room for, then
+;the end of vision\vision.log (BugVisionTail). What looks secret is blanked out (BugRedact)
 BugBody(what, addLog)
 	{
 	global DashShown ; (v1 globals it sets)
@@ -192,9 +192,13 @@ BugBody(what, addLog)
 	bugRoom := 64000 - StrLen(bugB) - 300
 	if (addLog && bugRoom > 1000)
 		{
-		bugLog := BugLogTail(Min(bugRoom, 45000), &bugLines)
+		;(vision.log's end made first - a quarter of the room at most - and debug.log's gets the rest; shown after it)
+		bugVis := BugVisionTail(Min(bugRoom // 4, 8000), &bugVisLines)
+		bugVisFold := bugVis != "" ? BugFold("vision\vision.log, its last " bugVisLines " lines", bugVis) : ""
+		bugLog := BugLogTail(Min(bugRoom - StrLen(bugVisFold), 45000), &bugLines)
 		if (bugLog != "")
 			bugB .= BugFold("debug.log, its last " bugLines " lines", bugLog)
+		bugB .= bugVisFold
 		}
 	return BugRedact(bugB)
 	}
@@ -225,6 +229,34 @@ BugLogTail(maxBytes, &lines)
 	bugT := StrReplace(bugT, "`r", "")
 	StrReplace(Trim(bugT, "`n"), "`n", "`n", , &lines)
 	lines += (Trim(bugT, "`n") != "")
+	return bugT
+	}
+
+;The end of vision\vision.log (the vision helper's own log - why it stopped at start, the game's memory reads; UTF-8):
+;its last 40 lines, up to maxBytes, from the start of a line; lines: how many
+BugVisionTail(maxBytes, &lines)
+	{
+	lines := 0
+	bugIn := V1Try(FileOpen, A_ScriptDir "\vision\vision.log", "r", "UTF-8")
+	if (!IsObject(bugIn))
+		return ""
+	bugSize := bugIn.Length
+	if (bugSize > maxBytes)
+		bugIn.Seek(bugSize - maxBytes)
+	bugT := bugIn.Read()
+	bugIn.Close()
+	;(from somewhere in a line: from the next one)
+	if (bugSize > maxBytes)
+		bugT := SubStr(bugT, InStr(bugT, "`n") + 1)
+	bugT := Trim(StrReplace(bugT, "`r", ""), "`n")
+	if (bugT = "")
+		return ""
+	bugL := StrSplit(bugT, "`n")
+	bugFrom := Max(1, bugL.Length - 39)
+	bugT := ""
+	Loop bugL.Length - bugFrom + 1
+		bugT .= bugL[bugFrom + A_Index - 1] "`n"
+	lines := bugL.Length - bugFrom + 1
 	return bugT
 	}
 

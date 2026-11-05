@@ -549,12 +549,9 @@ Only numpy and Pillow (katsuba is used for a zone .wad only if installed and the
 it). Stops by itself when the AutoFarmer process (--parent <pid>) is gone.
 """
 import argparse
-import collections, ctypes, functools, glob, json, math, os, re, struct, sys, tempfile, threading, time
+import collections, ctypes, functools, glob, json, math, os, re, struct, sys, tempfile, threading, time, traceback
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
-
-import numpy as np
-from PIL import Image
 
 VERSION = '2'
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # the AutoFarmer folder
@@ -567,7 +564,10 @@ CARD_DIST = 8.0
 # 0.87-1.5, the next school 57+)
 BADGE_DIST = 50.0
 BADGE_GAP = 12.0
-LOG = os.path.join(ROOT, 'vision', 'vision.log')
+# The helper's own log. pythonw has no console, so why the helper stops at start is said only here (AutoFarmer's
+# VisionStart puts that line in debug.log): log is made before numpy and Pillow are imported, so their absence is said
+# too. WIZ_VISION_LOG: another file (the tests)
+LOG = os.environ.get('WIZ_VISION_LOG') or os.path.join(ROOT, 'vision', 'vision.log')
 
 
 def log(msg):
@@ -578,6 +578,30 @@ def log(msg):
             f.write(time.strftime('%H:%M:%S ') + msg + '\n')
     except OSError:
         pass
+
+
+def one_line(s, most=300):
+    """s on one line (numpy's own message and an error's text can span several), at most most characters"""
+    s = ' '.join(str(s).split())
+    return s if len(s) <= most else s[:most - 3] + '...'
+
+
+try:
+    import numpy as np
+    from PIL import Image
+except Exception as e:  # noqa: BLE001 - a broken install fails with more than ImportError (a DLL, a version clash)
+    # (a numpy that's there but won't load wraps the real error - a DLL that didn't load - in a long text of its own,
+    # ending "Original error was: <it>", numpy 2 chaining it as __cause__ too: that one said, kept short so debug.log's
+    # copy - VisionStartWhy - keeps the Setup hint)
+    # (imported - by a test or a tool, under whatever Python ran it - the importer gets the error and vision.log nothing:
+    # only the helper itself says it can't start)
+    if __name__ != '__main__':
+        raise
+    why = e.__cause__ or e
+    why_text = one_line(str(why).split('Original error was:')[-1], 150)
+    log(f"can't start: numpy and Pillow didn't load in Python {sys.version.split()[0]} at {sys.executable} "
+        f"({type(why).__name__}: {why_text}) - Setup.exe's \"numpy and Pillow\" installs them")
+    sys.exit(1)
 
 
 # ---------------------------------------------------------------- pictures
@@ -5154,8 +5178,11 @@ def rec_start():
     return REC
 
 
+STARTED = False   # main got as far as its "started" line (an error after it isn't one at start)
+
+
 def main():
-    global LIB
+    global LIB, STARTED
     ap = argparse.ArgumentParser()
     ap.add_argument('--parent', type=int, default=0, help='stop when this process is gone')
     ap.add_argument('--port', type=int, default=PORT)
@@ -5171,6 +5198,7 @@ def main():
         log(f'port {args.port} taken ({e}) - another copy is running')
         return
     log(f'started (version {VERSION}, port {args.port}, parent {args.parent}, sets: ' + ', '.join(f'{os.path.basename(d) or "main"}={sc}' for d, sc in LIB.sets) + ')')
+    STARTED = True
     # (the game's template files - Root.wad's table, the template manifest - read once now, in placements' thread, before
     # the walker's first zone wants them for /items?far=1)
     try:
@@ -5198,4 +5226,13 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    # (an error before or while starting is said in vision.log - pythonw shows nothing - with where it came from,
+    # innermost first; AutoFarmer's VisionStart puts that line in debug.log. SystemExit - argparse's - goes by)
+    try:
+        main()
+    except Exception as e:  # noqa: BLE001
+        where = ' <- '.join(f'{fr.name} ({os.path.basename(fr.filename)}:{fr.lineno})'
+                            for fr in reversed(traceback.extract_tb(e.__traceback__)[-4:]))
+        log(('stopped on an error: ' if STARTED else "can't start: ")
+            + f'{type(e).__name__}: {one_line(e, 200)} - in {where}')
+        sys.exit(1)

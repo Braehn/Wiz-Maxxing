@@ -872,13 +872,14 @@ moving.
 Report a bug (the dashboard's button, top right, or the tray menu): say what
 went wrong; Send posts it as an issue on the Wiz-Maxxing repo on GitHub, with
 the version, this PC's name, the screen, what the dashboard's STATISTICS and
-WHAT IT SEES show and (ticked) the end of debug.log - anything that looks
-secret (a Discord webhook, a GitHub token, password=...) blanked out. It uses
-the updates' GitHub token, which needs Issues: Read and write as well: on
-github.com, Settings > Developer settings > Fine-grained tokens > the
-Wiz-Maxxing token > Edit > Repository permissions > Issues: Read and write >
-Update (the same token keeps working - nothing to change on the PCs). Closing
-the window keeps what you typed until it's sent.
+WHAT IT SEES show and (ticked) the end of debug.log and of vision\vision.log
+(the vision helper's own log) - anything that looks secret (a Discord webhook,
+a GitHub token, password=...) blanked out. It uses the updates' GitHub token,
+which needs Issues: Read and write as well: on github.com, Settings > Developer
+settings > Fine-grained tokens > the Wiz-Maxxing token > Edit > Repository
+permissions > Issues: Read and write > Update (the same token keeps working -
+nothing to change on the PCs). Closing the window keeps what you typed until
+it's sent.
 
 Simple and advanced views: the dashboard's bottom-right button switches it -
 simple shows what the bot is doing and seeing (STATISTICS, WHAT IT SEES) with
@@ -988,7 +989,13 @@ vision\ from there (and AutoQuester\resources\). The vision helper still needs
 Python 3 with numpy and Pillow (pip install numpy pillow katsuba - katsuba only
 draws the zone's walls on the zone map; Setup.exe installs all three); without
 it cards are found the old way (ImageSearch) and the walker follows the arrow on
-screen. Rebuild after changing a script:
+screen. When it doesn't start, debug.log says why as the bot starts ("Vision:
+the helper stopped at start - vision\vision.log: ..."); Setup.exe's "Python 3"
+and "numpy and Pillow" parts set up what's missing ("numpy and Pillow" also
+puts them in again from scratch when they're there but don't load), but leave
+a Python they find alone - one that can't run the helper at all needs
+repairing or reinstalling (Windows Settings > Apps).
+Rebuild after changing a script:
 double-click ..\build.cmd (needs AutoHotkey v2 with its compiler; close the bot first).
 Ready-built: the Releases page of the GitHub repo (a zip with everything). Hover the wizard icon in the tray to see what
 the walker is doing; debug.log has the battle and walking decisions in order.
