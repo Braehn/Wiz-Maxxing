@@ -2,6 +2,8 @@
 
 Gold only, never Crowns. Game memory is read-only (the one exception: Cheat Engine's speedhack keys).
 
+Declined (2026-11-05): background clicks (clicks posted to the game's window without moving the mouse) and code injection into the game - too risky. The bot moves the mouse and presses keys as a player would.
+
 **Built**: in the bot (v1.0.0 or later), not tried in the game yet - off behind its setting unless the line says on. **Half built** / **groundwork**: the main part still to write. Numbers like 3.5: the step in AutoFarmer\LIVE_CHECKS.txt that tries it.
 
 ## 1. Party of 4: synced quests
