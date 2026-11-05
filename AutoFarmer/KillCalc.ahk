@@ -2628,6 +2628,9 @@ BoostMisfitDiscard()
 		bmdX := Round(bmdB.l + bmdB.w / 2), bmdY := Round(bmdB.t + bmdB.h * 0.6)
 		MoveToCard(bmdX, bmdY)
 		s(Stats.Has("clickwait") ? Stats["clickwait"] : 40)
+		;(Wizard101 gone to the tray - Settings: traygame: not clicked - it would land on the window behind it)
+		if (GameInTray)
+			break
 		Click("right")
 		bmdDid += 1
 		DebugLog("  Discarded " (V1IsFunc("LearnMemGame") ? LearnMemGame.Call(bmdC) : bmdC.name) " - it boosts " bmdP.sch ", not the hitter's " bmdWant " nor your " hitschool " (right-click at " bmdX - GameLeft "," bmdY - GameTop ")")

@@ -3,7 +3,7 @@
 ; then starts AutoFarmer\Autofarmer.exe (else AutoFarmer\Autofarmer.ahk, with AutoHotkey). Built to
 ; Wiz-Maxxing.exe by build.ps1, with the wizard icon; Setup puts it in the Start menu and on the desktop.
 ;   Wiz-Maxxing.exe /check   only the update check, with a message either way (the tray menu's "Check for
-;                            updates", the dashboard's Updates button); the bot is started again only if it was
+;                            updates", the dashboard's Update to vX); the bot is started again only if it was
 ;                            updated - /check /off or /check /standby: started again as it was (off, in standby);
 ;                            /playforme /nowalk /noreconnect /learnall: Play for me still on, walking or
 ;                            auto-reconnect still off, Learn every card still on
@@ -12,7 +12,7 @@
 ;                            UpAuto) and the bot started again as it was then
 ;   Wiz-Maxxing.exe /watch   the watcher ("Open with Wizard101" - started with Windows): opens the bot in standby
 ;                            when Wizard101 starts (Watch.ahk); F6 then starts it
-;   Wiz-Maxxing.exe /latest  only looks up the latest release, into updater.ini (the dashboard's Updates button and
+;   Wiz-Maxxing.exe /latest  only looks up the latest release, into updater.ini (the dashboard's menu bar and
 ;                            STATISTICS say from it whether a newer one is out) - nothing shown, nothing installed
 ;   Wiz-Maxxing.exe /report <file>   posts a bug report as an issue on GitHub (the dashboard's Report a bug -
 ;                            Updater.ahk UpReport); its answer in <file>.result
@@ -56,7 +56,7 @@ if (!FileExist(dir "\Autofarmer.ahk") && !FileExist(dir "\Autofarmer.exe"))
 ;(one check at a time: another running - its question brought forward - this one only starts the bot, or stops)
 if (!UpOnlyOne(!autoUp))
 	{
-	;(the Updates button while an update by itself is downloaded and waiting for the bot to close for it: it's asked to
+	;(the dashboard's Update to vX while an update by itself is downloaded and waiting for the bot to close for it: it's asked to
 	;close for it now - as soon as it's out of battle with nothing loading, not waiting for you to leave the keys and
 	;mouse alone - and you're told)
 	if (checkOnly && !autoUp && UpAutoWaiting(&waitTag))

@@ -84,11 +84,16 @@ FleeCheck()
 	;and the next tries again - the counts kept)
 	if (!CastWentOut())
 		{
+		;(Wizard101 gone to the tray - Settings: traygame: not again - the click would land on the window behind it)
+		if (GameInTray)
+			return false
 		fx := Round(w.x + w.w / 2), fy := Round(w.y + w.h / 2)
 		MouseMove(fx, fy + Px(70), MouseSpeedNow())
 		Sleep(150)
 		MouseMove(fx, fy, MouseSpeedNow())
 		Sleep(80)
+		if (GameInTray)
+			return false
 		Click()
 		FleeConfirm()
 		fled := CastWentOut()
@@ -99,6 +104,10 @@ FleeCheck()
 			return false
 			}
 		}
+	;(Wizard101 gone to the tray meanwhile - Settings: traygame: a hidden game shows no Pass button, so it reads as
+	;fled - not taken for one: the counts kept, no "Fled" tip)
+	if (GameInTray)
+		return false
 	;(out of mana as well: a potion after it, whatever else it fled for)
 	FleeWhy := (InStr(why, "mana") || FleeNoMana >= 2) ? "mana" : "cards", FleeNoCards := 0, FleeNoMana := 0, FleeNoHits := 0
 	TrayTip("Fled the battle: " why ". " (FleeWhy = "mana" ? "Drinking a potion (or buying some), then trying again." : "Trying again with a full deck."), "Wizard101 bot", 1)
@@ -254,7 +263,7 @@ FleeAfter()
 
 ;Mana back: a potion (Ctrl+O), and if that doesn't raise it - none left - a run to buy some, then one (unless
 ;the run already drank one: PotionAfterBuy). A run that failed isn't tried again for 10 minutes (PotionFailUntil,
-;as PotionCheck). True if mana went up
+;as PotionCheck). True if mana went up - or, not known, Wizard101 went to the tray meanwhile (Autofarmer.ahk GameTrayHide)
 FleeRefillMana(why)
 	{
 	global AfkRetries, PotionFailUntil ; (v1 globals it sets)
@@ -265,6 +274,10 @@ FleeRefillMana(why)
 		AfkRetries := 0
 		return true
 		}
+	;(Wizard101 gone to the tray meanwhile - Settings: traygame: whether one was drunk isn't known - no run, no hold, no
+	;alert: checkmana looks again once it's back)
+	if (GameInTray)
+		return true
 	if (V1Lt(A_TickCount, PotionFailUntil))  ; (v1: no failed run yet - blank, Potions.ahk's initializer never ran - compared as text: false)
 		{
 		DebugLog(why ": no potion left, and the last run to buy some failed - not trying again yet")
@@ -298,6 +311,9 @@ FleeDrinkForMana(before)
 	{
 	ReleaseKeys()
 	hpBefore := PotionGlobes().hp
+	;(Wizard101 gone to the tray - Settings: traygame: Ctrl+O would go to the window in front - none drunk)
+	if (GameInTray)
+		return false
 	Send("{Blind}^o")
 	Sleep(2500)
 	g := PotionGlobes()

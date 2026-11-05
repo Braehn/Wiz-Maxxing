@@ -907,10 +907,12 @@ SuStatSet(file, key, value)
 			lines[i] := suM[1] value suM[2], found := true
 	if (!found)
 		{
-		head := "; ---- Set in the Settings window (the dashboard's Settings button) ----"
+		head := "; ---- Set in the Settings window (the dashboard's Settings menu) ----"
+		;(the heading before v1.10.0, naming the dashboard's Settings button, counts too: no second heading)
+		oldHead := "; ---- Set in the Settings window (the dashboard's Settings button) ----"
 		hasHead := false
 		for i, line in lines
-			if (line == head)
+			if (line == head || line == oldHead)
 				hasHead := true
 		if (!hasHead)
 			lines.Push(""), lines.Push(head)

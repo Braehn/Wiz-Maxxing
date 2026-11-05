@@ -164,7 +164,7 @@ MenuNothing()
 return
 
 ;The latest release looked up now and then, out of this process (Wiz-Maxxing /latest writes updater.ini): the
-;dashboard's Updates button and STATISTICS say from it whether a newer version is out - and UpdAuto installs it.
+;dashboard's menu bar (Update to vX) and STATISTICS say from it whether a newer version is out - and UpdAuto installs it.
 ;45 s after start, then every autoupdate minutes (Settings; 2 hours with it off)
 UpdPeekNow:
 UpdPeekNow()
@@ -269,6 +269,9 @@ PlayerActing()
 BotToggle()
 	{
 	global BotOn, BotEverOn, PlayerTookRound, BossChoosen, DeckBoss ; (v1 globals it sets)
+	;(Wizard101 in the tray - Settings: traygame: the bot stays off till it's shown again - GameTrayBlocked says so)
+	if (!BotOn && GameTrayBlocked("turn the bot on"))
+		return
 	BotOn := !BotOn
 	if (BotOn)
 		{
@@ -385,7 +388,7 @@ BotNoBattle(since := 0)
 	return BookSeenAt > since && A_TickCount - BookSeenAt < 2000
 	}
 
-;"Bring Wizard101 to the front" (tray menu, dashboard button): gamefront in PlayerStats.txt, off unless it's 1
+;"Bring Wizard101 to the front" (tray menu, the dashboard's Bot menu): gamefront in PlayerStats.txt, off unless it's 1
 GameFrontOn()
 	{
 	;(Play for me: the game brought up whenever it's needed)
@@ -404,7 +407,7 @@ GameFrontToggle()
 	TrayTip("Bring Wizard101 to the front: " (frontOn ? "ON - when there's something to do (the quest arrow, a battle round)." : "OFF - click into Wizard101 yourself."), "Wizard101 bot", 1)
 	}
 
-;The tray menu's tick and the dashboard button's label
+;The tray menu's tick and the Bot menu's
 GameFrontShow()
 	{
 	frontOn := GameFrontOn()
@@ -424,6 +427,9 @@ GameToFront(why, idle := true, force := false)
 	{
 	static saidAt := 0
 	global ErrorLevel ; (v1 globals it sets)
+	;(Wizard101 in the tray - Settings: traygame: never brought up by the bot, only by you - the tray menu's Show Wizard101)
+	if (GameInTray)
+		return false
 	if ((!GameFrontOn() && !force) || GameActive())
 		return GameActive()
 	if (idle && UserIdle() < 3000)
@@ -437,7 +443,409 @@ GameToFront(why, idle := true, force := false)
 	return front
 	}
 
-;"Wait while I play" (tray menu, dashboard button): handsoffon in PlayerStats.txt, on unless it's 0
+;---- The bot's window and Wizard101 in the tray (Settings: traybot, traygame - THE MOUSE AND WAITS) ----
+
+;"Put the bot's window in the tray" (Settings: traybot, off unless 1): the dashboard's X and minimize button put it in
+;the tray, the bot plays on (Dashboard.ahk DashToTray); the tray icon's double-click brings it back (DashFromTray)
+TrayBotOn()
+	{
+	try
+		return (IsObject(Stats) && Stats.Has("traybot") && Stats["traybot"] = 1) ? 1 : 0
+	catch
+		return 0
+	}
+
+;"Put Wizard101 in the tray" (Settings: traygame, off unless 1): Alt+F4 in it, its own X and - windowed - its minimize
+;button hide its window in the tray, the game still running (GameTrayHide); the tray menu's Show Wizard101 brings it
+;back (GameTrayShow)
+TrayGameOn()
+	{
+	try
+		return (IsObject(Stats) && Stats.Has("traygame") && Stats["traygame"] = 1) ? 1 : 0
+	catch
+		return 0
+	}
+
+;The tray settings applied (Settings.ahk CfgApply - the Settings window's Save, the dashboard's Settings menu, a
+;settings file loaded - and once as the bot starts): the tray menu (TrayWinShow), Alt+F4's hotkey in Wizard101
+;(GameTrayKeys) and the watch on its window (GameTrayTick) as they're set now. traygame switched off with Wizard101
+;in the tray: shown again, without taking the focus. A switch said in the log
+TrayWinTick()
+	{
+	static wasBot := "", wasGame := ""
+	tbOn := TrayBotOn(), tgOn := TrayGameOn()
+	TrayWinShow()
+	GameTrayKeys(tgOn)
+	if (tgOn || GameInTray)
+		SetTimer(GameTrayTick, 100)
+	if (tbOn != wasBot && (wasBot != "" || tbOn))
+		DebugLog("Put the bot's window in the tray (Settings: traybot): " (tbOn ? "on - the dashboard's X or minimize button puts it in the tray, the bot plays on - the tray icon's double-click brings it back, the tray menu's " HkMenu("quit") " stops the bot" : "off - the dashboard's X stops the bot, as before"))
+	if (tgOn != wasGame && (wasGame != "" || tgOn))
+		DebugLog("Put Wizard101 in the tray (Settings: traygame): " (tgOn ? "on - Alt+F4 in it, its X or (windowed) its minimize button hide it in the tray, the game still running and the bot off meanwhile - the tray menu's Show Wizard101 brings it back" : "off - Alt+F4, its X and its minimize button as ever"))
+	wasBot := tbOn, wasGame := tgOn
+	if (!tgOn && GameInTray)
+		GameTrayShow(false, "Put Wizard101 in the tray switched off (Settings)")
+	}
+
+;The tray menu as the tray settings are: traybot on - "Show the bot's window" in it (under the dashboard's item) and the
+;tray icon's double-click (else walking on/off, as ever); traygame on, or Wizard101 in the tray - "Show Wizard101" in it
+;(under "Bring Wizard101 to the front"), picked only while Wizard101 is in the tray. Off: neither is in the menu
+TrayWinShow()
+	{
+	static botItem := 0, gameItem := 0
+	tbOn := TrayBotOn(), tgOn := TrayGameOn() || GameInTray
+	try
+		{
+		if (tbOn && !botItem)
+			Tray.Insert("Learned spells", "Show the bot's window", MenuDashShow), botItem := 1
+		Tray.Default := tbOn ? "Show the bot's window" : HkMenu("walk")
+		if (!tbOn && botItem)
+			Tray.Delete("Show the bot's window"), botItem := 0
+		}
+	try
+		{
+		if (tgOn && !gameItem)
+			Tray.Insert("Auto-reconnect on/off", "Show Wizard101", MenuGameShow), gameItem := 1
+		if (gameItem && GameInTray)
+			Tray.Enable("Show Wizard101")
+		else if (gameItem)
+			Tray.Disable("Show Wizard101")
+		if (!tgOn && gameItem)
+			Tray.Delete("Show Wizard101"), gameItem := 0
+		}
+	}
+
+;Alt+F4 with Wizard101 the window in front (Shift or Ctrl with it too): on while traygame is - to the tray instead of
+;closed (GameTrayAltF4), swallowed either way. The hook itself checks the window in front (HotIfWinActive - as the mouse
+;lock's, Settings.ahk), so it never waits on a busy bot
+GameTrayKeys(on)
+	{
+	static made := 0
+	if (!on && !made)
+		return
+	HotIfWinActive("ahk_class Wizard Graphical Client ahk_exe WizardGraphicalClient.exe")
+	HkTry("$*!F4", GameTrayAltF4, on ? "On" : "Off")
+	HotIfWinActive()
+	if (on && ErrorLevel)
+		DebugLog("Put Wizard101 in the tray: Alt+F4 couldn't be made a hotkey (ErrorLevel " ErrorLevel ") - it closes Wizard101 as ever")
+	made := 1
+	}
+
+;Alt+F4 in Wizard101 (GameTrayKeys): the window in front to the tray
+GameTrayAltF4(*)
+	{
+	local v1Keep := V1Thread() ; (v1: each thread had its own ErrorLevel)
+	gaWin := 0
+	try gaWin := WinActive("ahk_class " GameClass " ahk_exe " GameExe)
+	GameTrayHide(gaWin, "Alt+F4")
+	}
+
+;A left click on Wizard101's X (GameTrayXHit said so - swallowed, the game gets nothing): to the tray
+GameTrayXClick(*)
+	{
+	local v1Keep := V1Thread() ; (v1: each thread had its own ErrorLevel)
+	GameTrayHide(GameTrayXWin, "its X")
+	}
+
+;Why Wizard101 can't go to the tray now - "" it can: two game windows open (which one the bot plays, and which one is
+;hidden, can't be told apart), a reconnect under way (its clicks and a restart of the game need the window), a run you
+;started from the tray or a potion recording going on (they send keys and clicks to the game)
+GameTrayNo()
+	{
+	gnCount := 0
+	try gnCount := WinGetCount("ahk_class " GameClass " ahk_exe " GameExe)
+	if (gnCount >= 2)
+		return "two Wizard101 windows are open"
+	if (RcState != "" && RcState != "box" && RcState != "stopped")
+		return "the bot is getting it back online (auto-reconnect)"
+	if (PotionManual || PotionRecording || (QsBusy && QsManual))
+		return "a potion run, potion recording or quick sell you started is under way"
+	return ""
+	}
+
+;Wizard101's window (win) to the tray - how: "Alt+F4", "its X", "its minimize button" (for the log). Not while
+;GameTrayNo says why not (said - the log and a tray tip - and nothing done). Every key let go first (they still reach the
+;game), the bot switched off the normal way (BotToggle - each round and the walker stop as for F6; a click or key it
+;had under way is dropped, not sent to the window behind: ClickAt, TargetClick, the potions' keys... look at
+;GameInTray) - on again once it's back (GameTrayBack) - and the window hidden: the game runs on, nothing is sent into
+;it. Its handle and process kept, in dashboard.ini [gametray] too (shown again at the next start, or by the watcher, if
+;the bot ends without showing it - Watch.ahk WatchTrayBack). True if it went
+GameTrayHide(win, how)
+	{
+	static said := false
+	global GameInTray, GameTrayHwnd, GameTrayPid, GameTrayMin, GameTrayBotWas, GameTrayAt
+	if (!win || !TrayGameOn() || (GameInTray && win = GameTrayHwnd))
+		return false
+	ghCrit := A_IsCritical
+	Critical()
+	ghNo := GameInTray ? "another Wizard101 is in the tray already" : GameTrayNo()
+	if (ghNo != "")
+		{
+		ghMin := (how = "its minimize button")
+		DebugLog("Wizard101 to the tray (" how "): not now - " ghNo (ghMin ? " - it stays minimized" : " - nothing done"))
+		TrayTip("Wizard101 can't go to the tray now: " ghNo "." (ghMin ? " It stays minimized." : ""), "Wizard101 bot", 2)
+		if (!ghCrit)
+			Critical("Off")
+		return false
+		}
+	ReleaseKeys()
+	ghPid := 0
+	DllCall("GetWindowThreadProcessId", "Ptr", win, "UInt*", &ghPid)
+	GameTrayBotWas := BotOn ? 1 : 0
+	if (BotOn)
+		BotToggle()
+	GameTrayMin := DllCall("IsIconic", "Ptr", win) ? 1 : 0
+	;(SW_HIDE - async: a hung game doesn't hold the bot)
+	DllCall("ShowWindowAsync", "Ptr", win, "Int", 0)
+	GameTrayHwnd := win, GameTrayPid := ghPid, GameTrayAt := A_TickCount, GameInTray := 1
+	ghIni := A_ScriptDir "\dashboard.ini"
+	V1Do(IniWrite, win, ghIni, "gametray", "hwnd")
+	V1Do(IniWrite, ghPid, ghIni, "gametray", "pid")
+	V1Do(IniWrite, GameTrayMin, ghIni, "gametray", "min")
+	TrayWinShow()
+	DebugLog("Wizard101 in the tray (" how " - Settings: traygame): its window hidden, the game still running" (GameTrayBotWas ? " - the bot off till it's shown again" : "") " - the tray menu's Show Wizard101 brings it back")
+	if (!said)
+		said := true, TrayTip("Wizard101 is in the tray, still running" (GameTrayBotWas ? " - the bot is off till it's back" : "") ". The tray menu's `"Show Wizard101`" brings it back.", "Wizard101 bot", 1)
+	else if (GameTrayBotWas)
+		TrayTip("Wizard101 is in the tray - the bot is off till it's back (the tray menu's `"Show Wizard101`").", "Wizard101 bot", 1)
+	if (!ghCrit)
+		Critical("Off")
+	return true
+	}
+
+;Wizard101 out of the tray: user (the tray menu's Show Wizard101 - you asked) restored and brought to the front; else
+;(traygame switched off, the bot closing) shown as it was - minimized if it was - never taking the focus. Then
+;forgotten, and - not as the bot closes (botBack false) - the bot on again if it was when the game went (GameTrayBack)
+GameTrayShow(user, why, botBack := true)
+	{
+	if (!GameInTray)
+		return
+	;(Critical till it's forgotten - GameTrayBack: the tick, GameTrayStep, if it ran in the wait below or in
+	;WinActivate's own delay, would take this show for the game showing its window by itself. A Critical thread's
+	;Sleep holds the tick back: it runs once the show's done, the game out of the tray)
+	gsCrit := A_IsCritical
+	Critical()
+	gsWin := GameTrayHwnd, gsMin := GameTrayMin
+	if (DllCall("IsWindow", "Ptr", gsWin))
+		{
+		;(yours: SW_RESTORE 9 if it was minimized, else SW_SHOW 5 - a maximized game stays so. Else SW_SHOWMINNOACTIVE 7
+		;or SW_SHOWNA 8: never activated. Async: a hung game doesn't hold the bot)
+		DllCall("ShowWindowAsync", "Ptr", gsWin, "Int", user ? (gsMin ? 9 : 5) : (gsMin ? 7 : 8))
+		if (user)
+			{
+			;(shown by the game's own thread: once it's up, to the front - you asked)
+			Loop 20
+				{
+				if (DllCall("IsWindowVisible", "Ptr", gsWin))
+					break
+				Sleep(25)
+				}
+			V1Try(WinActivate, "ahk_id " gsWin)
+			}
+		}
+	GameTrayBack("shown again - " why, botBack)
+	if (!gsCrit)
+		Critical("Off")
+	}
+
+;Wizard101 no longer in the tray (why: for the log): forgotten (GameTrayForget), and the bot on again the normal way if
+;it was when the game went (botBack - not as the bot closes). A game that closed while hidden: Reconnect then sees it
+;closed and offers to start it again, as whenever the game closes with the bot on
+GameTrayBack(why, botBack := true)
+	{
+	gbBot := GameTrayBotWas
+	GameTrayForget(why)
+	if (botBack && gbBot && !BotOn)
+		BotToggle()
+	}
+
+;Its handle and dashboard.ini's entry forgotten, the tray menu's Show Wizard101 greyed (gone with traygame off),
+;Reconnect's waits started afresh (Reconnect.ahk RcAfterTray - none ran on while it was hidden)
+GameTrayForget(why)
+	{
+	global GameInTray, GameTrayHwnd, GameTrayPid, GameTrayMin, GameTrayBotWas
+	GameInTray := 0, GameTrayHwnd := 0, GameTrayPid := 0, GameTrayMin := 0, GameTrayBotWas := 0
+	try IniDelete(A_ScriptDir "\dashboard.ini", "gametray")
+	TrayWinShow()
+	RcAfterTray()
+	DebugLog("Wizard101 out of the tray: " why)
+	}
+
+;Something you started from the tray or the dashboard that needs the game (what: "buy potions"...) while Wizard101 is in
+;the tray: said - the log and a tray tip - and true: nothing done
+GameTrayBlocked(what)
+	{
+	if (!GameInTray)
+		return false
+	DebugLog("Wizard101 is in the tray: can't " what " - show Wizard101 first (the tray menu)")
+	TrayTip("Wizard101 is in the tray - show Wizard101 first (the tray menu's `"Show Wizard101`"), then " what ".", "Wizard101 bot", 1)
+	return true
+	}
+
+;The bot closing (OnExit - every way it ends but a kill or a crash: those are put right at the next start, or by the
+;watcher): a Wizard101 in the tray shown again as it was, never taking the focus. 0: the exit goes on
+GameTrayOnExit(*)
+	{
+	local v1Keep := V1Thread() ; (v1: each thread had its own ErrorLevel)
+	try
+		{
+		if (GameInTray)
+			GameTrayShow(false, "the bot is closing", false)
+		}
+	return 0
+	}
+
+;Every 100 ms while traygame is on or Wizard101 is in the tray (TrayWinTick starts it, it stops itself): one step
+;(GameTrayStep) - an error said in the log once, never an error box (it would take the focus)
+GameTrayTick()
+	{
+	static busy := 0, errSaid := 0
+	local v1Keep := V1Thread() ; (v1: each thread had its own ErrorLevel)
+	if (busy)
+		return
+	busy := 1
+	try
+		GameTrayStep()
+	catch Any as gtErr
+		{
+		if (!errSaid)
+			errSaid := 1, DebugLog("Put Wizard101 in the tray: " gtErr.Message " (" gtErr.What ", line " gtErr.Line ") - said once a run")
+		}
+	busy := 0
+	}
+
+;The tick. Wizard101 in the tray: its process ended or its window gone, or the game showed it again by itself (seen
+;hidden first - the hide is async, a busy game takes it late) - not in the tray any more (GameTrayBack). traygame on, a
+;game window up: its minimize button - a window with a title bar (windowed), not exclusive full screen, minimized while
+;the bot watched (one minimized already when first seen is left) - sends it to the tray; the left button's hotkey for
+;its X is on only while the pointer is over its title bar (GameTrayXGate). Off and nothing in the tray: the timer stops
+GameTrayStep()
+	{
+	static seenWin := 0, seenIconic := 0, seenCaption := 0, fullScreen := 0, fsLookAt := 0, hidAt := 0
+	if (GameInTray)
+		{
+		if (!DllCall("IsWindow", "Ptr", GameTrayHwnd) || (GameTrayPid && !ProcessExist(GameTrayPid)))
+			GameTrayBack("the game closed while it was in the tray")
+		else if (!DllCall("IsWindowVisible", "Ptr", GameTrayHwnd))
+			hidAt := GameTrayAt
+		else if (hidAt = GameTrayAt)
+			GameTrayBack("the game showed its window again by itself")
+		}
+	if (!TrayGameOn())
+		{
+		if (!GameTrayXGate(0) && !GameInTray)
+			SetTimer(GameTrayTick, 0)
+		seenWin := 0
+		return
+		}
+	stWin := 0
+	try stWin := WinExist("ahk_class " GameClass " ahk_exe " GameExe)
+	if (!stWin)
+		{
+		GameTrayXGate(0)
+		seenWin := 0
+		return
+		}
+	stIconic := DllCall("IsIconic", "Ptr", stWin) ? 1 : 0
+	if (stWin != seenWin)
+		seenWin := stWin, seenIconic := stIconic, seenCaption := 0, fullScreen := 0, fsLookAt := 0
+	if (!stIconic)
+		{
+		;(windowed: a title bar - WS_CAPTION 0xC00000. Borderless has none, and its minimize never sends it to the tray)
+		seenCaption := (DllCall("GetWindowLong", "Ptr", stWin, "Int", -16, "Int") & 0xC00000) = 0xC00000
+		;(exclusive full screen - it minimizes itself on Alt+Tab: Windows says QUNS_RUNNING_D3D_FULL_SCREEN, 3, while it's
+		;in front - looked at once a second)
+		if (A_TickCount - fsLookAt > 1000 && DllCall("GetForegroundWindow", "Ptr") = stWin)
+			{
+			fsLookAt := A_TickCount, stQuns := 0
+			if (DllCall("shell32\SHQueryUserNotificationState", "Int*", &stQuns, "Int") = 0)
+				fullScreen := (stQuns = 3)
+			}
+		}
+	if (stIconic != seenIconic)
+		{
+		seenIconic := stIconic
+		if (stIconic && seenCaption && !fullScreen)
+			{
+			GameTrayXGate(0)
+			GameTrayHide(stWin, "its minimize button")
+			return
+			}
+		}
+	GameTrayXGate(!stIconic && seenCaption && GameTrayOverCaption(stWin), stWin)
+	}
+
+;The pointer over win's title bar - or within 24 pixels of it, never in the game's inside: where its X is
+GameTrayOverCaption(win)
+	{
+	ocPt := Buffer(8, 0), ocWr := Buffer(16, 0), ocCt := Buffer(8, 0)
+	if (!DllCall("GetCursorPos", "Ptr", ocPt) || !DllCall("GetWindowRect", "Ptr", win, "Ptr", ocWr) || !DllCall("ClientToScreen", "Ptr", win, "Ptr", ocCt))
+		return false
+	ocX := NumGet(ocPt, 0, "Int"), ocY := NumGet(ocPt, 4, "Int")
+	return ocX >= NumGet(ocWr, 0, "Int") - 24 && ocX < NumGet(ocWr, 8, "Int") + 24 && ocY >= NumGet(ocWr, 4, "Int") - 24 && ocY < NumGet(ocCt, 4, "Int")
+	}
+
+;The left button's hotkey for Wizard101's X (GameTrayXHit decides at each click) on or off - on only while the pointer
+;is over the game's title bar: each left click then waits for the bot's answer, so nowhere else. Not switched while the
+;mouse lock holds the mouse (a Hotkey command after BlockInput could take the hook it needs - Settings.ahk
+;MouseLockApply). win: the game's window it's for. On now?
+GameTrayXGate(on, win := 0)
+	{
+	static made := 0, now := 0
+	global GameTrayXWin
+	on := on ? 1 : 0
+	if (on)
+		GameTrayXWin := win
+	if (on = now || (!on && !made) || MouseLocked)
+		return now
+	;(its own check - not the mouse lock's or the potion recorder's left button: theirs stay as they are)
+	HotIf(GameTrayXHit)
+	HkTry("*LButton", GameTrayXClick, on ? "On" : "Off")
+	HotIf()
+	if (!ErrorLevel)
+		now := on, made := 1
+	return now
+	}
+
+;The left button's hotkey's check (HotIf - asked at each left click while the gate is on): true only for a click on
+;Wizard101's own X. Never in its inside (the game's picture: no click of yours or the bot's in the game is taken); the
+;window under the pointer the game's own (not one over it, not a hung game's stand-in); then the game is asked what's
+;there (WM_NCHITTEST 0x84, waited for 40 ms at most - a hung or busy game: false, the click goes through) - its close
+;button: HTCLOSE, 20. Measured as the game sees the screen (its DPI awareness - Windows 10 1607 or newer). Any error:
+;false
+GameTrayXHit(*)
+	{
+	xhOld := 0
+	try
+		{
+		xhWin := GameTrayXWin
+		if (!xhWin || GameInTray || !TrayGameOn())
+			return false
+		try xhOld := DllCall("SetThreadDpiAwarenessContext", "Ptr", DllCall("GetWindowDpiAwarenessContext", "Ptr", xhWin, "Ptr"), "Ptr")
+		xhPt := Buffer(8, 0), xhRc := Buffer(16, 0), xhCt := Buffer(8, 0)
+		if (!DllCall("GetCursorPos", "Ptr", xhPt))
+			return false
+		xhX := NumGet(xhPt, 0, "Int"), xhY := NumGet(xhPt, 4, "Int")
+		xhAt := DllCall("WindowFromPoint", "Int64", (xhY << 32) | (xhX & 0xFFFFFFFF), "Ptr")
+		if (!xhAt || DllCall("GetAncestor", "Ptr", xhAt, "UInt", 2, "Ptr") != xhWin)
+			return false
+		DllCall("GetClientRect", "Ptr", xhWin, "Ptr", xhRc)
+		DllCall("ClientToScreen", "Ptr", xhWin, "Ptr", xhCt)
+		xhL := NumGet(xhCt, 0, "Int"), xhT := NumGet(xhCt, 4, "Int")
+		if (xhX >= xhL && xhX < xhL + NumGet(xhRc, 8, "Int") && xhY >= xhT && xhY < xhT + NumGet(xhRc, 12, "Int"))
+			return false
+		return SendMessage(0x84, 0, ((xhY & 0xFFFF) << 16) | (xhX & 0xFFFF), , "ahk_id " xhWin, , , , 40) = 20
+		}
+	catch
+		return false
+	finally
+		{
+		if (xhOld)
+			DllCall("SetThreadDpiAwarenessContext", "Ptr", xhOld, "Ptr")
+		}
+	}
+
+;"Wait while I play" (tray menu, the dashboard's Bot menu): handsoffon in PlayerStats.txt, on unless it's 0
 HandsOffOn()
 	{
 	return !(Stats.Has("handsoffon") && !Stats["handsoffon"])
@@ -454,7 +862,6 @@ HandsOffToggle()
 	TrayTip("Wait while I play: " (waitOn ? "ON - the bot waits while you use the keyboard or mouse." : "OFF - the bot carries on even while you play."), "Wizard101 bot", 1)
 	}
 
-;The tray menu's tick and the dashboard button's label
 ;"Play for me" on/off - the dashboard's button (red off, green on), the tray menu. On: every check for you off (UserIdle) -
 ;the bot plays on as if you've left the PC, taking the mouse and the game's window whenever it needs them. F6 / F8 still
 ;stop it. On and off at a click - no box to type in (you asked, 2026-10-26: the pimpmeout box of 2026-10-23 gone). Never
@@ -477,10 +884,11 @@ PlayForMeShow()
 		Tray.Uncheck("Play for me (leave it alone for days)")
 	if (V1IsFunc("DashPlayShow"))
 		DashPlayShow.Call(PlayForMe)
-	;(Game to front's label too: Play for me brings the game up whatever it's set to)
+	;(the Bring Wizard101 to the front ticks too: Play for me brings the game up whatever it's set to)
 	GameFrontShow()
 	}
 
+;The tray menu's tick and the Bot menu's
 HandsOffShow()
 	{
 	waitOn := HandsOffOn()
@@ -529,9 +937,9 @@ BattlesOnlyNo(what, tell := false)
 	return true
 	}
 
-;Battles only switched (Settings' Save, the tray menu - and the main loop's look at it, each pass): said in the log, the tray
-;menu's tick. On: walking off and every key let go, a dungeon run stopped, a puzzle try dropped, the walker's notice closed. At
-;the start (StartBot's call) said only when it's on
+;Battles only switched (CfgApply - the Settings window's Save, a settings file loaded -, the tray menu - and the main loop's
+;look at it, each pass): said in the log, the tray menu's tick. On: walking off and every key let go, a dungeon run stopped, a
+;puzzle try dropped, the walker's notice closed. At the start (StartBot's call) said only when it's on
 BattlesOnlyTick()
 	{
 	static was := ""
@@ -623,6 +1031,10 @@ BattlesOnlyWait()
 ;times clickafter % (PlayerStats.txt, the Settings window; it used to wait the whole of it)
 ClickAt(x, y, after := 0)
 	{
+	;(Wizard101 in the tray - Settings: traygame: nothing clicked, it would land on the window behind it - the clicks of
+	;a round under way when Alt+F4 or its X sent it there, from another thread, too)
+	if (GameInTray)
+		return
 	;(not in a battle round: the mouse goes back where it was after the click - mousereturn)
 	ownGrab := MouseGrab()
 	;(your mouse locked meanwhile - a battle round has it locked already: Settings.ahk MouseLockOn)
@@ -635,7 +1047,9 @@ ClickAt(x, y, after := 0)
 		clickExtra := Random(0, Stat("clickrandom"))
 		Sleep(clickExtra)
 		}
-	Click()
+	;(gone to the tray during the waits: not clicked)
+	if (!GameInTray)
+		Click()
 	if (after)
 		AfterClick(after)
 	if (ownGrab)
@@ -656,6 +1070,9 @@ AfterClick(ms)
 ;down onto the card. Not on the hand's row (an enemy, Pass, yourself): straight there. Already on that card: just there
 MoveToCard(x, y)
 	{
+	;(Wizard101 in the tray - Settings: traygame: your pointer left where it is - as ClickAt)
+	if (GameInTray)
+		return
 	;(the bot still at it: the mouse lock's watchdog starts again - Settings.ahk MouseLockRenew; after each move, your
 	;clicks swallowed now the pointer's on the game - MouseLockMoved)
 	MouseLockRenew()
@@ -699,6 +1116,9 @@ MouseSpeedNow()
 
 CenterMouse()
 	{
+	;(Wizard101 in the tray - Settings: traygame: your pointer left where it is - as ClickAt)
+	if (GameInTray)
+		return
 	UpdateGameRect()
 	MouseLockRenew()
 	MouseMove(ScreenX, ScreenY + Px(100), MouseSpeedNow())
@@ -732,7 +1152,7 @@ UpdCheckNow()
 ;1. A newer release seen by the look-up (UpdPeekNow): Wiz-Maxxing /check /auto downloads it while the bot plays on.
 ;2. It's ready (updater.ini [auto] ready, by a Wiz-Maxxing still running - readypid): the bot closes itself at a safe
 ;point (UpdSafe), writing how it is (handover, args - UpdBotArgs), and Wiz-Maxxing installs it and starts it again so.
-;Never closed under it. A version tried 3 times in 6 hours (Updater.ahk UpAuto) is left to the Updates button
+;Never closed under it. A version tried 3 times in 6 hours (Updater.ahk UpAuto) is left to the dashboard's Help > Check for updates
 UpdAuto()
 	{
 	static lookAt := 0, startAt := 0, ranAt := 0, saidTag := "", gaveUpTag := "", waitTag := "", aliveAt := 0, aliveTag := ""
@@ -756,7 +1176,7 @@ UpdAuto()
 			aliveAt := 0
 			return
 			}
-		;(the Updates button clicked meanwhile: closed for it as soon as it's out of battle - you asked)
+		;(Update to vX picked in the dashboard's menu bar meanwhile: closed for it as soon as it's out of battle - you asked)
 		nowAsked := IniRead(ini, "auto", "now", 0)
 		if (!UpdSafe(nowAsked = 1))
 			{
@@ -788,7 +1208,7 @@ UpdAuto()
 	if (triedTag = upd.latest && age != "" && age < 6 && V1Ge(tries, 3))
 		{
 		if (gaveUpTag != upd.latest)
-			DebugLog("Updates: " upd.latest " didn't install by itself in 3 tries (updater.log) - left to the Updates button")
+			DebugLog("Updates: " upd.latest " didn't install by itself in 3 tries (updater.log) - left to the dashboard's Help > Check for updates")
 		gaveUpTag := upd.latest
 		return
 		}
@@ -1834,6 +2254,10 @@ UseHeal(title, &card, dir, tx := "", ty := "")
 		DebugLog("  " title " heals all of you - the ally too")
 	else if (!TargetPending())
 		{
+		;(Wizard101 gone to the tray - Settings: traygame: a hidden game shows no Pass button, so it reads as gone
+		;out - nothing learned about who it heals)
+		if (GameInTray)
+			return false
 		lc := V1IsFunc("LearnCardInSlot") ? LearnCardInSlot.Call(dir "\" title) : ""
 		allOf := IsObject(lc) && RegExMatch(lc.text, "i)\ba[l1][l1]\b")
 		StatsSet([[dir "." title "target", allOf ? 2 : 0]])
@@ -1925,6 +2349,9 @@ HitPick(dmg, among := "")
 ;the mouse back where it was afterwards (MouseGrab: mousereturn)
 TargetClick(x, y)
 	{
+	;(Wizard101 in the tray - Settings: traygame: nothing clicked - as ClickAt)
+	if (GameInTray)
+		return 0
 	;(never in the Crown shop's corner - SHOP and EARN CROWNS at its top left, to about Px(170): an enemy's plate read
 	;that far left isn't clicked)
 	if (x < GameLeft + Px(185) && y < GameTop + Px(110))
@@ -1940,7 +2367,9 @@ TargetClick(x, y)
 	;MouseLockRenew)
 	MouseLockRenew()
 	Sleep(Max(150, Stats.Has("clickwait") ? Stats["clickwait"] : 40))
-	Click()
+	;(gone to the tray during the wait: not clicked)
+	if (!GameInTray)
+		Click()
 	if (ownGrab)
 		MouseLetGo()
 	MouseLockOff("click")
@@ -2008,11 +2437,16 @@ s(time)
 	
 Respond(Text) 
 	{
+	;(Wizard101 gone to the tray - Settings: traygame: nothing typed - the line and its Enter would go to the window in front)
+	if (GameInTray)
+		return
 	if (responcemode == 1)
 		{
 		BlockInput("Send")
 		Send("{r}")
 		s(100)
+		if (GameInTray)
+			return
 		SendInput("{Raw}" Text)
 		Send("{Enter}")
 		}
@@ -2020,6 +2454,9 @@ Respond(Text)
 	
 Spam(key)
 	{
+	;(Wizard101 gone to the tray - Settings: traygame: not pressed - the keys would go to the window in front)
+	if (GameInTray)
+		return
 	Send("{" key "}")
 	Send("{" key "}")
 	Send("{" key "}")
@@ -2160,6 +2597,9 @@ NeedsConvert()
 	
 LockMove(&direction)
 	{
+	;(Wizard101 gone to the tray - Settings: traygame: not pressed - the keys would go to the window in front)
+	if (GameInTray)
+		return
 	Send("{" direction " down}")
 	s(50)
 	Send("{Shift down}")
@@ -2231,7 +2671,10 @@ CheckAfk()
 				AfkRetries := 0
 				break
 				}
-			ReconnectCheck()
+			;(Wizard101 in the tray - Settings: traygame: the bot's off, so no reconnecting on the hidden game, as in the
+			;main loop - the log caught up and the waits started afresh once it's shown, Reconnect.ahk RcAfterTray)
+			if (!GameInTray)
+				ReconnectCheck()
 			if (AfkWhy = "mana" && VisionOn && Mod(A_Index, 30) = 0 && GameActive())
 				{
 				afkMana := V1At(PotionGlobes(), "mana")
@@ -3258,6 +3701,9 @@ DiscardSpent(done)
 			}
 		MoveToCard(dspAt.x, dspAt.y)
 		s(Stats.Has("clickwait") ? Stats["clickwait"] : 40)
+		;(Wizard101 gone to the tray - Settings: traygame: not clicked - it would land on the window behind it)
+		if (GameInTray)
+			break
 		Click("right")
 		SpentLook[dspK] := dspDeck
 		;(the hand has changed: a fresh look for the next key's box and the next pass)
@@ -3305,6 +3751,9 @@ DiscardCard(title, dir)
 		}
 	MoveToCard(cardX + Px(5), cardY + Px(5))
 	s(Stats.Has("clickwait") ? Stats["clickwait"] : 40)
+	;(Wizard101 gone to the tray - Settings: traygame: not clicked - it would land on the window behind it)
+	if (GameInTray)
+		return 0
 	Click("right")
 	;(the hand has changed: a fresh look next time, not the vision helper's picture of it from before)
 	VisionForget()
@@ -3605,6 +4054,7 @@ LogMirrorGameShown()
 #Include "%A_ScriptDir%\Planner.ahk"
 #Include "%A_ScriptDir%\Party.ahk"
 #Include "%A_ScriptDir%\Settings.ahk"
+#Include "%A_ScriptDir%\SettingsFile.ahk"
 #Include "%A_ScriptDir%\Alerts.ahk"
 #Include "%A_ScriptDir%\Dashboard.ahk"
 #Include "%A_ScriptDir%\BugReport.ahk"
@@ -3847,6 +4297,9 @@ MenuPotionRoute(A_ThisMenuItem:="", A_ThisMenuItemPos:="", MyMenu:="", *) { ; (v
 global
 local v1Keep := V1Thread() ; (v1: each thread had its own ErrorLevel)
 TrayPicked(A_ThisMenuItem, MyMenu)
+;(Wizard101 in the tray - Settings: traygame: show it first, GameTrayBlocked says so)
+if (GameTrayBlocked("record potion buying"))
+	return
 PotionRecordStart()
 return
 }
@@ -3855,6 +4308,9 @@ MenuPotionRun(A_ThisMenuItem:="", A_ThisMenuItemPos:="", MyMenu:="", *) { ; (v1:
 global
 local v1Keep := V1Thread() ; (v1: each thread had its own ErrorLevel)
 TrayPicked(A_ThisMenuItem, MyMenu)
+;(Wizard101 in the tray - Settings: traygame: show it first, GameTrayBlocked says so)
+if (GameTrayBlocked("buy potions"))
+	return
 ;(battles only - Settings: battlesonly: no run - its Recall or Home / End, the walk to the seller - said, a tray tip)
 if (BattlesOnlyNo("run to buy potions", true))
 	return
@@ -3875,6 +4331,9 @@ MenuQuickSell(A_ThisMenuItem:="", A_ThisMenuItemPos:="", MyMenu:="", *) { ; (v1:
 global
 local v1Keep := V1Thread() ; (v1: each thread had its own ErrorLevel)
 TrayPicked(A_ThisMenuItem, MyMenu)
+;(Wizard101 in the tray - Settings: traygame: show it first, GameTrayBlocked says so)
+if (GameTrayBlocked("quick sell the backpack"))
+	return
 QsMenuNow(false)
 return
 }
@@ -3883,6 +4342,9 @@ MenuQuickSellRehearse(A_ThisMenuItem:="", A_ThisMenuItemPos:="", MyMenu:="", *) 
 global
 local v1Keep := V1Thread() ; (v1: each thread had its own ErrorLevel)
 TrayPicked(A_ThisMenuItem, MyMenu)
+;(Wizard101 in the tray - Settings: traygame: show it first, GameTrayBlocked says so)
+if (GameTrayBlocked("quick sell the backpack"))
+	return
 QsMenuNow(true)
 return
 }
@@ -3896,6 +4358,22 @@ DialogsInFront()
 	local dfGui := Gui("+AlwaysOnTop -Caption +ToolWindow")
 	dfGui.Opt("+OwnDialogs")
 	return dfGui
+	}
+;##############################################
+;(the tray menu's "Show the bot's window" - Settings: traybot: the tray icon's double-click then - Dashboard.ahk)
+MenuDashShow(A_ThisMenuItem:="", A_ThisMenuItemPos:="", MyMenu:="", *)
+	{
+	local v1Keep := V1Thread() ; (v1: each thread had its own ErrorLevel)
+	TrayPicked(A_ThisMenuItem, MyMenu)
+	DashFromTray()
+	}
+;##############################################
+;(the tray menu's "Show Wizard101" - Settings: traygame: there to pick only while Wizard101 is in the tray)
+MenuGameShow(A_ThisMenuItem:="", A_ThisMenuItemPos:="", MyMenu:="", *)
+	{
+	local v1Keep := V1Thread() ; (v1: each thread had its own ErrorLevel)
+	TrayPicked(A_ThisMenuItem, MyMenu)
+	GameTrayShow(true, "Show Wizard101 (the tray menu)")
 	}
 ;##############################################
 ;A tray menu pick logged: "Tray: Party... picked" (v1.2.1: Party... did nothing on two PCs and nothing said whether the
@@ -4146,6 +4624,9 @@ global GameRight := A_ScreenWidth
 global GameBottom := A_ScreenHeight
 global ScreenX := A_ScreenWidth / 2
 global ScreenY := A_ScreenHeight / 2
+;(a Wizard101 the bot had put in the tray - Settings: traygame - left hidden by a run that ended without showing it: shown
+;again, without taking the focus, before its window is measured - Watch.ahk WatchTrayBack; said in the log below)
+local gtBack := WatchTrayBack(A_ScriptDir, 500)
 UpdateGameRect()
 
 ;debug.log: what the script sees and decides each round (starts fresh every start / restart; the last
@@ -4160,6 +4641,12 @@ GameFrontShow()
 BotOnShow()
 WatchShow()
 DebugLog("Started " BotVersion() ". Game area " GameLeft "," GameTop " " GameW "x" GameH)
+if (gtBack != "")
+	DebugLog("Put Wizard101 in the tray: " gtBack)
+;(the tray settings - Settings: traybot, traygame: the tray menu's items and double-click, Alt+F4's hotkey in Wizard101,
+;the watch on its window - and, closing, a Wizard101 in the tray shown again: TrayWinTick, GameTrayOnExit)
+TrayWinTick()
+OnExit(GameTrayOnExit, -1)
 ;(the tray menu's picks are logged - TrayPicked: this line says the running program has that, whatever version.txt says)
 DebugLog("Tray: the menu is ready (" DllCall("GetMenuItemCount", "Ptr", A_TrayMenu.Handle, "Int") " items) - each pick is logged")
 ;(the speedhack on: Cheat Engine started if Setup's "Cheat Engine speedhack" set it up - SpeedCheatEngine)
@@ -5267,6 +5754,9 @@ Goto("TestRound")
 ;##############################################
 mobloop() { ; (v1: a label)
 global
+;(Wizard101 in the tray - Settings: traygame: no step - its keys would go to the window in front)
+if (GameInTray)
+	return
 ;(battles only - Settings: battlesonly: no mob-loop step - S back, W on - it moves nothing out of battle)
 if (loopmode == 1 && !BattlesOnlyNo("mob-loop step (" HkText("loop") ")"))
 	{
@@ -5283,6 +5773,9 @@ if (loopmode == 1 && !BattlesOnlyNo("mob-loop step (" HkText("loop") ")"))
 		return
 		}
 	s(5000)
+	;(gone to the tray meanwhile: no W)
+	if (GameInTray)
+		return
 	Send("{w down}")
 	s(1000)
 	Send("{w up}")
@@ -5294,6 +5787,9 @@ LoreLoop()
 	{ ; (v1: a label)
 	global
 	local _direction ; (v1 passed these literals as temporaries: locals here, not globals)
+	;(Wizard101 in the tray - Settings: traygame: none of lore farming's moves - they'd go to the window in front)
+	if (GameInTray)
+		return
 	;(battles only - Settings: battlesonly: no lore farming's moves - its log out and join, X at the sigil, the walk in)
 	if (loremode == 1 && BattlesOnlyNo("lore farming (" HkText("lore") ")"))
 		return
@@ -5755,4 +6251,8 @@ AutofarmerBlank()
 	global BlDuel := "", SeenOut := "", SpeedNow := "", PicError := "", PicMeasuredSize := "", PicMeasureSize := "", PotionResting := "", DgRun := ""
 	global MouseHomeSet := "", MouseHomeX := "", MouseHomeY := "", ManualX := "", ManualY := "", trap4 := ""
 	global FoundByMem := "", RoundMemSchool := "", PlateMem := "", HandStale := "", DeckSharp := "", SpentOff := "", SpentLook := ""
+	;(v2-only: Wizard101 in the tray - Settings: traygame: GameTrayHide - the window, its process, minimized then, the
+	;bot on then, when, and the window the X's hotkey is for)
+	global GameInTray := 0, GameTrayHwnd := 0, GameTrayPid := 0, GameTrayMin := 0, GameTrayBotWas := 0, GameTrayAt := 0
+	global GameTrayXWin := 0
 	}

@@ -2,6 +2,8 @@
 
 Gold only, never Crowns. Game memory is read-only (the one exception: Cheat Engine's speedhack keys).
 
+Declined (2026-11-05): background clicks (clicks posted to the game's window without moving the mouse) and code injection into the game - too risky. The bot moves the mouse and presses keys as a player would.
+
 **Built**: in the bot (v1.0.0 or later), not tried in the game yet - off behind its setting unless the line says on. **Half built** / **groundwork**: the main part still to write. Numbers like 3.5: the step in AutoFarmer\LIVE_CHECKS.txt that tries it.
 
 ## 1. Party of 4: synced quests
@@ -24,7 +26,7 @@ Done: mob rings and sight cones avoided, the quest's goal and its kind read from
 
 ## 3. Battles: reliable, then smart
 Every card known from the game's memory and played well, with a deck that fits the fight.
-- [ ] Every card cast by the game's memory, pictures only a fallback; every other on-screen check by memory where it can be - **half built**: the card and plate boxes (`memclicks`, 2.3, 2.4, 3.12 - last); still to write: acting on the cast checks (logged only now), round start / end (1.8), Pass / Flee / Draw (1.5's combat.txt), mana
+- [ ] Every card cast by the game's memory, pictures only a fallback; every other on-screen check by memory where it can be - **half built**: the card and plate boxes (`memclicks`, 2.3, 2.4, 3.14 - last); still to write: acting on the cast checks (logged only now), round start / end (1.8), Pass / Flee / Draw (1.5's combat.txt), mana
 - [ ] Battle logic learned (an enormous task), in steps:
   - [ ] Every battle recorded (enemies, hands, cards played and why, damage, rounds to the kill; school, deck, party seat and role) - **built**, `battlerec` on (battlereport.py); a memory snapshot each round (optional) not written yet
   - [ ] A battle simulator on the bot's damage maths, the deck's real cards, the wiki's spells and each enemy's cast history - **built**, on (it picks the boss deck); the bot's whole chain since v1.5.0: enchants, defending (`defendat`), Tower Shield, absorbs, Reshuffle; since v1.7.0 the main deck dealt as the game deals it, treasure cards drawn the bot's way (`drawenchant`, Draw.ahk), each blade and trap once a battle (`reboost`), its other copies thrown away (`discardspent`, v1.8.0), and every setting it plays by sent to it (`enemyspells`, `useabsorb`, the draw numbers; `/deckfor` too); Sharpen and Potent since v1.9.0 (each blade's and trap's sharpened / potent cast besides its plain one, the spare Sharpen and both-casts discards - the latter not with `reboost` on since v1.9.1, as the bot); not in it yet: the bot's boost order (the simulator casts the biggest fitting % first, the bot Feint, the traps, the school blade, the group blade, Balanceblade, Bladestorm - so which one takes the Sharpen), the enemies' cheats

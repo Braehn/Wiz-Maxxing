@@ -18,8 +18,9 @@ Before you start
 	  gearswap, gearsets (THE BACKPACK); memclicks, planner, deckzone,
 	  discardspent (HOW IT PLAYS ITS CARDS - discardspent is on by default:
 	  switch it off till its step, 3.11); partytpdoors, partyhitround,
-	  partyorders (PARTY); overlay (THE OVERLAY); deckadd, trainspells,
-	  spellquests (not built - leave them off).
+	  partyorders (PARTY); overlay (THE OVERLAY); traybot, traygame (THE
+	  MOUSE AND WAITS); deckadd, trainspells, spellquests (not built -
+	  leave them off).
 	- The commands run in a command prompt in the AutoFarmer folder, with
 	  Wizard101 running and your wizard in the world unless a step says
 	  otherwise. They only read the game's memory or files: nothing in the
@@ -225,7 +226,94 @@ Before you start
 	    more copy stays till it's used. Cast a Reshuffle later: do the
 	    discarded copies come back into the deck? As a party's blader or
 	    healer, with reboost on, or in dual mode: no such lines.
-	3.12 memclicks LAST - only once 2.3's lines say the boxes line up (three
+	3.12 traybot, then traygame (the bot's window and Wizard101 in the
+	    tray - nothing is sent into the game). First start the bot once
+	    with both off: the dashboard's X stops the bot, Alt+F4 closes the
+	    game and the tray icon's double-click switches walking, as before.
+	    traybot on: the dashboard's X, then its minimise button - each
+	    puts it in the tray and the bot plays on (a tray tip the first
+	    time); the tray icon's double-click brings it back in front, and
+	    doesn't hide it when it's up; the tray menu's Exit stops the bot.
+	    Move and resize it, minimise it, double-click the tray icon: it's
+	    back where you left it, that size. traygame on, Wizard101 windowed
+	    (a title bar), the bot on: Alt+F4 in the game, then a click on its
+	    X, then its minimise button - each time its window and taskbar
+	    button go, the bot goes off, the dashboard says "Wizard101 is in
+	    the tray", and the tray menu's Show Wizard101 brings it back in
+	    front with the bot on again (one "Wizard101 out of the tray"
+	    line). Alt+F4 in the middle of a battle round, while the bot
+	    casts: nothing is clicked or typed outside the game. A click
+	    elsewhere on its title bar (drag it) and every click in the game
+	    work as ever. While it's in the tray, Bot on/off, Buy potions now
+	    and Quick sell say "show Wizard101 first". Then, each time with it
+	    in the tray: Windows+Esc - it comes back, not in front;
+	    Windows+1 - back, and the new bot starts off (F6 starts it); with
+	    "Open with Wizard101" off (the bot's tray menu), End task on the
+	    bot in Task Manager, then start the bot - back as it starts ("Put
+	    Wizard101 in the tray: Wizard101 was still in the tray ..."); with
+	    it on, End task again and wait 5 s - the watcher shows it.
+	    traygame switched off in Settings with it in the tray: back, not
+	    in front. Borderless (no title bar): Alt+F4 still sends it to the
+	    tray, minimised it stays minimised.
+	    Two game windows open: Alt+F4 says "two Wizard101 windows are
+	    open" and nothing closes. Send the "Wizard101 in the tray",
+	    "Wizard101 out of the tray", "Wizard101 to the tray" and
+	    "Dashboard in the tray" lines, and say if anything closed, stayed
+	    hidden or took the focus by itself.
+	3.13 The dashboard's menu bar, and settings saved to a file and loaded
+	    back (nothing is sent into the game). The window: the bot on/off
+	    button at the top right says "Bot: on (F6)" / "Bot: off (F6)"; no
+	    buttons under the log, which reaches the window's bottom; after
+	    the update it comes back about as tall on the screen as before,
+	    its bottom not behind the taskbar (at 100% and, if you can, 125%
+	    and 150% display scaling). View > Simple view: shorter (no log or
+	    its heading), Pause log and Clear log greyed; again: the log
+	    is back. Each menu in turn (Alt+F, B, V, T and H open them too -
+	    with the bot on, Alt+T still opens Settings): each item does what
+	    it says - what its old button or the tray item did - and debug.log
+	    says "Menu: <menu> > <item> picked" once for each pick. The ticks
+	    follow F6, F8, Windows+4 (in the game) and the tray menu's Wait
+	    while I play, Play for me and Bring Wizard101 to the front within
+	    a second. With the bot on and the dashboard in front, Alt+1: no
+	    menu is left highlighted. Change the bot's key on the Keys tab:
+	    Bot > Bot on/off and the button name the new key. With the
+	    Settings window open, Settings > Put the bot's window in the tray:
+	    "Menu: traybot 0 -> 1", the item ticked and the Settings window's
+	    box ticked too; pick it again: off. Bot > Show Wizard101 is greyed
+	    till Wizard101 is in the tray (3.12), then brings it back
+	    ("Wizard101 out of the tray: shown again - Show Wizard101 (the
+	    dashboard's Bot menu)"). Help > Check for updates: "Checking..."
+	    and greyed for 10 s. A menu left open in a battle round: the bot
+	    waits, as with the tray menu - Esc and it goes on. Then File >
+	    Save settings as..., the name it offers:
+	    a tray tip "N settings saved in Wiz-Maxxing settings <date>.txt.";
+	    in Notepad its first line is "; Wiz-Maxxing settings file 1 -
+	    saved by Wizard101 bot v1.10.0 on <date time>", and there's no
+	    netpin line. Change one setting in Settings (healat, say), Save,
+	    close it, then File > Load settings from... that file: a window
+	    lists that setting, ticked, as it's set now and as the file has it
+	    (mobradius and mobbody too, if the bot widened them since you last
+	    set them in Settings: the file has the reach you set); Apply - "1
+	    setting loaded from <file> - used from now on." (2 or 3 with the
+	    reach), backups\ has "PlayerStats before settings load
+	    <date time>.txt" and Settings shows the file's value again. In
+	    the file change v1.10.0 to v9.0.0 and add a line newkey:1, then
+	    load it: the notes say "Saved by a newer bot (v9.0.0 - this is
+	    v1.10.0) ..." and "Skipped ... (newkey)"; with v1.9.0 and without
+	    that line: neither note. A PlayerStats.txt from another PC (or
+	    the one you backed up before you started): only the Settings
+	    window's settings are looked at, the rest "Skipped" in the notes.
+	    Cancel each way - the Save dialog's, the Load dialog's, then the
+	    list's Cancel, its X and Esc: nothing changes, no backup is made
+	    ("Settings: loading <file> cancelled - nothing changed" for the
+	    list). Load with the Settings window open: "Close the Settings
+	    window first - then load the settings." Save as PlayerStats.txt
+	    in the AutoFarmer folder (say Yes to Windows' question):
+	    "PlayerStats.txt is one of the bot's own files - save the
+	    settings under another name." Send the "Menu:" and "Settings"
+	    lines and the saved file, and say if a tick was wrong, an item
+	    did nothing or anything took the focus by itself.
+	3.14 memclicks LAST - only once 2.3's lines say the boxes line up (three
 	    looks in a row within 10 pixels: "trusted"). Cards and plates are
 	    then clicked where the game's memory has them.
 

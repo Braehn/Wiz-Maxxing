@@ -261,8 +261,8 @@ it caught you in front of it, their reach all round (mobbody - a semi-circle or
 cone's sides and back, 120 at first) when from the side or behind. debug.log
 says so under "Caught by ..."; set them back in Settings any time.
 
-Bring Wizard101 to the front (gamefront:0 - the dashboard's "Game to front"
-button, the tray menu, Settings): with Wizard101 not the window in front, the
+Bring Wizard101 to the front (gamefront:0 - the dashboard's Bot menu, the
+tray menu, Settings): with Wizard101 not the window in front, the
 bot brings it there when the quest arrow shows (walking - once you've left the
 keyboard and mouse alone 3 s, so what you type elsewhere doesn't end up in the
 game) or a battle round is up. It brings the window forward; it never clicks in
@@ -276,7 +276,7 @@ battle rounds, no walking, no potions; a walking key it held is let go at once.
 It carries on 3 s after you stop (handsoff in PlayerStats.txt; 0 = it never
 waits). If you take over during its turn, it leaves that round to you.
 Switch it on/off with the tray menu "Wait while I play" (ticked = on) or the
-dashboard's "Wait for me" button; it's kept in PlayerStats.txt (handsoffon).
+dashboard's Bot > Wait for me; it's kept in PlayerStats.txt (handsoffon).
 It's on again, with 3 s, every time the bot starts - it never takes the mouse
 from you as it starts; switched off or changed, that holds for the run.
 
@@ -306,11 +306,13 @@ takes control once you've said so. F6 and F8 still stop it.
 
 Updates: opening Wiz-Maxxing (Start menu, desktop, ..\Wiz-Maxxing.exe) checks
 GitHub for a newer release and asks before installing it; tray menu "Check for
-updates" does it any time - so does the dashboard's Updates button (top right),
-which says live whether a newer version is out ("Update to v..."; it looks it up
-45 s after the bot starts and every autoupdate minutes, out of the bot's way). The version
-is in the windows' titles, the tray menu's first line and the dashboard's
-STATISTICS. Needs a GitHub token once per PC (Setup.exe, "GitHub updates").
+updates" does it any time - so does the dashboard's Help > Check for updates.
+While a newer version is out, the dashboard's menu bar says so at its right
+end ("Update to v..." - a click on it checks the same way; it looks it up 45 s
+after the bot starts and every autoupdate minutes, out of the bot's way). The
+version is in the windows' titles, the tray menu's first line, the
+dashboard's STATISTICS and its Help > About. Needs a GitHub token once per PC
+(Setup.exe, "GitHub updates").
 Your settings, learned cards, potion routes and pictures are kept.
 updater.log (next to Wiz-Maxxing.exe) says what it did.
 Collect quest items by the game's memory (Settings > WALKING, collectmem - on):
@@ -731,7 +733,7 @@ no wait), and it's installed with no question and no window. The bot starts
 again as it was: on, off or in standby, Play for me, walking (F8),
 auto-reconnect and Learn every card as they were (not if you closed it
 meanwhile). A version that won't install (a file in use) is put back and tried
-3 times, then left to the Updates button. 0 = only when you click.
+3 times, then left to you (Help > Check for updates). 0 = only when you click.
 debug.log: "Updates: ..."; updater.log: "auto: ...".
 
 Party (Settings > PARTY; tray menu Party...): up to 4 wizards, one per PC on the
@@ -869,21 +871,21 @@ plays battles and moves nothing else (Settings)" at the start and at each
 switch, and "Battles only (Settings): no ..." once for each thing it kept from
 moving.
 
-Report a bug (the dashboard's button, top right, or the tray menu): say what
+Report a bug (the dashboard's Help menu, or the tray menu): say what
 went wrong; Send posts it as an issue on the Wiz-Maxxing repo on GitHub, with
 the version, this PC's name, the screen, what the dashboard's STATISTICS and
 WHAT IT SEES show and (ticked) the end of debug.log and of vision\vision.log
 (the vision helper's own log) - anything that looks secret (a Discord webhook,
-a GitHub token, password=...) blanked out. It uses the updates' GitHub token,
-which needs Issues: Read and write as well: on github.com, Settings > Developer
-settings > Fine-grained tokens > the Wiz-Maxxing token > Edit > Repository
-permissions > Issues: Read and write > Update (the same token keeps working -
-nothing to change on the PCs). Closing the window keeps what you typed until
-it's sent.
+a GitHub token, password=..., the network PIN) blanked out. It uses the
+updates' GitHub token, which needs Issues: Read and write as well: on
+github.com, Settings > Developer settings > Fine-grained tokens > the
+Wiz-Maxxing token > Edit > Repository permissions > Issues: Read and write >
+Update (the same token keeps working - nothing to change on the PCs). Closing
+the window keeps what you typed until it's sent.
 
-Simple and advanced views: the dashboard's bottom-right button switches it -
-simple shows what the bot is doing and seeing (STATISTICS, WHAT IT SEES) with
-the main buttons, advanced adds the live log and its buttons.
+Simple and advanced views: the dashboard's View > Simple view (ticked while
+it's simple) switches it - simple shows what the bot is doing and seeing
+(STATISTICS, WHAT IT SEES), advanced adds the live log under them.
 The Settings window's "All settings" / "Fewer settings" switches it between the
 most used settings and all of them (changes not saved yet are kept). Each is
 remembered (dashboard.ini [view]); a new install starts simple, one that ran
@@ -898,11 +900,13 @@ what the bot sees right now (your health/mana/pips, the hand card by card - ?
 for a card it doesn't know, * for a greyed-out one - enemies' health, zone,
 the walker) and the log as it's written, coloured by what each line is about
 (movement blue, battle orange, waits grey, problems red, potions, reconnect,
-party, alerts, the bot itself - the Colours button over the log changes them,
+party, alerts, the bot itself - View > Log colours... changes them,
 kept in dashboard.ini [logcolors]). Windows+2 or the tray menu shows /
 hides it; it opens on a monitor the game isn't on and remembers where you put
 it (dashboard.ini). It never takes the focus by itself. Its X (close) stops
-the bot; minimise it (or Windows+2) to just put it away. Next to STATISTICS:
+the bot; minimise it (or Windows+2) to just put it away - with "Put the bot's
+window in the tray" on (below), its X and minimise put it in the tray and the
+bot plays on. Next to STATISTICS:
 the CPU and RAM in use, every second - the bot (with its vision helper), the
 game and the whole PC (CPU share of all cores, RAM in use). Its tabs: Bot (all
 that), Dungeons (below), Spells (the cards it learned - see "Learned spells"
@@ -913,6 +917,89 @@ card button, and the enemies' spells (see Enemy spells) - each enemy's school,
 rank and health, the chance it hits you, its pips, and under it every spell it
 has, likeliest first: the chance it casts it this round, its pips and damage,
 the rounds it cast it this battle, and how often it was seen casting it.
+
+The dashboard's menu bar (new in v1.10.0, not tried in the game yet -
+LIVE_CHECKS.txt 3.13): the Bot tab's buttons and the two at the top right are
+in it now. Alt+F, B, V, T and H open its menus (Settings is Alt+T: Alt+S is
+Statistic mode's key while the bot is on).
+	- File: Save settings as... and Load settings from... (see Settings
+	  files below), Open bot folder, Open debug.log, Exit (the bot stops,
+	  as with the tray menu's Exit or Windows+Esc).
+	- Bot: Bot on/off, Walking on/off, Play for me, Wait for me, Bring
+	  Wizard101 to the front, and Show Wizard101 - there to pick only while
+	  Wizard101 is in the tray (see below), it brings it back to the front
+	  as the tray menu's does.
+	- View: Map (the zone map's window), Simple view, Log colours..., Pause
+	  log and Clear log (both greyed in the simple view: no log there),
+	  Overlay (the overlay over the game on/off).
+	- Settings: Settings... (the Settings window), Put the bot's window in
+	  the tray and Put Wizard101 in the tray (each switched and saved at
+	  once, as the Settings window's Save does it - see below), Discord
+	  alerts..., Party... and Wizard101 login... (as the tray menu's).
+	- Help: Check for updates ("Checking..." and greyed for 10 s after a
+	  click), Report a bug..., Read me (this file, in Notepad), About (the
+	  version, and the name of the folder AutoFarmer is in).
+Each item that was a button, or is in the tray menu too, does the same as
+that. A tick shows what's on now, however it was switched (the menu, a
+button, F6, F8, Windows+4, the tray menu, the Settings window), within a
+second: the bot, walking, Play for me, Wait for me, the game brought to the
+front (ticked with Play for me on too: it brings the game up whatever the
+setting), the map, the simple view, the log paused, the overlay and the two
+tray settings. An item with a key shows it at its right, in brackets: the key
+set now on the Keys tab ("(F6)"). While a newer version is out, "Update to
+v..." sits at the bar's right end, as the Updates button said it: a click on
+it checks for updates. Still on the window: the bot on/off button, now at
+the top right ("Bot: on (F6)" / "Bot: off (F6)"), Play for me on the tab row
+and each tab's own buttons. With the bottom row of buttons gone, the log
+reaches the window's bottom; the simple view is as tall inside as before, and
+the advanced view comes back about as tall on the screen as it was (20 less
+inside, for the menu bar). A pick is yours, as a tray menu pick is: what it
+opens may take the focus - the menu bar itself never does. While one of its
+menus is open (or Alt has the bar lit) the bot waits, as with the tray menu:
+pick an item or press Esc and it goes on - for an item that opens a box
+(About, Save / Load settings, Discord alerts..., Wizard101 login...), once
+you close that box. debug.log: "Menu: Bot > Play for me picked" for each
+pick (an item's key left out), and for a tray setting switched there "Menu:
+traybot 0 -> 1".
+
+The bot's window in the tray (Settings > THE MOUSE AND WAITS, "Put the bot's
+window in the tray"; traybot:1 in PlayerStats.txt): the dashboard's X (Alt+F4
+in it too) and its minimise button put it in the tray instead - the bot plays
+on. Double-click the tray icon (the tray menu's "Show the bot's window") or
+press Windows+2 to bring it back; while this is on, that double-click no
+longer switches walking on/off. The tray menu's "Exit" (or Windows+Esc) stops
+the bot - a tray tip says so the first time. Minimising every window
+(Windows+M) puts it in the tray too. Off by default (its X stops the bot, as
+before); not tried in the game yet. debug.log: "Dashboard in the tray (its
+X - Settings: traybot) - the bot plays on ...".
+
+Wizard101 in the tray (Settings > THE MOUSE AND WAITS, "Put Wizard101 in the
+tray"; traygame:1 in PlayerStats.txt): Alt+F4 with Wizard101 in front, a
+click on its own X and its minimise button hide its window in the tray
+instead - the game keeps running, its taskbar button goes, nothing is sent
+into it. The X and minimise only when it's windowed: a borderless or full
+screen game minimises as ever. The bot is switched off meanwhile (as with F6,
+every key let go first; a click or key press it had under way is dropped,
+never sent to another window) and on again once the game is back, if it was
+on. The tray menu's "Show Wizard101" brings it back to the front. It's shown
+again by itself too - without taking the focus, minimised if it was - when
+you switch the setting off, when the bot closes (Windows+Esc, Exit, a
+restart, an update) and, if the bot ended without that (End task, a crash),
+at the bot's next start or by the "Open with Wizard101" watcher. While it's
+in the tray the bot can't be switched on, and the tray menu's potion buying,
+potion recording and quick sell say "show Wizard101 first"; the dashboard
+says "Wizard101 is in the tray". Not sent there - a tray tip says why - with
+two Wizard101 windows open, while auto-reconnect is getting it back online,
+or during a potion run, potion recording or quick sell you started. These
+can't be caught and still close it, as before: the taskbar's "Close window",
+the X on a taskbar thumbnail or in Alt+Tab, Close in the window's own menu
+(Alt+Space), Task Manager and the game's own Quit. A click on its X while the
+bot is too busy to check it in time closes it too. Minimising every window
+(Windows+M) puts it in the tray. A restart or an update while it's in the
+tray starts the bot off (F6 starts it). Off by default; not tried in the game
+yet. debug.log: "Wizard101 in the tray (Alt+F4 - Settings: traygame) ...",
+"Wizard101 out of the tray: ...", "Wizard101 to the tray (...): not now -
+...".
 
 The overlay (Settings > THE OVERLAY, "Show the map and the log over the game";
 overlay:1 in PlayerStats.txt; the tray menu's "Overlay over the game on/off";
@@ -938,18 +1025,20 @@ checked - the bot's screen reading doesn't see it", "Overlay: map not shown -
 ..." / "Overlay: log not shown - ..." and, when it can't be used, "Overlay:
 can't be shown - ..." / "Overlay: stopped - ...".
 
-Settings (the dashboard's Settings button, or the tray menu "Settings..."):
-the mouse and the bot's waits, and how it plays its cards, in one window -
-point at a setting to see what it does. Save writes them to PlayerStats.txt
-(each in its own line, comments kept) and the bot uses them at once - no
-restart. Defaults fills in the defaults (Save to use them).
+Settings (the dashboard's Settings > Settings..., or the tray menu
+"Settings..."): the mouse and the bot's waits, and how it plays its cards, in
+one window - point at a setting to see what it does. Save writes them to
+PlayerStats.txt (each in its own line, comments kept) and the bot uses them at
+once - no restart. Defaults fills in the defaults (Save to use them). A file
+of your own with them: see Settings files below.
 	- The mouse and waits: Wait for me (on/off, and the seconds after you
 	  stop), put the mouse back (when the bot takes the mouse - a battle
 	  round, a click out of battle - it goes back to where it was once it's
 	  done, unless you used the mouse or keys meanwhile), mouse speed, the
 	  wait before each click (plus a random bit, so clicks aren't evenly
 	  timed), the wait after clicks, before playing a round, after a discard
-	  and before looking at the hand again.
+	  and before looking at the hand again; the bot's window and Wizard101
+	  in the tray (see above).
 	- Health: heal under %, drink a potion under %, flee when out of cards.
 	- The backpack: quick sell it when it's full, pets too, after a dungeon
 	  too (see Quick sell below); compare gear before selling, and pieces of
@@ -969,6 +1058,46 @@ restart. Defaults fills in the defaults (Save to use them).
 	- The overlay: the map and the log see-through over the game - each
 	  part's corner (or Off), the map's size, the log's lines, width and text
 	  size, the dark box behind them, how solid (see The overlay above).
+
+Settings files (the dashboard's File menu - new in v1.10.0, not tried in the
+game yet: LIVE_CHECKS.txt 3.13). Save settings as... writes the Settings
+window's settings, as they're in use now (Save there first), to a file of
+your own - to keep, or for another PC. The dialog offers Documents and
+"Wiz-Maxxing settings <date>.txt"; .txt is added to a name without one. The
+file's first line says which version saved it and when; then each setting
+is a key:value line with its label after a ";", under the Settings window's
+headings. For the mobs' reach (mobradius, mobbody) it writes what you last
+set in Settings, if you did - not what the bot widened it to since. Never in
+it: your stats, the cards the bot learned, the settings kept only in
+PlayerStats.txt (navmem...), the network PIN (netpin), the Discord webhook
+and the Wizard101 login (those two are in no file: Windows Credential Manager
+keeps them) - nor your keys, decks, dungeon runs, the windows' places or
+party.ini's party name and leader. It won't write over PlayerStats.txt,
+dashboard.ini or party.ini in the bot's folder. A tray tip says how many
+settings it saved.
+Load settings from... reads such a file - or a plain PlayerStats.txt from
+another PC: only the Settings window's settings in it are taken - its stats,
+learned cards and the settings kept only in PlayerStats.txt (navmem...) are
+skipped. Each value is checked as the Settings window checks it. Nothing
+changes yet: a window lists each setting the file would change, as it's set
+now and as the file has it, every one ticked but the party's role and battle
+part (partyrole, partybattle - this PC's own). The notes under the list say
+what isn't loaded (a value a setting can't take, keys not in the Settings
+window - stats, learned cards, settings kept only in PlayerStats.txt, a newer
+version's -, lines it couldn't read, a network PIN), what was brought into
+its range, and what still wins over a loaded setting: the deck in use's own
+value, or a wizard's own line for its school (storm.killmargin...); and Wait
+for me goes back on at every start.
+Apply first copies PlayerStats.txt to backups\ ("PlayerStats before settings
+load <date time>.txt" - if that fails, nothing is loaded), then sets the
+ticked ones: used at once, no restart. A setting the file doesn't have stays
+as it is. Cancel, the window's X or Esc changes nothing. A file with none of
+the settings in it "isn't a settings file". With the Settings window open it
+says "Close the Settings window first - then load the settings." debug.log
+(a file's name only, never where it is): "Settings saved in <file> - N
+settings (not the network PIN)", "Settings loaded from <file>: healat 40 ->
+30 | PlayerStats.txt as it was: backups\PlayerStats before settings load
+...", "Settings: loading <file> cancelled - nothing changed".
 
 Smart App Control (Windows 11 - "Smart App Control blocked"): it blocks the
 bot's exes (they aren't signed) and can't be told to allow them. Run the bot as

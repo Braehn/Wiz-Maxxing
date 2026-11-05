@@ -2,50 +2,50 @@
 ; Dashboard.ahk - a window with the bot's statistics, what it sees right now, and a live log (every line
 ; of debug.log as it's written). AHK v1.1, functions and labels only; #Included by Autofarmer.ahk.
 ;
-; Windows+2 or the tray menu shows / hides it; closing it only hides it. It opens on a monitor the game
-; isn't on (if there is one) and remembers where you put it (dashboard.ini). It never takes the focus by
-; itself - clicking into it does, and the walker waits while Wizard101 isn't the active window.
+; Windows+2 or the tray menu shows / hides it; its X stops the bot - or, with "Put the bot's window in the
+; tray" on (Settings: traybot), its X and minimize button put it in the tray and the bot plays on (DashToTray).
+; It opens on a monitor the game isn't on (if there is one) and remembers where you put it (dashboard.ini). It
+; never takes the focus by itself - clicking into it does, and the walker waits while Wizard101 isn't the active
+; window.
 ;
 ; The numbers come from the log lines (DashLog sees every DebugLog line) plus a few calls from the battle
 ; code: DashCast (a card was cast), DashSee (what the bot sees: the hand, enemies, your health...).
 ;
-; Its Map button (or the tray menu) opens a second window: a top-down picture of the zone the wizard is in,
+; Its menu bar - File, Bot, View, Settings, Help (v1.10.0: most of the buttons moved there) - is "The menu bar"
+; below. View > Map (or the tray menu) opens a second window: a top-down picture of the zone the wizard is in,
 ; drawn by the vision helper (/navmap) - see "The map" below.
 
 global DashHwnd, DashCon, DashShown, DashPaused, DashHeld, DashStart ;(v1 never ran: DashHwnd := 0, DashCon := 0, DashShown := 0, DashPaused := 0, DashHeld := "", DashStart := 0 - blank at start: DashboardBlank)
 ;Counts (rounds, passes, ...) and casts per card; what it sees ({key: text}); card names off PlayerStats.txt
 global DashN, DashCasts, DashSees, DashNames ;(v1 never ran: DashN := "", DashCasts := "", DashSees := "", DashNames := "" - blank at start: DashboardBlank)
-global DashHead, DashStatText, DashSeeText, DashConsole, DashPauseBtn, DashHandsBtn
+global DashHead, DashStatText, DashSeeText, DashConsole
 ;CPU and RAM in use, on the STATISTICS row (DashUsage)
 global DashUsageText
-;The Settings button (Settings.ahk), left of the Map button
-global DashCfgBtn
-;The view: simple (1 - what it's doing and seeing, the main buttons: no hand pictures, no log) or advanced (0 -
-;everything); its button (the bottom row's right end) and the LOG heading
-global DashSimple, DashViewBtn, DashLogHead
-;The log's Colours button (DashLogColorsWindow), and the Colours window's swatches and buttons
-global DashColBtn, LogColHwnd
-;"Game to front" on/off (gamefront - Autofarmer.ahk GameFrontToggle)
-global DashFrontBtn
-;The Updates button, at the right end of the heading row (says whether a newer version is out: UpdState); Report a
-;bug left of it (BugReport.ahk)
-global DashUpdBtn, DashUpdBusy, DashBugBtn
+;The view: simple (1 - what it's doing and seeing: no log) or advanced (0 - everything, the log too); View > Simple
+;view switches it. The LOG heading
+global DashSimple, DashLogHead
+;The Colours window's swatches and buttons (View > Log colours...: DashLogColorsWindow)
+global LogColHwnd
+;Help > Check for updates says "Checking..." a while after a click (DashUpdBusy: when - DashUpdButton)
+global DashUpdBusy
 ;The "Play for me" button (a coloured bar - red off, green on - and clickable words: a button can't be coloured) -
 ;Autofarmer.ahk PlayForMeToggle
 global DashPlayBtn, DashPlayBg
 ;Where the tabs' inside starts in the window (GuiControl Move places a tab's controls from there: DashGuiSize)
 global DashTabOX, DashTabOY, DashTabOW, DashTabOH
-;The bottom row's other buttons (they share the window's width)
-global DashClearBtn, DashLogBtn, DashWalkBtn, DashFolderBtn, DashBotBtn
+;The bot on / off button, at the heading row's right end (BotToggle in Autofarmer.ahk)
+global DashBotBtn
+;The menu bar's menus ({file, bot, view, set, help, bar} - DashMenuMake; "" till it's made)
+global DashMenus
 ;The Cards tab: your hand - its heading, and a picture and a label for each of up to 7 cards - and the enemies' spells
 ;(their heading and list: DashFoesSeen)
 global DashFoeHead, DashFoeList
 global DashLearnBtn, DashHandHead, DashCardPic1, DashCardPic2, DashCardPic3, DashCardPic4, DashCardPic5, DashCardPic6, DashCardPic7
 global DashCardTxt1, DashCardTxt2, DashCardTxt3, DashCardTxt4, DashCardTxt5, DashCardTxt6, DashCardTxt7
-;The map window: the button, the window, its picture and line; the request it's waiting for (kind: map / nav,
-;sent at); when it last asked for a picture and at what size (screen pixels); the picture's file; what went
-;wrong with the picture; /nav's last answer; when the picture shown was made
-global DashMapBtn, DashMapHwnd, DashMapPic, DashMapPicH, DashMapText, DashMapShown, DashMapReq, DashMapKind, DashMapReqAt
+;The map window: the window, its picture and line; the request it's waiting for (kind: map / nav, sent at); when
+;it last asked for a picture and at what size (screen pixels); the picture's file; what went wrong with the
+;picture; /nav's last answer; when the picture shown was made
+global DashMapHwnd, DashMapPic, DashMapPicH, DashMapText, DashMapShown, DashMapReq, DashMapKind, DashMapReqAt
 global DashMapAt, DashMapW, DashMapH, DashMapFile, DashMapNote, DashMapNav, DashMapPicAt
 
 ;Makes the window (shown unless dashboard.ini says it was hidden). Called once at start
@@ -69,16 +69,15 @@ DashInit()
 	Dash.BackColor := "1B1D22"
 	Dash.MarginX := 12, Dash.MarginY := 10
 	Dash.SetFont("s11 w600 cF2F2F2", "Segoe UI")
-	Dash.Add("Text", "x12 y10 w526 h22 vDashHead", BotVersion())
-	;(the Updates button: the heading row's right end - DashGuiSize keeps it there)
+	Dash.Add("Text", "x12 y10 w622 h22 vDashHead", BotVersion())
+	;(the bot on / off: the heading row's right end - DashGuiSize keeps it there; its words: DashBotShow, DashKeysChanged.
+	;"on" till BotOnShow says how it is, as the bot starts)
 	Dash.SetFont("s9 w400 c000000", "Segoe UI")
-	Dash.Add("Button", "x544 y7 w88 h24 vDashBugBtn", "Report a bug").OnEvent("Click", DashGLabel.Bind(DashBugButton, "Normal"))
-	Dash.Add("Button", "x640 y7 w136 h24 vDashUpdBtn", "Check for updates").OnEvent("Click", DashGLabel.Bind(DashUpdButton, "Normal"))
-	;(the button says "Checking..." a while after a click: DashUpdBusy)
-	;Four tabs: Bot (statistics, what it sees, the log), Dungeons (Dungeons.ahk), Spells (the cards the bot learned by
-	;itself: Spells.ahk) and Cards (your hand, the enemies' spells)
+	Dash.Add("Button", "x640 y7 w136 h24 vDashBotBtn", "Bot: on (" HkText("bot") ")").OnEvent("Click", DashGLabel.Bind(DashBotToggle, "Normal"))
+	;Six tabs: Bot (statistics, what it sees, the log), Dungeons (Dungeons.ahk), Spells (the cards the bot learned by
+	;itself: Spells.ahk), Cards (your hand, the enemies' spells), Network (Network.ahk) and Keys (Hotkeys.ahk)
 	Dash.SetFont("s9 w600 cF2F2F2", "Segoe UI")
-	tabs := Dash.Add("Tab3", "x6 y36 w772 h764 +Buttons -Theme vDashTabs", ["Bot", "Dungeons", "Spells", "Cards", "Network", "Keys"])
+	tabs := Dash.Add("Tab3", "x6 y36 w772 h742 +Buttons -Theme vDashTabs", ["Bot", "Dungeons", "Spells", "Cards", "Network", "Keys"])
 	tabs.UseTab(1)
 	Dash.SetFont("s9 w600 c8AB4F8", "Segoe UI")
 	Dash.Add("Text", "x12 y68 w86 h16", "STATISTICS")
@@ -86,33 +85,17 @@ DashInit()
 	Dash.Add("Text", "x100 y69 w270 h16 vDashUsageText", "CPU / RAM ...")
 	Dash.SetFont("s9 w600 c8AB4F8", "Segoe UI")
 	Dash.Add("Text", "x372 y68 w150 h16", "WHAT IT SEES")
-	;(the Map button at the right end of that row; DashGuiSize keeps it there)
-	Dash.SetFont("s9 w400 c000000", "Segoe UI")
-	Dash.Add("Button", "x618 y64 w76 h22 vDashCfgBtn", "Settings").OnEvent("Click", DashGLabel.Bind(DashSettingsButton, "Normal"))
-	Dash.Add("Button", "x700 y64 w76 h22 vDashMapBtn", "Map").OnEvent("Click", DashGLabel.Bind(DashMapButton, "Normal"))
 	Dash.SetFont("s9 w400 cDADADA", "Consolas")
 	Dash.Add("Text", "x12 y88 w350 h190 vDashStatText")
 	Dash.Add("Text", "x372 y88 w400 h196 vDashSeeText")
 	Dash.SetFont("s9 w600 c8AB4F8", "Segoe UI")
 	Dash.Add("Text", "x12 y286 w200 h16 vDashLogHead", "LOG")
-	;(each kind of line in its colour - movement, battle, waits... - set with the small Colours button: a rich edit, as
-	;an Edit can't colour its lines; read-only, no wrap)
-	Dash.SetFont("s8 w400 c000000", "Segoe UI")
-	Dash.Add("Button", "x694 y283 w78 h20 vDashColBtn", "Colours").OnEvent("Click", DashGLabel.Bind(DashLogColorsBtn, "Normal"))
+	;(each kind of line in its colour - movement, battle, waits... - set in View > Log colours...: a rich edit, as an
+	;Edit can't colour its lines; read-only, no wrap. Down to the window's bottom - DashGuiSize)
 	Dash.SetFont("s9 w400 cB9E2B9", "Consolas")
 	DllCall("LoadLibrary", "Str", "Msftedit.dll", "Ptr")
-	DashCon := Dash.Add("Custom", "ClassRICHEDIT50W x12 y306 w760 h452 +0x200000 +0x100000 +0x4 +0x800 +0x100 +0x40 +0x80 vDashConsole").Hwnd
+	DashCon := Dash.Add("Custom", "ClassRICHEDIT50W x12 y306 w760 h468 +0x200000 +0x100000 +0x4 +0x800 +0x100 +0x40 +0x80 vDashConsole").Hwnd
 	DashLogInit()
-	Dash.SetFont("s9 w400 c000000", "Segoe UI")
-	Dash.Add("Button", "x12 y768 w110 h26 vDashPauseBtn", "Pause log").OnEvent("Click", DashGLabel.Bind(DashPauseLog, "Normal"))
-	Dash.Add("Button", "x130 y768 w80 h26 vDashClearBtn", "Clear").OnEvent("Click", DashGLabel.Bind(DashClearLog, "Normal"))
-	Dash.Add("Button", "x218 y768 w120 h26 vDashLogBtn", "Open debug.log").OnEvent("Click", DashGLabel.Bind(DashOpenLog, "Normal"))
-	Dash.Add("Button", "x346 y768 w120 h26 vDashBotBtn", "Bot: on (" HkText("bot") ")").OnEvent("Click", DashGLabel.Bind(DashBotToggle, "Normal"))
-	Dash.Add("Button", "x346 y768 w150 h26 vDashWalkBtn", "Walking on/off (" HkText("walk") ")").OnEvent("Click", DashGLabel.Bind(DashWalkToggle, "Normal"))
-	Dash.Add("Button", "x504 y768 w140 h26 vDashFolderBtn", "Open bot folder").OnEvent("Click", DashGLabel.Bind(DashFolder, "Normal"))
-	Dash.Add("Button", "x652 y768 w124 h26 vDashHandsBtn", "Wait for me: on").OnEvent("Click", DashGLabel.Bind(DashHandsToggle, "Normal"))
-	Dash.Add("Button", "x652 y768 w124 h26 vDashFrontBtn", "Game to front: off").OnEvent("Click", DashGLabel.Bind(DashFrontToggle, "Normal"))
-	Dash.Add("Button", "x652 y768 w110 h26 vDashViewBtn", "Advanced view").OnEvent("Click", DashGLabel.Bind(DashViewToggle, "Normal"))
 	;The Dungeons tab: a run recorded once, walked again and again (Dungeons.ahk)
 	tabs.UseTab(2)
 	Dash.SetFont("s9 w600 c8AB4F8", "Segoe UI")
@@ -312,6 +295,8 @@ DashInit()
 	;(v1: a Text's gLabel ran for a double-click too - A_GuiEvent DoubleClick)
 	play.OnEvent("DoubleClick", DashGLabel.Bind(DashPlayToggle, "DoubleClick"))
 	Dash.SetFont("s9 w400 c000000", "Segoe UI")
+	;(the menu bar: after the last control, before the window's minimum size - DashApplyView - and its first show)
+	DashMenuMake()
 	;(the log so far: the lines written before the window was made)
 	earlier := V1FileRead(A_ScriptDir "\debug.log")
 	if (earlier != "")
@@ -380,11 +365,12 @@ DashLearnShow(learnOn)
 		Dash["DashLearnBtn"].Text := learnOn ? "Learning... (stop)" : "Learn every card"
 	}
 
-;The bot on/off button's label
+;The bot on/off button's label, and the Bot menu's tick
 DashBotShow(isOn)
 	{
 	if (DashHwnd)
 		Dash["DashBotBtn"].Text := "Bot: " (isOn ? "on" : "off") " (" HkText("bot") ")"
+	DashMenuTicks()
 	}
 
 ;The Dungeons tab's help line - with the keys set now (Hotkeys.ahk)
@@ -394,24 +380,25 @@ DashDgHelpText()
 	}
 
 ;A key changed on the Keys tab (KeySet, KeyAllClick - Hotkeys.ahk): the dashboard's texts that name a key made again
-;with the keys set now (the others - the status lines - are made afresh every second)
+;with the keys set now (the others - the status lines - are made afresh every second), the menu bar's items too
+;(DashMenuKeys)
 DashKeysChanged()
 	{
 	if (!DashHwnd)
 		return
 	Dash["DashBotBtn"].Text := "Bot: " (BotOn ? "on" : "off") " (" HkText("bot") ")"
-	Dash["DashWalkBtn"].Text := "Walking on/off (" HkText("walk") ")"
+	DashMenuKeys()
 	Dash["DgHelp"].Text := DashDgHelpText()
 	;(while a run's being recorded: the key it was begun with - the one that stops it)
 	Dash["DgRecStopBtn"].Text := "Stop recording (" (DgRecording ? HkName(DgRecKey) : HkText("record")) ")"
 	Dash["DeckFWBoss"].Text := "bosses (" HkText("boss") ")"
 	}
 
-;The "Game to front" button's label
+;"Bring Wizard101 to the front" switched (Autofarmer.ahk GameFrontShow): the Bot menu's tick (DashMenuTicks reads
+;GameFrontOn itself - frontOn is what it says)
 DashFrontShow(frontOn)
 	{
-	if (DashHwnd)
-		Dash["DashFrontBtn"].Text := "Game to front: " (frontOn ? "on" : "off")
+	DashMenuTicks()
 	}
 
 ;The "Play for me" button: red "Play for me" off, green "PLAYING FOR ME" on (you asked, 2026-10-26)
@@ -424,13 +411,15 @@ DashPlayShow(on)
 	Dash["DashPlayBtn"].Text := on ? "PLAYING FOR ME" : "Play for me"
 	;(the words drawn again over the bar's new colour)
 	Dash["DashPlayBtn"].Redraw()
+	;(the Bot menu's tick)
+	DashMenuTicks()
 	}
 
-;The "Wait while I play" button's label
+;"Wait while I play" switched (Autofarmer.ahk HandsOffShow): the Bot menu's "Wait for me" tick (DashMenuTicks reads
+;HandsOffOn itself - waitOn is what it says)
 DashHandsShow(waitOn)
 	{
-	if (DashHwnd)
-		Dash["DashHandsBtn"].Text := "Wait for me: " (waitOn ? "on" : "off")
+	DashMenuTicks()
 	}
 
 ;Simple (true) or advanced: which view of a window (what: "dashboard", "settings") - dashboard.ini [view]. Not set yet:
@@ -455,17 +444,17 @@ ViewSimple(what)
 	return v = 1
 	}
 
-;The view shown: simple hides the log with its buttons (the window that much shorter), advanced shows them; the view
-;button says which the other is
+;The view shown: simple hides the log (the window that much shorter - 330 at the least, for a deck's value row on the
+;Cards tab), advanced shows it; the View menu's tick (and Pause log, Clear log greyed while simple: DashMenuTicks)
 DashApplyView()
 	{
 	if (!DashHwnd)
 		return
 	act := DashSimple ? "Hide" : "Show"
-	for each, c in ["DashLogHead", "DashConsole", "DashPauseBtn", "DashClearBtn", "DashLogBtn", "DashColBtn"]
+	for each, c in ["DashLogHead", "DashConsole"]
 		Dash[c].Visible := act = "Show"
-	Dash["DashViewBtn"].Text := DashSimple ? "Advanced view" : "Simple view"
 	Dash.Opt("+MinSize740x" (DashSimple ? 330 : 640))
+	DashMenuTicks()
 	}
 
 ;Shows the window where it was (else on a monitor the game isn't on), without taking the focus - each view its own
@@ -474,29 +463,43 @@ DashApplyView()
 DashShow()
 	{
 	global DashShown ; (v1 globals it sets)
+	;(minimized - its minimize button put it in the tray (Settings: traybot - DashToTray), or Windows+2 hid it so: its
+	;place wasn't saved (DashSaveWin can't), Windows kept it. Shown with no x/y/w/h it comes back there, nothing
+	;moves it)
+	if (DashHwnd && DllCall("IsIconic", "Ptr", DashHwnd))
+		{
+		Dash.Show("NoActivate")
+		DashShown := 1
+		DashRefresh()
+		return
+		}
 	section := DashSimple ? "simple" : "window"
 	x := IniRead(A_ScriptDir "\dashboard.ini", section, "x", "")
 	y := IniRead(A_ScriptDir "\dashboard.ini", section, "y", "")
 	w := IniRead(A_ScriptDir "\dashboard.ini", section, "w", 784)
 	h := IniRead(A_ScriptDir "\dashboard.ini", section, "h", "")
 	layout := IniRead(A_ScriptDir "\dashboard.ini", "window", "layout", 1)
-	;(the Hand section came in above the log, then the tabs: a window saved before that is that much taller now)
+	;(the Hand section came in above the log, then the tabs: a window saved before that is that much taller now.
+	;v1.10.0, layout 4: the menu bar over it - about 20 px on the screen - and no bottom row: 20 less, as tall on the
+	;screen as it was. The simple view's place has no layout: a saved one stays as it is)
 	if (DashSimple)
 		h := (h = "") ? 330 : V1Max(330, h)
 	else
-		h := (h = "") ? 804 : (V1Lt(layout, 2) ? V1Add(h, 180) : V1Lt(layout, 3) ? V1Add(h, 28) : h)
-	;(w and h are at 100% display scaling; Windows' scaling makes the window that much bigger)
+		h := (h = "") ? 784 : (V1Lt(layout, 2) ? V1Add(h, 160) : V1Lt(layout, 3) ? V1Add(h, 8) : V1Lt(layout, 4) ? V1Sub(h, 20) : h)
+	;(w and h are at 100% display scaling; Windows' scaling makes the window that much bigger. Its frame - the title bar,
+	;the borders and the menu bar - is DashFrameH at 100%)
 	dpi := A_ScreenDPI / 96
+	frameH := DashFrameH()
 	if (x = "" || y = "" || !DashOnScreen(V1Add(x, 40), V1Add(y, 20)))
 		{
 		;(the first monitor that doesn't hold the middle of the game window; else the bottom right)
 		spare := DashSpareMonitor(&mLeft, &mTop, &mRight, &mBottom)
 		;(no bigger than that monitor)
-		w := V1Min(w, Floor((mRight - mLeft - 40) / dpi) - 16), h := V1Min(h, Floor((mBottom - mTop - 40) / dpi) - 40)
+		w := V1Min(w, Floor((mRight - mLeft - 40) / dpi) - 16), h := V1Min(h, Floor((mBottom - mTop - 40) / dpi) - frameH)
 		x := spare ? mLeft + 20 : mRight - V1Round(V1Mul(V1Add(w, 16), dpi)) - 20
-		y := spare ? mTop + 20 : mBottom - V1Round(V1Mul(V1Add(h, 40), dpi)) - 20
+		y := spare ? mTop + 20 : mBottom - V1Round(V1Mul(V1Add(h, frameH), dpi)) - 20
 		}
-	DashFitHeight(x, y, &h)
+	DashFitHeight(x, y, &h, frameH)
 	Dash.Show("x" x " y" y " w" w " h" h " NoActivate")
 	DashShown := 1
 	DashRefresh()
@@ -533,8 +536,9 @@ DashMonitorAt(x, y, &mLeft, &mTop, &mRight, &mBottom)
 	MonitorGetWorkArea(, &mLeft, &mTop, &mRight, &mBottom)
 	}
 
-;h (a window's inside, at 100% display scaling) cut so a window at x, y fits on the monitor it's on
-DashFitHeight(x, y, &h)
+;h (a window's inside, at 100% display scaling) cut so a window at x, y fits on the monitor it's on - frameH: its frame
+;at 100% (the title bar and borders: 40 - the map's; the dashboard's has its menu bar too: DashFrameH)
+DashFitHeight(x, y, &h, frameH := 40)
 	{
 	dpi := A_ScreenDPI / 96
 	count := MonitorGetCount()
@@ -542,8 +546,15 @@ DashFitHeight(x, y, &h)
 		{
 		MonitorGetWorkArea(A_Index, &mLeft, &mTop, &mRight, &mBottom)
 		if (x + 40 >= mLeft && x + 40 < mRight && y + 20 >= mTop && y + 20 < mBottom)
-			h := V1Min(h, Floor((mBottom - y - 20) / dpi) - 40)
+			h := V1Min(h, Floor((mBottom - y - 20) / dpi) - frameH)
 		}
+	}
+
+;The dashboard's frame at 100% display scaling: the title bar and borders (40), and its menu bar - Windows' height
+;for one (SM_CYMENU, at the scaling in use) - once it's made
+DashFrameH()
+	{
+	return 40 + (IsObject(DashMenus) ? Round(DllCall("GetSystemMetrics", "Int", 15, "Int") * 96 / A_ScreenDPI) : 0)
 	}
 
 ;(v2 port: x, y blank when dashboard.ini's place wasn't a number - v1 compared a blank as text: not on a screen)
@@ -576,6 +587,35 @@ DashToggle()
 	V1Do(IniWrite, DashShown, A_ScriptDir "\dashboard.ini", "window", "shown")
 	}
 
+;Settings: traybot ("Put the bot's window in the tray") - its X or minimize button (how, for the log) puts it in the
+;tray and the bot plays on: its place kept (minimized: Windows keeps it - DashShow), hidden. The tray icon's double-click
+;(DashFromTray) or Windows+2 brings it back, the tray menu's Exit stops the bot - a tray tip says so the first time
+DashToTray(how)
+	{
+	static said := false
+	global DashShown ; (v1 globals it sets)
+	if (!DashHwnd)
+		return
+	DashSavePlace()
+	Dash.Hide()
+	DashShown := 0
+	DebugLog("Dashboard in the tray (" how " - Settings: traybot) - the bot plays on: the tray icon brings it back, the tray menu's " HkMenu("quit") " stops the bot")
+	if (!said)
+		said := true, TrayTip("The bot plays on - its window is in the tray. Double-click the tray icon to bring it back - " HkMenu("quit") " in the tray menu stops the bot.", "Wizard101 bot", 1)
+	}
+
+;The tray menu's "Show the bot's window" - the tray icon's double-click while traybot is on (Settings): the window
+;shown where it was - never hidden, as DashToggle hides it when it's up - and brought to the front (you asked)
+DashFromTray()
+	{
+	if (!DashHwnd)
+		return
+	if (!DashShown || V1Try(WinGetMinMax, "ahk_id " DashHwnd) = -1)
+		DashShow()
+	V1Do(IniWrite, 1, A_ScriptDir "\dashboard.ini", "window", "shown")
+	V1Try(WinActivate, "ahk_id " DashHwnd)
+	}
+
 DashSavePlace()
 	{
 	if (!DashShown || !DashHwnd)
@@ -583,7 +623,7 @@ DashSavePlace()
 	if (DashSimple)
 		DashSaveWin(DashHwnd, "simple")
 	else if (DashSaveWin(DashHwnd, "window"))
-		V1Do(IniWrite, 3, A_ScriptDir "\dashboard.ini", "window", "layout")
+		V1Do(IniWrite, 4, A_ScriptDir "\dashboard.ini", "window", "layout")
 	}
 
 ;Saves where a window is in dashboard.ini [section]: x, y on the screen, and its inside's width and height at
@@ -607,6 +647,323 @@ DashSaveWin(hwnd, section)
 	V1Do(IniWrite, Round(NumGet(rc, 8, "Int") * 96 / A_ScreenDPI), A_ScriptDir "\dashboard.ini", section, "w")
 	V1Do(IniWrite, Round(NumGet(rc, 12, "Int") * 96 / A_ScreenDPI), A_ScriptDir "\dashboard.ini", section, "h")
 	return true
+	}
+
+;---- The menu bar ----
+;
+;The standard File | Bot | View | Settings | Help menus at the window's top left (you asked, v1.10.0: most of the
+;buttons moved there - the bot's on / off button stays at the heading's right end, Play for me on the tab row, each
+;tab's own buttons on it). Made once (DashMenuMake); kept as things are by DashMenuTicks - the ticks, the greyed
+;items, the keys the items name and, while a newer version is out, "Update to vX" at the bar's right end. Alt+F, B,
+;V, T and H open them (Settings is Alt+T: Alt+S is Statistic mode's key while the bot's on). A pick is yours, as a
+;tray menu pick is: what it opens may take the focus. Each pick a thread of its own, logged (DashMenuRun)
+
+;Makes the menus and puts the bar on the window (DashInit: after its last control, before it's first shown). An item
+;is found again by its place in its menu ("2&" - DashMenuName, DashMenuSet): the names that say a key change. Couldn't
+;be made: said in the log, the window works on without it (the tray menu has most of it)
+DashMenuMake()
+	{
+	global DashMenus
+	try
+		{
+		dmFile := Menu(), dmBot := Menu(), dmView := Menu(), dmSet := Menu(), dmHelp := Menu()
+		;(File: 1 Save settings as..., 2 Load settings from..., 4 Open bot folder, 5 Open debug.log, 7 Exit - the tray
+		;menu's Exit: the bot stops)
+		dmFile.Add("Save settings as...", DashMenuRun.Bind("File", DashMenuSaveAs))
+		dmFile.Add("Load settings from...", DashMenuRun.Bind("File", DashMenuLoadFrom))
+		dmFile.Add()
+		dmFile.Add("Open bot folder", DashMenuRun.Bind("File", DashFolder))
+		dmFile.Add("Open debug.log", DashMenuRun.Bind("File", DashOpenLog))
+		dmFile.Add()
+		dmFile.Add("Exit" DashMenuKey("quit"), DashMenuRun.Bind("File", ExitApp))
+		;(Bot: 1 Bot on/off, 2 Walking on/off, 4 Play for me, 5 Wait for me, 6 Bring Wizard101 to the front, 8 Show
+		;Wizard101 - greyed unless Wizard101 is in the tray)
+		dmBot.Add("Bot on/off" DashMenuKey("bot"), DashMenuRun.Bind("Bot", DashBotToggle))
+		dmBot.Add("Walking on/off" DashMenuKey("walk"), DashMenuRun.Bind("Bot", DashWalkToggle))
+		dmBot.Add()
+		dmBot.Add("Play for me", DashMenuRun.Bind("Bot", DashPlayToggle))
+		dmBot.Add("Wait for me", DashMenuRun.Bind("Bot", DashHandsToggle))
+		dmBot.Add("Bring Wizard101 to the front", DashMenuRun.Bind("Bot", DashFrontToggle))
+		dmBot.Add()
+		dmBot.Add("Show Wizard101", DashMenuRun.Bind("Bot", DashMenuGameShow))
+		;(View: 1 Map, 2 Simple view, 4 Log colours..., 5 Pause log, 6 Clear log - those two greyed in the simple view,
+		;which shows no log - 8 Overlay)
+		dmView.Add("Map", DashMenuRun.Bind("View", DashMapButton))
+		dmView.Add("Simple view", DashMenuRun.Bind("View", DashViewToggle))
+		dmView.Add()
+		dmView.Add("Log colours...", DashMenuRun.Bind("View", DashLogColorsBtn))
+		dmView.Add("Pause log", DashMenuRun.Bind("View", DashPauseLog))
+		dmView.Add("Clear log", DashMenuRun.Bind("View", DashClearLog))
+		dmView.Add()
+		dmView.Add("Overlay" DashMenuKey("overlay"), DashMenuRun.Bind("View", DashMenuOverlay))
+		;(Settings: 1 Settings..., 3 Put the bot's window in the tray, 4 Put Wizard101 in the tray, 6 Discord alerts...,
+		;7 Party..., 8 Wizard101 login...)
+		dmSet.Add("Settings...", DashMenuRun.Bind("Settings", DashSettingsButton))
+		dmSet.Add()
+		dmSet.Add("Put the bot's window in the tray", DashMenuRun.Bind("Settings", DashMenuTraySet.Bind("traybot")))
+		dmSet.Add("Put Wizard101 in the tray", DashMenuRun.Bind("Settings", DashMenuTraySet.Bind("traygame")))
+		dmSet.Add()
+		dmSet.Add("Discord alerts...", DashMenuRun.Bind("Settings", DashMenuAlerts))
+		dmSet.Add("Party...", DashMenuRun.Bind("Settings", DashMenuParty))
+		dmSet.Add("Wizard101 login...", DashMenuRun.Bind("Settings", DashMenuLogin))
+		;(Help: 1 Check for updates, 2 Report a bug..., 3 Read me, 5 About)
+		dmHelp.Add("Check for updates", DashMenuRun.Bind("Help", DashUpdButton))
+		dmHelp.Add("Report a bug...", DashMenuRun.Bind("Help", DashBugButton))
+		dmHelp.Add("Read me", DashMenuRun.Bind("Help", DashMenuReadMe))
+		dmHelp.Add()
+		dmHelp.Add("About", DashMenuRun.Bind("Help", DashMenuAbout))
+		;(the bar: 1-5 the menus, 6 "Update to vX" while a newer version is out - DashMenuTicks)
+		dmBar := MenuBar()
+		dmBar.Add("&File", dmFile)
+		dmBar.Add("&Bot", dmBot)
+		dmBar.Add("&View", dmView)
+		dmBar.Add("Se&ttings", dmSet)
+		dmBar.Add("&Help", dmHelp)
+		Dash.MenuBar := dmBar
+		DashMenus := Map("file", dmFile, "bot", dmBot, "view", dmView, "set", dmSet, "help", dmHelp, "bar", dmBar)
+		}
+	catch as dmErr
+		{
+		DashMenus := ""
+		DebugLog("Dashboard: the menu bar couldn't be made - " dmErr.Message " (" dmErr.What ", line " dmErr.Line ")")
+		}
+	DashMenuTicks()
+	}
+
+;The menu bar as things are now: each item's tick, the greyed ones, Help's "Checking..." and the bar's "Update to vX"
+;while a newer version is out (the last look-up: UpdState). Called by each hook that shows a state (DashBotShow,
+;DashPlayShow, DashFrontShow, DashHandsShow, DashApplyView, DashMapShow / DashMapHide, DashPauseLog), by Settings.ahk
+;CfgApply, and every second by DashRefresh - walking, the tray settings, Wizard101 in the tray and the overlay change in
+;many places. The keys the items name: DashMenuKeys. Before the bar is made: nothing. An error said in the log once,
+;never a box (it would take the focus)
+DashMenuTicks()
+	{
+	static updItem := "", updOn := 1, errSaid := 0
+	try
+		{
+		if (!IsObject(DashMenus))
+			return
+		DashMenuSet("bot", 1, "tick", BotOn)
+		DashMenuSet("bot", 2, "tick", Walking)
+		DashMenuSet("bot", 4, "tick", PlayForMe)
+		DashMenuSet("bot", 5, "tick", V1IsFunc("HandsOffOn") && HandsOffOn.Call())
+		;(what it does now: Play for me brings the game up whatever gamefront is - GameFrontOn)
+		DashMenuSet("bot", 6, "tick", V1IsFunc("GameFrontOn") && GameFrontOn.Call())
+		DashMenuSet("bot", 8, "on", GameInTray)
+		DashMenuSet("view", 1, "tick", DashMapShown)
+		DashMenuSet("view", 2, "tick", DashSimple)
+		;(the simple view shows no log: Pause log and Clear log greyed - not Log colours..., the overlay's log takes them)
+		DashMenuSet("view", 5, "on", !DashSimple)
+		DashMenuSet("view", 6, "on", !DashSimple)
+		DashMenuSet("view", 5, "tick", DashPaused)
+		DashMenuSet("view", 8, "tick", V1IsFunc("OvStat") && OvStat.Call("overlay", 0))
+		DashMenuSet("set", 3, "tick", V1IsFunc("TrayBotOn") && TrayBotOn.Call())
+		DashMenuSet("set", 4, "tick", V1IsFunc("TrayGameOn") && TrayGameOn.Call())
+		;(Help > Check for updates: "Checking..." and greyed for 10 s after a click - DashUpdButton, DashRefresh)
+		DashMenuName("help", 1, DashUpdBusy ? "Checking..." : "Check for updates")
+		DashMenuSet("help", 1, "on", !DashUpdBusy)
+		;(a newer version out: "Update to vX" at the bar's right end - what the Updates button said and did - gone once
+		;there's none; greyed while it's checking. The bar drawn again after a change of its own items)
+		mtUpd := V1IsFunc("UpdState") ? UpdState.Call() : ""
+		mtWant := (IsObject(mtUpd) && mtUpd.newer) ? "Update to " mtUpd.latest : ""
+		mtBar := DashMenus["bar"]
+		if (mtWant != updItem)
+			{
+			if (updItem != "")
+				mtBar.Delete("6&")
+			if (mtWant != "")
+				mtBar.Add(mtWant, DashMenuRun.Bind("", DashUpdButton), "Right"), updOn := 1
+			updItem := mtWant
+			DllCall("DrawMenuBar", "Ptr", DashHwnd)
+			}
+		if (updItem != "" && updOn != (DashUpdBusy ? 0 : 1))
+			{
+			updOn := DashUpdBusy ? 0 : 1
+			if (updOn)
+				mtBar.Enable("6&")
+			else
+				mtBar.Disable("6&")
+			DllCall("DrawMenuBar", "Ptr", DashHwnd)
+			}
+		}
+	catch as mtErr
+		{
+		if (!errSaid)
+			errSaid := 1, DebugLog("Dashboard: the menu bar - " mtErr.Message " (" mtErr.What ", line " mtErr.Line ") - said once a run")
+		}
+	}
+
+;The items that say a key ("Bot on/off`t(F6)"), named with the keys set now - a key changed on the Keys tab
+;(DashKeysChanged; DashMenuMake made them with the keys then). By place: their names change. Not every second, as the
+;ticks are - each key is read from dashboard.ini (Hotkeys.ahk HkKeyOf)
+DashMenuKeys()
+	{
+	try
+		{
+		if (!IsObject(DashMenus))
+			return
+		DashMenuName("file", 7, "Exit" DashMenuKey("quit"))
+		DashMenuName("bot", 1, "Bot on/off" DashMenuKey("bot"))
+		DashMenuName("bot", 2, "Walking on/off" DashMenuKey("walk"))
+		DashMenuName("view", 8, "Overlay" DashMenuKey("overlay"))
+		}
+	catch as mkErr
+		DebugLog("Dashboard: the menu bar's keys - " mkErr.Message " (" mkErr.What ", line " mkErr.Line ")")
+	}
+
+;Item pos of menu which (DashMenus' key: "file", "bot"...) named name - renamed only when that's new (its tick and
+;greying stay)
+DashMenuName(which, pos, name)
+	{
+	static named := Map()
+	mnKey := which "|" pos
+	if (named.Has(mnKey) && named[mnKey] == name)
+		return
+	DashMenus[which].Rename(pos "&", name)
+	named[mnKey] := name
+	}
+
+;Item pos of menu which ticked (what "tick") or there to pick (what "on") - want true or false; set only when it
+;changed
+DashMenuSet(which, pos, what, want)
+	{
+	static was := Map()
+	msKey := which "|" pos "|" what
+	want := want ? 1 : 0
+	if (was.Has(msKey) && was[msKey] = want)
+		return
+	msMenu := DashMenus[which], msItem := pos "&"
+	if (what = "tick")
+		{
+		if (want)
+			msMenu.Check(msItem)
+		else
+			msMenu.Uncheck(msItem)
+		}
+	else if (want)
+		msMenu.Enable(msItem)
+	else
+		msMenu.Disable(msItem)
+	was[msKey] := want
+	}
+
+;"`t(F6)": a tab and action id's key now, in brackets, for a menu item's right end; "" while the action has no key.
+;Display only - the keys are Hotkeys.ahk's. In brackets as the tray menu has them: a bare key name after the tab
+;("`tF6") AutoHotkey makes a shortcut of while the window is active (its menu bar accelerators), so F6 or F8 in the
+;dashboard would act even with the bot off - "(F6)" is no key name, nothing is made of it
+DashMenuKey(id)
+	{
+	mkKey := HkText(id)
+	return mkKey = "(none)" ? "" : "`t(" mkKey ")"
+	}
+
+;A menu bar pick - top: its menu, for the log ("" the bar's own Update item); fn: what it does, called with nothing (a
+;Dash* button handler would take the menu's ItemName, ItemPos and Menu for its A_GuiEvent, A_GuiControl and Info);
+;item: the item picked, as Windows passes it. A thread of its own, as a tray pick is - logged as one: "Menu: Bot > Play
+;for me picked" (the key after the tab left out)
+DashMenuRun(top, fn, item := "", *)
+	{
+	local v1Keep := V1Thread() ; (v1: each thread had its own ErrorLevel)
+	DebugLog("Menu: " (top = "" ? "" : top " > ") RegExReplace(item, "`t.*") " picked")
+	fn()
+	}
+
+;File > Save settings as... / Load settings from...: the settings to a file of your own, or from one (SettingsFile.ahk
+;CfgSaveAs, CfgLoadFrom - their dialogs their own)
+DashMenuSaveAs()
+	{
+	if (V1IsFunc("CfgSaveAs"))
+		CfgSaveAs.Call()
+	}
+
+DashMenuLoadFrom()
+	{
+	if (V1IsFunc("CfgLoadFrom"))
+		CfgLoadFrom.Call()
+	DashMenuTicks()
+	}
+
+;Bot > Show Wizard101 (there to pick only while Wizard101 is in the tray - Settings: traygame): shown and brought to the
+;front, as the tray menu's Show Wizard101 does (Autofarmer.ahk GameTrayShow - you asked, so it may take the focus)
+DashMenuGameShow()
+	{
+	if (V1IsFunc("GameTrayShow"))
+		GameTrayShow.Call(true, "Show Wizard101 (the dashboard's Bot menu)")
+	DashMenuTicks()
+	}
+
+;View > Overlay: the overlay over the game on / off - Settings: overlay (Overlay.ahk OverlayToggle, as the tray menu's
+;item and its key)
+DashMenuOverlay()
+	{
+	if (V1IsFunc("OverlayToggle"))
+		OverlayToggle.Call()
+	DashMenuTicks()
+	}
+
+;Settings > Put the bot's window in the tray / Put Wizard101 in the tray (key: traybot, traygame): switched and saved as
+;the Settings window's Save does it - Critical as it is, then Settings.ahk CfgApply (PlayerStats.txt, the log's line,
+;the tray menu and these ticks). Not saved: said in a tray tip
+DashMenuTraySet(key)
+	{
+	if (!V1IsFunc("CfgApply"))
+		return
+	Critical()
+	tsWas := (key = "traybot") ? (V1IsFunc("TrayBotOn") && TrayBotOn.Call()) : (V1IsFunc("TrayGameOn") && TrayGameOn.Call())
+	if (!CfgApply.Call(Map(key, tsWas ? 0 : 1), "Menu"))
+		TrayTip("Couldn't save that setting - PlayerStats.txt couldn't be written.", "Wizard101 bot", 2)
+	DashMenuTicks()
+	}
+
+;Settings > Discord alerts... / Wizard101 login...: what the tray menu's items open (Alerts.ahk AlertSetup, Reconnect.ahk
+;ReconnectSetLogin) - their boxes the dashboard's, in front of it (the tray's are kept in front of the game:
+;Autofarmer.ahk DialogsInFront)
+DashMenuAlerts()
+	{
+	Dash.Opt("+OwnDialogs")
+	if (V1IsFunc("AlertSetup"))
+		AlertSetup.Call()
+	}
+
+DashMenuLogin()
+	{
+	Dash.Opt("+OwnDialogs")
+	if (V1IsFunc("ReconnectSetLogin"))
+		ReconnectSetLogin.Call()
+	}
+
+;Settings > Party...: the party window, as the tray menu's item opens it (Party.ahk PartySetup - an error opening it
+;logged and said in a tray tip, not a box: PartyWinFailed)
+DashMenuParty()
+	{
+	if (!V1IsFunc("PartySetup"))
+		return
+	try PartySetup.Call()
+	catch Any as pmErr
+		{
+		if (V1IsFunc("PartyWinFailed"))
+			PartyWinFailed.Call(pmErr)
+		}
+	}
+
+;Help > Read me: README.txt (in this folder, AutoFarmer) in Notepad - else a box saying why not
+DashMenuReadMe()
+	{
+	rmFile := A_ScriptDir "\README.txt"
+	rmWhy := !FileExist(rmFile) ? "README.txt isn't in the bot's AutoFarmer folder." : V1Run("notepad.exe `"" rmFile "`"") ? "Notepad couldn't be started for README.txt." : ""
+	if (rmWhy = "")
+		return
+	Dash.Opt("+OwnDialogs")
+	MsgBox(rmWhy, "Wizard101 bot", 48)
+	}
+
+;Help > About: the bot's name and version, and the name of the folder it's in (the name only - never a whole path)
+DashMenuAbout()
+	{
+	SplitPath(A_ScriptDir, , &abDir)
+	SplitPath(abDir, &abName)
+	Dash.Opt("+OwnDialogs")
+	MsgBox("Wiz-Maxxing " (BotVersion() = "" ? "(no version.txt)" : BotVersion()) "`n`nIts folder: " abName, "About Wiz-Maxxing", 64)
 	}
 
 ;---- The Network tab (Network.ahk) ----
@@ -712,7 +1069,7 @@ DashLog(line)
 		DashAppend(line "`r`n")
 	}
 
-;---- The log in colour: each line's kind (DashLogKind) in its colour (dashboard.ini [logcolors], the Colours button) ----
+;---- The log in colour: each line's kind (DashLogKind) in its colour (dashboard.ini [logcolors], View > Log colours...) ----
 
 ;The kinds, in the order the Colours window lists them: [key, label, default colour RRGGBB]
 DashLogKinds()
@@ -1220,7 +1577,11 @@ DashRefresh()
 	up := (A_TickCount - DashStart) // 1000
 	upText := Format("{:02}:{:02}:{:02}", up // 3600, Mod(up // 60, 60), Mod(up, 60))
 	;What it's doing
-	if (!BotOn)
+	;(Wizard101 in the tray - Settings: traygame - Autofarmer.ahk GameTrayHide: the bot off till it's shown again - the
+	;Bot menu's Show Wizard101, or the tray menu's)
+	if (GameInTray)
+		doing := "Wizard101 is in the tray - Bot > Show Wizard101 brings it back"
+	else if (!BotOn)
 		doing := BotEverOn ? "Off - " HkText("bot") " turns the bot on" : "Standby - press " HkText("bot") " to start the bot"
 	else if (PotionRecording)
 		doing := "Recording potion buying"
@@ -1244,7 +1605,8 @@ DashRefresh()
 		doing := "Watching"
 	;(the window's title says "Wizard101 bot")
 	DashSet("DashHead", BotVersion() "  |  up " upText "  |  vision " (VisionOn ? "on" : "off") "  |  " SubStr(doing, 1, 70))
-	;The version, and whether a newer one is out (the last look-up: UpdState) - on the Updates button too
+	;The version, and whether a newer one is out (the last look-up: UpdState) - the menu bar's "Update to vX" too
+	;(DashMenuTicks)
 	upd := UpdState()
 	verNote := upd.newer ? upd.latest " is out" : upd.err != "" ? "can't check" : upd.latest != "" ? "up to date" : "not checked yet"
 	;(why it can't check: in the log, once each time it changes)
@@ -1255,12 +1617,12 @@ DashRefresh()
 		if (upd.err != "")
 			DebugLog("Updates: can't check for a newer version - " upd.err)
 		}
+	;(Help > Check for updates: "Checking..." for 10 s after a click - DashUpdButton)
 	if (DashUpdBusy && A_TickCount - DashUpdBusy > 10000)
-		{
 		DashUpdBusy := 0
-		Dash["DashUpdBtn"].Enabled := true
-		}
-	DashSet("DashUpdBtn", DashUpdBusy ? "Checking..." : upd.newer ? "Update to " upd.latest : (upd.err = "" && upd.latest != "") ? "Up to date" : "Check for updates")
+	;(the menu bar as things are - walking, the tray settings, Wizard101 in the tray and the overlay change in many
+	;places, so they're looked at here every second - and the Update item)
+	DashMenuTicks()
 	;Statistics
 	n := DashN
 	casts := ""
@@ -1388,7 +1750,7 @@ DashSet(control, text)
 ;waits for the map. It never takes the focus by itself. Its place is kept in dashboard.ini [map].
 ;(v2 port: the window is the Gui object MapGui - v1's GUI Map; Map is v2's class)
 
-;The Map button / tray menu: shows or hides it
+;View > Map / the tray menu: shows or hides it
 DashMapToggle()
 	{
 	if (DashMapShown)
@@ -1438,6 +1800,8 @@ DashMapShow()
 	MapGui.Show("x" x " y" y " w" w " h" h " NoActivate")
 	DashMapShown := 1, DashMapAt := 0
 	SetTimer(DashMapTick, 250)
+	;(the View menu's tick)
+	DashMenuTicks()
 	}
 
 ;Hides it (keeping its place) and stops asking
@@ -1454,6 +1818,8 @@ DashMapHide()
 	if (IsObject(DashMapReq))
 		try DashMapReq.Abort()
 	DashMapReq := ""
+	;(the View menu's tick)
+	DashMenuTicks()
 	}
 
 ;Where it goes the first time (w, h: its inside at 100% display scaling): beside the dashboard - right of it,
@@ -1696,7 +2062,7 @@ MapGuiSize:
 MapGuiSize()
 	return
 
-;---- The dashboard's buttons ----
+;---- The dashboard's buttons and menu items (the menu bar: DashMenuMake) ----
 
 DashRefresh:
 DashRefresh()
@@ -1732,7 +2098,7 @@ DashNetRefresh:
 DashNetRefresh()
 	return
 
-;The log's Colours button, and its window's buttons: a kind's colour changed (kept in dashboard.ini [logcolors]), all
+;View > Log colours..., and its window's buttons: a kind's colour changed (kept in dashboard.ini [logcolors]), all
 ;back to the defaults, the window closed - the log coloured afresh each time
 DashLogColorsBtn:
 DashLogColorsBtn()
@@ -1841,12 +2207,12 @@ DashUpdButton:
 DashUpdButton()
 	return
 
-;Report a bug (BugReport.ahk): what went wrong, posted as an issue on GitHub
+;Help > Report a bug... (BugReport.ahk): what went wrong, posted as an issue on GitHub
 DashBugButton:
 DashBugButton()
 	return
 
-;The Settings window (Settings.ahk): the mouse, the waits, how it plays its cards
+;Settings > Settings... - the Settings window (Settings.ahk): the mouse, the waits, how it plays its cards
 DashSettingsButton:
 DashSettingsButton()
 	return
@@ -1861,7 +2227,7 @@ DashBotToggle:
 DashBotToggle()
 	return
 
-;Simple / advanced view (dashboard.ini [view] dashboard): each view keeps its own place and size
+;View > Simple view on / off (dashboard.ini [view] dashboard): each view keeps its own place and size
 DashViewToggle:
 DashViewToggle()
 	return
@@ -1881,7 +2247,8 @@ DashHandsToggle:
 DashHandsToggle()
 	return
 
-;(the window's X stops the bot - minimise it, or Windows+2, to just put it away)
+;(v1's label, never run: the window's X runs DashGuiClose(*) - it stops the bot, or with traybot on puts the window
+;in the tray)
 DashGuiClose:
 DashGuiClose()
 	ExitApp()
@@ -1919,7 +2286,8 @@ MapGuiSize(thisGui:="", MinMax:="", A_GuiWidth:="", A_GuiHeight:="") { ; (v1: a 
 DashPauseLog(A_GuiEvent:="", A_GuiControl:="", Info:="", *) { ; (v1: a label - its code ran in the global scope)
 	global
 	DashPaused := !DashPaused
-	Dash["DashPauseBtn"].Text := DashPaused ? "Resume log" : "Pause log"
+	;(View > Pause log: ticked while it's paused)
+	DashMenuTicks()
 	if (!DashPaused && DashHeld != "")
 		DashAppend(DashHeld), DashHeld := ""
 	return
@@ -2059,6 +2427,8 @@ DashWalkToggle(A_GuiEvent:="", A_GuiControl:="", Info:="", *) { ; (v1: a label -
 	global
 	if (V1IsFunc("WalkToggle"))
 		WalkToggle.Call()
+	;(the Bot menu's tick at once - F8 and the rest: DashRefresh's look every second)
+	DashMenuTicks()
 	return
 }
 ;##############################################
@@ -2070,13 +2440,13 @@ DashFolder(A_GuiEvent:="", A_GuiControl:="", Info:="", *) { ; (v1: a label - its
 ;##############################################
 DashUpdButton(A_GuiEvent:="", A_GuiControl:="", Info:="", *) { ; (v1: a label - its code ran in the global scope)
 	global
-	;The Updates button: the usual check - a newer version offered (its notes), installed if you say so, the bot then
-	;started again as it is now - or "you're up to date" (UpdCheckNow, as the tray menu's Check for updates).
-	;"Checking..." and not clickable for 10 s
+	;Help > Check for updates, and the menu bar's "Update to vX" while a newer version is out: the usual check - a newer
+	;version offered (its notes), installed if you say so, the bot then started again as it is now - or "you're up to
+	;date" (UpdCheckNow, as the tray menu's Check for updates). "Checking..." and greyed for 10 s (DashMenuTicks)
 	if (UpdCheckNow())
 		{
 		DashUpdBusy := A_TickCount
-		Dash["DashUpdBtn"].Enabled := false
+		DashMenuTicks()
 		DashRefresh()
 		}
 	return
@@ -2144,6 +2514,13 @@ DashHandsToggle(A_GuiEvent:="", A_GuiControl:="", Info:="", *) { ; (v1: a label 
 DashGuiClose(*) { ; (v1: a label - its code ran in the global scope)
 	global
 	local v1Keep := V1Thread() ; (v1: each thread had its own ErrorLevel)
+	;(Settings: traybot - "Put the bot's window in the tray": the X puts it there and the bot plays on - DashToTray.
+	;True: v2 doesn't hide it once more itself)
+	if (V1IsFunc("TrayBotOn") && TrayBotOn.Call())
+		{
+		DashToTray("its X")
+		return true
+		}
 	DebugLog("Dashboard closed - the bot stops")
 	ExitApp()
 }
@@ -2152,24 +2529,29 @@ DashGuiClose(*) { ; (v1: a label - its code ran in the global scope)
 DashGuiSize(thisGui:="", MinMax:="", A_GuiWidth:="", A_GuiHeight:="") { ; (v1: a label - its code ran in the global scope)
 	global
 	if (MinMax = -1)
+		{
+		;(Settings: traybot - minimized: into the tray instead, the bot plays on - DashToTray)
+		if (V1IsFunc("TrayBotOn") && TrayBotOn.Call())
+			DashToTray("its minimize button")
 		return
+		}
 	;(GuiControl Move places a tab's controls from the tabs' inside, not the window's: where that starts, measured
-	;once the window's up - a control moved to 0,0 there and where it lands read)
+	;once the window's up - a Bot tab control, the LOG heading, moved to 0,0 there and where it lands read, then put
+	;back where it was made: x12 y286)
 	if (DashTabOX = "")
 		{
-		Dash["DashPauseBtn"].Move(0, 0)
-		Dash["DashPauseBtn"].GetPos(&DashTabOX, &DashTabOY, &DashTabOW, &DashTabOH)
+		Dash["DashLogHead"].Move(0, 0)
+		Dash["DashLogHead"].GetPos(&DashTabOX, &DashTabOY, &DashTabOW, &DashTabOH)
+		Dash["DashLogHead"].Move(12 - DashTabOX, 286 - DashTabOY)
 		}
-	Dash["DashHead"].Move(, , A_GuiWidth - 258)
+	;(the heading's status line up to the bot's button at the row's right end - both outside the tabs)
+	Dash["DashHead"].Move(, , A_GuiWidth - 162)
+	Dash["DashBotBtn"].Move(A_GuiWidth - 144)
 	Dash["DashPlayBg"].Move(A_GuiWidth - 116)
 	Dash["DashPlayBtn"].Move(A_GuiWidth - 116)
-	Dash["DashBugBtn"].Move(A_GuiWidth - 240)
-	Dash["DashUpdBtn"].Move(A_GuiWidth - 144)
-	Dash["DashMapBtn"].Move(A_GuiWidth - 84 - DashTabOX)
-	Dash["DashCfgBtn"].Move(A_GuiWidth - 166 - DashTabOX)
 	Dash["DashSeeText"].Move(, , A_GuiWidth - 384)
-	Dash["DashConsole"].Move(, , A_GuiWidth - 24, Max(40, A_GuiHeight - 352))
-	Dash["DashColBtn"].Move(A_GuiWidth - 90 - DashTabOX)
+	;(the log down to the window's bottom)
+	Dash["DashConsole"].Move(, , A_GuiWidth - 24, Max(40, A_GuiHeight - 316))
 	;(the Cards tab: the Learn button at the right end of the hand's row, its heading up to it; the enemies' list takes
 	;what's left)
 	Dash["DashLearnBtn"].Move(A_GuiWidth - 138 - DashTabOX)
@@ -2206,7 +2588,7 @@ DashGuiSize(thisGui:="", MinMax:="", A_GuiWidth:="", A_GuiHeight:="") { ; (v1: a
 	Dash["DashTabs"].Move(, , A_GuiWidth - 12, A_GuiHeight - 42)
 	Dash["DgHelp"].Move(, , A_GuiWidth - 24)
 	Dash["DgStatus"].Move(, , A_GuiWidth - 24)
-	Dash["DgList"].Move(, , A_GuiWidth - 24, A_GuiHeight - 298)
+	Dash["DgList"].Move(, , A_GuiWidth - 24, Max(40, A_GuiHeight - 298))
 	;(the Keys tab: its list takes what's left)
 	Dash["KeyHelp"].Move(, , A_GuiWidth - 24)
 	Dash["KeyStatus"].Move(, , A_GuiWidth - 24)
@@ -2214,25 +2596,9 @@ DashGuiSize(thisGui:="", MinMax:="", A_GuiWidth:="", A_GuiHeight:="") { ; (v1: a
 	;(the Spells tab: its list takes what's left of the picture on its right)
 	Dash["SpHelp"].Move(, , A_GuiWidth - 24)
 	Dash["SpStatus"].Move(, , A_GuiWidth - 24)
-	Dash["SpList"].Move(, , A_GuiWidth - 172, A_GuiHeight - 202)
+	Dash["SpList"].Move(, , A_GuiWidth - 172, Max(40, A_GuiHeight - 202))
 	Dash["SpPreview"].Move(A_GuiWidth - 152 - DashTabOX)
 	Dash["SpPreviewTxt"].Move(A_GuiWidth - 152 - DashTabOX, , , Max(40, A_GuiHeight - 440))
-	;(the bottom row shares the width, each button in proportion to the width it was made with, so all fit at any
-	;size - 620 at the least; the simple view: without the log's three)
-	;(a label runs in the global scope: Dash-named variables only)
-	DashRowList := [["DashBotBtn", 100], ["DashWalkBtn", 140], ["DashFolderBtn", 120], ["DashHandsBtn", 120], ["DashFrontBtn", 130], ["DashViewBtn", 110]]
-	if (!DashSimple)
-		DashRowList.InsertAt(1, ["DashPauseBtn", 100], ["DashClearBtn", 70], ["DashLogBtn", 110])
-	DashRowSum := 0
-	for DashRowI, DashRowB in DashRowList
-		DashRowSum += DashRowB[2]
-	DashRowX := 12, DashRowRoom := A_GuiWidth - 24 - 6 * (DashRowList.Length - 1)
-	for DashRowI, DashRowB in DashRowList
-		{
-		DashRowW := Floor(DashRowRoom * DashRowB[2] / DashRowSum)
-		Dash[DashRowB[1]].Move(DashRowX - DashTabOX, A_GuiHeight - 36 - DashTabOY, DashRowW)
-		DashRowX += DashRowW + 6
-		}
 	return
 }
 
@@ -2243,13 +2609,13 @@ DashGuiSize(thisGui:="", MinMax:="", A_GuiWidth:="", A_GuiHeight:="") { ; (v1: a
 DashboardBlank()
 	{
 	global DashHwnd := "", DashCon := "", DashShown := "", DashPaused := "", DashHeld := "", DashStart := "", DashN := "", DashCasts := ""
-	global DashSees := "", DashNames := "", DashHead := "", DashStatText := "", DashSeeText := "", DashConsole := "", DashPauseBtn := ""
-	global DashHandsBtn := "", DashUsageText := "", DashCfgBtn := "", DashSimple := "", DashViewBtn := "", DashLogHead := "", DashColBtn := ""
-	global LogColHwnd := "", DashFrontBtn := "", DashUpdBtn := "", DashUpdBusy := "", DashBugBtn := "", DashPlayBtn := "", DashPlayBg := ""
-	global DashTabOX := "", DashTabOY := "", DashTabOW := "", DashTabOH := "", DashClearBtn := "", DashLogBtn := "", DashWalkBtn := ""
-	global DashFolderBtn := "", DashBotBtn := "", DashFoeHead := "", DashFoeList := "", DashLearnBtn := "", DashHandHead := "", DashCardPic1 := ""
+	global DashSees := "", DashNames := "", DashHead := "", DashStatText := "", DashSeeText := "", DashConsole := ""
+	global DashUsageText := "", DashSimple := "", DashLogHead := "", DashMenus := ""
+	global LogColHwnd := "", DashUpdBusy := "", DashPlayBtn := "", DashPlayBg := ""
+	global DashTabOX := "", DashTabOY := "", DashTabOW := "", DashTabOH := ""
+	global DashBotBtn := "", DashFoeHead := "", DashFoeList := "", DashLearnBtn := "", DashHandHead := "", DashCardPic1 := ""
 	global DashCardPic2 := "", DashCardPic3 := "", DashCardPic4 := "", DashCardPic5 := "", DashCardPic6 := "", DashCardPic7 := "", DashCardTxt1 := ""
-	global DashCardTxt2 := "", DashCardTxt3 := "", DashCardTxt4 := "", DashCardTxt5 := "", DashCardTxt6 := "", DashCardTxt7 := "", DashMapBtn := ""
+	global DashCardTxt2 := "", DashCardTxt3 := "", DashCardTxt4 := "", DashCardTxt5 := "", DashCardTxt6 := "", DashCardTxt7 := ""
 	global DashMapHwnd := "", DashMapPic := "", DashMapPicH := "", DashMapText := "", DashMapShown := "", DashMapReq := "", DashMapKind := ""
 	global DashMapReqAt := "", DashMapAt := "", DashMapW := "", DashMapH := "", DashMapFile := "", DashMapNote := "", DashMapNav := ""
 	global DashMapPicAt := "", NetSel := ""

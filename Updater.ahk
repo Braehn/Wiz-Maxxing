@@ -124,8 +124,9 @@ UpPeekSave(tag, err)
 	V1Do(IniWrite, A_Now, A_ScriptDir "\updater.ini", "latest", "at")
 	}
 
-;One update check / install at a time, across all the bot's processes (the dashboard's button clicked twice, the
-;watcher's check, the tray's): true when this one may go on - else the other one's question is brought forward
+;One update check / install at a time, across all the bot's processes (the dashboard's Help > Check for updates or
+;its Update to vX picked twice, the watcher's check, the tray's): true when this one may go on - else the other one's
+;question is brought forward
 UpOnlyOne(bringForward := true)
 	{
 	static mutex := 0
@@ -185,7 +186,7 @@ UpAuto()
 	;(v1: an ini value that isn't a number compared as text, and made "tries + 1" blank)
 	if (V1Ge(tries, 3))
 		{
-		UpLog("auto: " rel.tag " already tried 3 times - left to the Updates button")
+		UpLog("auto: " rel.tag " already tried 3 times - left to the dashboard's Help > Check for updates")
 		return false
 		}
 	V1Do(IniWrite, rel.tag, ini, "auto", "tag")
