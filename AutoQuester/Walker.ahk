@@ -3910,6 +3910,9 @@ SpeedSet(fast, why := "", force := false)
 	key := SpeedKey(want > 1)
 	gap := SpeedSentAt ? 400 - (A_TickCount - SpeedSentAt) : 0
 	SpeedNow := want, SpeedSentAt := A_TickCount
+	;(a caller's own Critical kept - AutoFarmer's GameTrayHide, Critical till the game's in the tray, switches the bot
+	;off on the way: its 1x press)
+	spCrit := A_IsCritical
 	Critical()
 	if (gap > 0)
 		Sleep(gap)
@@ -3917,7 +3920,8 @@ SpeedSet(fast, why := "", force := false)
 	Sleep(250)
 	Send("{Blind}{" key " up}")
 	SpeedSentAt := A_TickCount
-	Critical("Off")
+	if (!spCrit)
+		Critical("Off")
 	if (IsObject(WkMet))
 		WkMet.keys += 1
 	WalkLog("speed: " want "x - " key (why != "" ? " (" why ")" : ""))

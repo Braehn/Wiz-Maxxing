@@ -5,9 +5,10 @@ python3 -m unittest test_tray  (from AutoFarmer\\vision)
 
 Pins the wiring each part needs: the Settings entries and their save hook, the dashboard's close and minimize, the
 Alt+F4 hotkey only in the game, the left button's check acting only on the game's own close button (HTCLOSE) with a
-bounded wait, the window hidden and shown without the bot ever taking the focus by itself, the shows at exit, at the
-next start and from the watcher, nothing the bot had under way sent to the window behind once the game's hidden, a
-minimized dashboard back where it was, and nothing that reaches into the game."""
+bounded wait, the window hidden (Critical till it's in the tray, through the bot switching off) and shown without the
+bot ever taking the focus by itself, the shows at exit, at the next start and from the watcher, nothing the bot had
+under way sent to the window behind once the game's hidden, a minimized dashboard back where it was, and nothing that
+reaches into the game."""
 import os
 import re
 import unittest
@@ -287,6 +288,27 @@ class TrayWiring(unittest.TestCase):
                                r'if \(!gsCrit\)\s*Critical\("Off"\)\s*$')
         self.assertEqual(show.count('Critical('), 2)
 
+    def test_hide_stays_critical(self):
+        """GameTrayHide is Critical till GameInTray's set, and switches the bot off on the way (ReleaseKeys, BotToggle):
+        what those reach keeps a caller's Critical - the speedhack's 1x press (SpeedSet) and the mouse lock's let-go
+        (MouseLockApply). A bare Critical("Off") there would let an F6 or a tray pick buffered meanwhile run before the
+        game's in the tray: the bot on with it hidden"""
+        hide = self.fn(self.af, 'GameTrayHide')
+        self.assertRegex(hide, r'ghCrit := A_IsCritical\s*Critical\(\)')
+        self.assertLess(hide.index('Critical()'), hide.index('ReleaseKeys()'))
+        self.assertLess(hide.index('BotToggle()'), hide.index('GameInTray := 1'))
+        self.assertIn('SpeedSet(0, "bot off", true)', self.fn(self.af, 'BotToggle'))
+        walker = code_of(os.path.join(ROOT, 'AutoQuester', 'Walker.ahk'))
+        self.assertIn('SpeedSet(0, "stopped")', self.fn(walker, 'ReleaseKeys'))
+        ss = self.fn(walker, 'SpeedSet')
+        self.assertRegex(ss, r'spCrit := A_IsCritical\s*Critical\(\)')
+        self.assertRegex(ss, r'if \(!spCrit\)\s*Critical\("Off"\)')
+        self.assertEqual(ss.count('Critical("Off")'), 1)
+        self.assertEqual(len(re.findall(r'spCrit\s*:=', ss)), 1)
+        ml = self.fn(self.cfg, 'MouseLockApply')
+        self.assertRegex(ml, r'mlCrit := A_IsCritical')
+        self.assertEqual(len(re.findall(r'if \(!mlCrit\)\s*Critical\("Off"\)', ml)), ml.count('Critical("Off")'))
+
     def test_dashboard_minimized_comes_back_in_place(self):
         """minimized when it went to the tray (DashSaveWin can't save a minimized window's place): shown with no place
         or size - Windows' own place for it holds - before any of dashboard.ini's numbers are read"""
@@ -329,6 +351,17 @@ class TrayWiring(unittest.TestCase):
             self.assertEqual(len(guarded), n, fname)
         flee = self.fn(code_of(os.path.join(AF, 'Flee.ahk')), 'FleeCheck')
         self.assertRegex(flee, r'if \(!CastWentOut\(\)\)\s*\{\s*if \(GameInTray\)\s*return false\s*fx := ')
+        self.assertRegex(flee, r'Sleep\(80\)\s*if \(GameInTray\)\s*return false\s*Click\(\)')
+        self.assertEqual(flee.count('Click()'), 1)
+        # (a hidden game shows no Pass, so it reads as fled: not taken for one - the counts kept, no "Fled" tip)
+        self.assertRegex(flee, r'\n\t\t\}\n+\tif \(GameInTray\)\n\t\treturn false\n+\tFleeWhy := ')
+        self.assertNotRegex(flee, r'GameInTray\s*:=')
+        # (the same misread in an ally heal: nothing learned about who it heals - no heal1target:0 written)
+        heal = self.fn(self.af, 'UseHeal')
+        self.assertRegex(heal, r'else if \(!TargetPending\(\)\)\s*\{\s*if \(GameInTray\)\s*'
+                               r'return false\s*lc := ')
+        self.assertLess(heal.index('if (GameInTray)'), heal.index('StatsSet('))
+        self.assertNotRegex(heal, r'GameInTray\s*:=')
         pot = code_of(os.path.join(AF, 'Potions.ahk'))
         self.assertRegex(self.fn(pot, 'PotionCheck'),
                          r'hp := PotionHealth\(\)\s*if \(hp = "" \|\| GameInTray\)\s*return')
@@ -337,8 +370,41 @@ class TrayWiring(unittest.TestCase):
         self.assertLess(drink.index('GameInTray'), drink.index('Send('))
         self.assertRegex(self.fn(pot, 'PotionRun'), r'if \(GameInTray\)\s*return false\s*Send\("\{Blind\}\{PgDn\}"\)')
         self.assertRegex(self.fn(pot, 'PotionTeleport'), r'if \(GameInTray\)\s*return false\s*Send\("\{Blind\}" key\)')
-        for name in ('PotionCheck', 'PotionDrink', 'PotionRun', 'PotionTeleport'):
+        # (the walk's own Mark - not one made, a kept one left as it was)
+        self.assertRegex(self.fn(pot, 'PotionRunWalk'),
+                         r'g := PotionGlobes\(\)\s*if \(GameInTray\)\s*return false\s*Send\("\{Blind\}\{PgDn\}"\)')
+        # (a recorded route's keys and clicks: the route stops, the mouse given back first)
+        rep = self.fn(pot, 'PotionReplay')
+        self.assertRegex(rep, r'if \(GameInTray\)\s*\{\s*ok := false\s*break\s*\}\s*Send\("\{Blind\}\{" name ')
+        self.assertIn('if (GameInTray || !PotionNoCrowns(x, y))', rep)
+        self.assertRegex(rep, r'Sleep\(120\)\s*if \(GameInTray\)\s*ok := false\s*else\s*Click\(\)\s*if \(ownGrab\)\s*'
+                              r'MouseLetGo\(\)\s*MouseLockOff\("route"\)\s*if \(!ok\)\s*break')
+        self.assertEqual(rep.count('Click()'), 1)
+        # (a hide in the drink's wait: no "none left" booked, no run - whether one was drunk isn't known)
+        self.assertRegex(self.fn(pot, 'PotionCheck'),
+                         r'if \(PotionDrink\(hp\)\)\s*\{\s*PotionNoneAt := 0\s*return\s*\}\s*if \(GameInTray\)\s*'
+                         r'return\s*PotionNoneAt := A_TickCount')
+        for name in ('PotionCheck', 'PotionDrink', 'PotionRun', 'PotionTeleport', 'PotionRunWalk', 'PotionReplay'):
             self.assertNotRegex(self.fn(pot, name), r'GameInTray\s*:=', name)
+        # (the mana drink's Ctrl+O - after its health read; a hide in its wait: no run, no hold, no alert)
+        fl = code_of(os.path.join(AF, 'Flee.ahk'))
+        fdm = self.fn(fl, 'FleeDrinkForMana')
+        self.assertRegex(fdm, r'hpBefore := PotionGlobes\(\)\.hp\s*if \(GameInTray\)\s*return false\s*'
+                              r'Send\("\{Blind\}\^o"\)')
+        self.assertEqual(fdm.count('Send('), 1)
+        frm = self.fn(fl, 'FleeRefillMana')
+        self.assertRegex(frm, r'if \(FleeDrinkForMana\(before\)\)\s*\{[^}]*\}\s*if \(GameInTray\)\s*return true\s*'
+                              r'if \(V1Lt\(A_TickCount, PotionFailUntil\)\)')
+        # (the chat line Respond types - "no mana" after a refill a hide cut short: looked at first and before the line)
+        resp = self.fn(self.af, 'Respond')
+        self.assertTrue(first_is_guard(resp, ''))
+        self.assertRegex(resp, r's\(100\)\s*if \(GameInTray\)\s*return\s*SendInput\(')
+        for code, name in ((fl, 'FleeDrinkForMana'), (fl, 'FleeRefillMana'), (self.af, 'Respond')):
+            self.assertNotRegex(self.fn(code, name), r'GameInTray\s*:=', name)
+        # (Reconnect's click on RECONNECT with the game brought to the front: not on the window behind, none said)
+        self.assertRegex(self.fn(self.rc, 'RcFrontClick'),
+                         r'Sleep\(150\)\s*if \(GameInTray\)\s*btn := ""\s*else\s*Click\(\)\s*Sleep\(150\)\s*'
+                         r'MouseLockOff\("login"\)')
         # (a global, declared - so the reads above find it)
         self.assertIn('global GameInTray := 0', self.fn(self.af, 'AutofarmerBlank'))
 
@@ -389,6 +455,19 @@ class TrayWiring(unittest.TestCase):
             b = self.fn(self.af, menu)
             self.assertRegex(b, r'if \(GameTrayBlocked\("[^"]+"\)\)\s*return', menu)
             self.assertLess(b.index('GameTrayBlocked'), b.index(then), menu)
+        # (sent there while the recording's first box was up - GameTrayNo let it, no recording yet: looked at again
+        # once PotionRecording's set, before any key)
+        rec = self.fn(code_of(os.path.join(AF, 'Potions.ahk')), 'PotionRecordStart')
+        m = re.search(r'PotionRecording := 1\s*if \(GameTrayBlocked\("[^"]+"\)\)\s*\{\s*PotionRecording := 0\s*'
+                      r'return\s*\}\s*ReleaseKeys\(\)', rec)
+        self.assertIsNotNone(m)
+        self.assertLess(rec.index('if (msgResult = "Cancel")'), m.start())
+        self.assertLess(m.end(), rec.index('Send('))
+        # (a hold - checkmana, FleeAfter - goes on with the bot off: no reconnecting on the hidden game, as the main
+        # loop with the bot off - so none of its waits ran on while it was hidden, RcAfterTray)
+        afk = self.fn(self.af, 'CheckAfk')
+        self.assertRegex(afk, r'if \(!GameInTray\)\s*ReconnectCheck\(\)')
+        self.assertEqual(afk.count('ReconnectCheck()'), 1)
         self.assertRegex(self.fn(self.dash, 'DashRefresh'), r'if \(GameInTray\)\s*doing := "Wizard101 is in the tray')
         step = self.fn(self.af, 'GameTrayStep')
         self.assertRegex(step, r'if \(!DllCall\("IsWindow", "Ptr", GameTrayHwnd\) \|\| \(GameTrayPid && '

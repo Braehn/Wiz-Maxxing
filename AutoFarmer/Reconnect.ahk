@@ -1023,7 +1023,12 @@ RcFrontClick(pattern, area, what, fuzzy := "")
 		;(its clicks too, now the pointer's on the game - Settings.ahk MouseLockMoved)
 		MouseLockMoved()
 		Sleep(150)
-		Click()
+		;(Wizard101 gone to the tray meanwhile - AutoFarmer's Settings: traygame: not clicked, it would land on the window
+		;behind - not said clicked, no try counted)
+		if (GameInTray)
+			btn := ""
+		else
+			Click()
 		Sleep(150)
 		MouseLockOff("login")
 		}

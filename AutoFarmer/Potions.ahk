@@ -120,6 +120,10 @@ PotionCheck()
 			PotionNoneAt := 0
 			return
 			}
+		;(Wizard101 gone to the tray during the drink's wait - Settings: traygame: whether one was drunk isn't known -
+		;nothing booked, no run: looked at again once it's back)
+		if (GameInTray)
+			return
 		PotionNoneAt := A_TickCount
 		}
 	;(battles only - Settings: battlesonly: no run to buy more - it moves nothing out of battle: an alert, why in the log -
@@ -662,6 +666,12 @@ PotionReplay(route)
 					DebugLog("Potions: " name " in the recording - skipped")
 				continue
 				}
+			;(Wizard101 gone to the tray - Settings: traygame: not pressed, it'd go to the window in front - the route stops)
+			if (GameInTray)
+				{
+				ok := false
+				break
+				}
 			Send("{Blind}{" name (f[4] = "down" ? " down" : " up") "}")
 			down[name] := (f[4] = "down")
 			}
@@ -669,7 +679,8 @@ PotionReplay(route)
 			{
 			;(v1: a place that isn't a number - the sum blank, Round of it 0)
 			x := V1Round(V1Add(GameLeft + GameW / 2, V1Mul(f[3], UiScale))), y := V1Round(V1Add(GameTop + GameH / 2, V1Mul(f[4], UiScale)))
-			if (!PotionNoCrowns(x, y))
+			;(in the tray already - Settings: traygame: no look at the window behind, no move onto it)
+			if (GameInTray || !PotionNoCrowns(x, y))
 				{
 				ok := false
 				break
@@ -682,10 +693,17 @@ PotionReplay(route)
 			MouseMove(x, y, 3)
 			MouseLockMoved()
 			Sleep(120)
-			Click()
+			;(gone to the tray meanwhile - Settings: traygame: not clicked, it'd land on the window behind - the route
+			;stops once the mouse is given back)
+			if (GameInTray)
+				ok := false
+			else
+				Click()
 			if (ownGrab)
 				MouseLetGo()
 			MouseLockOff("route")
+			if (!ok)
+				break
 			}
 		else if (f[2] = "zone")
 			{
@@ -1420,6 +1438,9 @@ PotionRunWalk()
 		else
 			{
 			g := PotionGlobes()
+			;(Wizard101 gone to the tray - Settings: traygame: no Mark - Page Down would go to the window in front)
+			if (GameInTray)
+				return false
 			Send("{Blind}{PgDn}")
 			Sleep(1500)
 			;(the globe's number given a moment more to go down)
@@ -1583,6 +1604,14 @@ PotionRecordStart()
 	try WinActivate("ahk_class " GameClass " ahk_exe " GameExe)  ; (v1: no game window - nothing; v2 throws)
 	Sleep(500)
 	PotionRecording := 1
+	;(Wizard101 sent to the tray while the box was up - Settings: traygame: GameTrayNo let it, no recording yet - its
+	;keys would go to the window in front: show it first, GameTrayBlocked says so. Looked at once PotionRecording's set:
+	;from then on GameTrayNo keeps it out of the tray)
+	if (GameTrayBlocked("record potion buying"))
+		{
+		PotionRecording := 0
+		return
+		}
 	ReleaseKeys()
 	if (atMark)
 		{

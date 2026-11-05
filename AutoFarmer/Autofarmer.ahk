@@ -2253,6 +2253,10 @@ UseHeal(title, &card, dir, tx := "", ty := "")
 		DebugLog("  " title " heals all of you - the ally too")
 	else if (!TargetPending())
 		{
+		;(Wizard101 gone to the tray - Settings: traygame: a hidden game shows no Pass button, so it reads as gone
+		;out - nothing learned about who it heals)
+		if (GameInTray)
+			return false
 		lc := V1IsFunc("LearnCardInSlot") ? LearnCardInSlot.Call(dir "\" title) : ""
 		allOf := IsObject(lc) && RegExMatch(lc.text, "i)\ba[l1][l1]\b")
 		StatsSet([[dir "." title "target", allOf ? 2 : 0]])
@@ -2432,11 +2436,16 @@ s(time)
 	
 Respond(Text) 
 	{
+	;(Wizard101 gone to the tray - Settings: traygame: nothing typed - the line and its Enter would go to the window in front)
+	if (GameInTray)
+		return
 	if (responcemode == 1)
 		{
 		BlockInput("Send")
 		Send("{r}")
 		s(100)
+		if (GameInTray)
+			return
 		SendInput("{Raw}" Text)
 		Send("{Enter}")
 		}
@@ -2661,7 +2670,10 @@ CheckAfk()
 				AfkRetries := 0
 				break
 				}
-			ReconnectCheck()
+			;(Wizard101 in the tray - Settings: traygame: the bot's off, so no reconnecting on the hidden game, as in the
+			;main loop - the log caught up and the waits started afresh once it's shown, Reconnect.ahk RcAfterTray)
+			if (!GameInTray)
+				ReconnectCheck()
 			if (AfkWhy = "mana" && VisionOn && Mod(A_Index, 30) = 0 && GameActive())
 				{
 				afkMana := V1At(PotionGlobes(), "mana")
