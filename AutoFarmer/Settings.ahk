@@ -540,7 +540,7 @@ CfgSaveNow()
 
 ;The Settings window's settings not as it showed them (CfgShownVals): {key: value} - a checkbox's 0 / 1, a list's
 ;position, a number. One outside its range is brought into it, one that isn't a number put back as it was - both said
-;in fixed ("key (...), ...", for the window's note and the log)
+;in fixed ("key (...), ...", for the window's note and the log - a network PIN brought into its range not)
 CfgCollect(&fixed)
 	{
 	ccPairs := V1Obj(), fixed := ""
@@ -563,7 +563,9 @@ CfgCollect(&fixed)
 			if (ccV < ccS.lo || ccV > ccS.hi)
 				{
 				ccV := Max(ccS.lo, Min(ccS.hi, ccV))
-				fixed .= ", " ccS.key " (" ccS.lo " to " ccS.hi ": " ccV ")"
+				;(not the network PIN: fixed goes into debug.log, whose end goes into a bug report - its box shows it)
+				if (ccS.key != "netpin")
+					fixed .= ", " ccS.key " (" ccS.lo " to " ccS.hi ": " ccV ")"
 				GuiCtrlFromHwnd(ccC).Value := ccV
 				}
 			}

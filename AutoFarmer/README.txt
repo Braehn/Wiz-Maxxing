@@ -956,9 +956,11 @@ the advanced view comes back about as tall on the screen as it was (20 less
 inside, for the menu bar). A pick is yours, as a tray menu pick is: what it
 opens may take the focus - the menu bar itself never does. While one of its
 menus is open (or Alt has the bar lit) the bot waits, as with the tray menu:
-pick an item or press Esc and it goes on. debug.log: "Menu: Bot > Play for
-me picked" for each pick (an item's key left out), and for a tray setting
-switched there "Menu: traybot 0 -> 1".
+pick an item or press Esc and it goes on - for an item that opens a box
+(About, Save / Load settings, Discord alerts..., Wizard101 login...), once
+you close that box. debug.log: "Menu: Bot > Play for me picked" for each
+pick (an item's key left out), and for a tray setting switched there "Menu:
+traybot 0 -> 1".
 
 The bot's window in the tray (Settings > THE MOUSE AND WAITS, "Put the bot's
 window in the tray"; traybot:1 in PlayerStats.txt): the dashboard's X (Alt+F4

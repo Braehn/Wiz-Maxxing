@@ -563,12 +563,23 @@ class SettingsFileWiring(unittest.TestCase):
 
     def test_the_pin_never_in_the_log(self):
         """the network PIN: CfgApply's line says it changed, never its numbers (debug.log's end goes into a public
-        bug report); Report a bug blanks one in an older line ("netpin 0 -> 1234", the Save's before v1.10.0) or
-        a netpin:1234 line, and nothing else"""
+        bug report) - nor its note: CfgCollect's says no PIN brought into its range; Report a bug blanks one in an
+        older line ("netpin 0 -> 1234" or "netpin (0 to 99999999: 99999999)", the Save's before v1.10.0) or a
+        netpin:1234 line, and nothing else"""
         ap = self.fn(self.cfg, 'CfgApply')
         said = re.findall(r'capSaid \.= ([^\n]*)', ap)
         self.assertEqual(len(said), 2)
         self.assertIn('(capS.key = "netpin" ? " changed" : " " capOld " -> " capV)', said[1])
+        # (the note - "netpin (0 to 99999999: 99999999)" - goes into the same line: CfgSaveNow hands it over)
+        co = self.fn(self.cfg, 'CfgCollect')
+        notes = re.findall(r'([^\n]*)\n\s*fixed \.= ([^\n]*)', co)
+        self.assertEqual(len(notes), 2)
+        for before, note in notes:
+            if 'ccV' in note:
+                self.assertEqual(before.strip(), 'if (ccS.key != "netpin")', note)
+            else:
+                self.assertNotRegex(note, r'\bcc(?!S\.key\b)\w+')
+        self.assertRegex(self.fn(self.cfg, 'CfgSaveNow'), r'CfgApply\(\w+, "Settings", cfgFixed\)')
         # (the floor branch's: only mobradius / mobbody reach it)
         self.assertRegex(ap, r'if \(\(capS\.key = "mobradius" \|\| capS\.key = "mobbody"\) && [^\n]*\s*capFloor\.Push')
         red = self.fn(code_of(os.path.join(AF, 'BugReport.ahk')), 'BugRedact')
@@ -579,6 +590,12 @@ class SettingsFileWiring(unittest.TestCase):
                             'Settings saved (used from now on): netpin [left out], healat 30 -> 40'),
                            ('netpin:4821   ; the PIN', 'netpin [left out]   ; the PIN'),
                            ('Settings: NetPin 12 -> -3', 'Settings: netpin [left out]'),
+                           ('Settings saved (used from now on): netpin 0 -> 99999999 | netpin (0 to 99999999: '
+                            '99999999), healat (0 to 100: 100)',
+                            'Settings saved (used from now on): netpin [left out] | netpin [left out], healat (0 to '
+                            '100: 100)'),
+                           ('Settings: netpin changed | netpin (not a number - left as it was)',
+                            'Settings: netpin changed | netpin (not a number - left as it was)'),
                            ('Settings: netpin changed', 'Settings: netpin changed'),
                            ('netpinned 5 -> 6', 'netpinned 5 -> 6')):
             self.assertEqual(pin.sub('netpin [left out]', line), want)

@@ -267,8 +267,9 @@ BugRedact(s)
 	s := RegExReplace(s, "i)https?://(?:ptb\.|canary\.)?discord(?:app)?\.com/api/webhooks/\S+", "[a Discord webhook - left out]")
 	s := RegExReplace(s, "\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_\w{20,})", "[a GitHub token - left out]")
 	s := RegExReplace(s, "i)\bBearer\s+\S+", "Bearer [left out]")
-	;(the network PIN: "netpin 0 -> 1234" as the Settings window's Save logged it before v1.10.0, or a netpin:1234 line)
-	s := RegExReplace(s, "i)\bnetpin\b[\s:]*-?\d+(?:\s*->\s*-?\d+)?", "netpin [left out]")
+	;(the network PIN: "netpin 0 -> 1234" and "netpin (0 to 99999999: 99999999)" as the Settings window's Save logged
+	;them before v1.10.0, or a netpin:1234 line)
+	s := RegExReplace(s, "i)\bnetpin\b(?:\s*\(-?\d+ to -?\d+: -?\d+\)|[\s:]*-?\d+(?:\s*->\s*-?\d+)?)", "netpin [left out]")
 	return RegExReplace(s, "i)\b(password|passwd|pwd|token|secret)(\s*[=:]\s*)\S+", "$1$2[left out]")
 	}
 
