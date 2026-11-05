@@ -164,7 +164,7 @@ MenuNothing()
 return
 
 ;The latest release looked up now and then, out of this process (Wiz-Maxxing /latest writes updater.ini): the
-;dashboard's Updates button and STATISTICS say from it whether a newer version is out - and UpdAuto installs it.
+;dashboard's Help menu (Update to vX) and STATISTICS say from it whether a newer version is out - and UpdAuto installs it.
 ;45 s after start, then every autoupdate minutes (Settings; 2 hours with it off)
 UpdPeekNow:
 UpdPeekNow()
@@ -388,7 +388,7 @@ BotNoBattle(since := 0)
 	return BookSeenAt > since && A_TickCount - BookSeenAt < 2000
 	}
 
-;"Bring Wizard101 to the front" (tray menu, dashboard button): gamefront in PlayerStats.txt, off unless it's 1
+;"Bring Wizard101 to the front" (tray menu, the dashboard's Bot menu): gamefront in PlayerStats.txt, off unless it's 1
 GameFrontOn()
 	{
 	;(Play for me: the game brought up whenever it's needed)
@@ -407,7 +407,7 @@ GameFrontToggle()
 	TrayTip("Bring Wizard101 to the front: " (frontOn ? "ON - when there's something to do (the quest arrow, a battle round)." : "OFF - click into Wizard101 yourself."), "Wizard101 bot", 1)
 	}
 
-;The tray menu's tick and the dashboard button's label
+;The tray menu's tick and the Bot menu's
 GameFrontShow()
 	{
 	frontOn := GameFrontOn()
@@ -844,7 +844,7 @@ GameTrayXHit(*)
 		}
 	}
 
-;"Wait while I play" (tray menu, dashboard button): handsoffon in PlayerStats.txt, on unless it's 0
+;"Wait while I play" (tray menu, the dashboard's Bot menu): handsoffon in PlayerStats.txt, on unless it's 0
 HandsOffOn()
 	{
 	return !(Stats.Has("handsoffon") && !Stats["handsoffon"])
@@ -861,7 +861,6 @@ HandsOffToggle()
 	TrayTip("Wait while I play: " (waitOn ? "ON - the bot waits while you use the keyboard or mouse." : "OFF - the bot carries on even while you play."), "Wizard101 bot", 1)
 	}
 
-;The tray menu's tick and the dashboard button's label
 ;"Play for me" on/off - the dashboard's button (red off, green on), the tray menu. On: every check for you off (UserIdle) -
 ;the bot plays on as if you've left the PC, taking the mouse and the game's window whenever it needs them. F6 / F8 still
 ;stop it. On and off at a click - no box to type in (you asked, 2026-10-26: the pimpmeout box of 2026-10-23 gone). Never
@@ -884,10 +883,11 @@ PlayForMeShow()
 		Tray.Uncheck("Play for me (leave it alone for days)")
 	if (V1IsFunc("DashPlayShow"))
 		DashPlayShow.Call(PlayForMe)
-	;(Game to front's label too: Play for me brings the game up whatever it's set to)
+	;(the Bring Wizard101 to the front ticks too: Play for me brings the game up whatever it's set to)
 	GameFrontShow()
 	}
 
+;The tray menu's tick and the Bot menu's
 HandsOffShow()
 	{
 	waitOn := HandsOffOn()
@@ -1151,7 +1151,7 @@ UpdCheckNow()
 ;1. A newer release seen by the look-up (UpdPeekNow): Wiz-Maxxing /check /auto downloads it while the bot plays on.
 ;2. It's ready (updater.ini [auto] ready, by a Wiz-Maxxing still running - readypid): the bot closes itself at a safe
 ;point (UpdSafe), writing how it is (handover, args - UpdBotArgs), and Wiz-Maxxing installs it and starts it again so.
-;Never closed under it. A version tried 3 times in 6 hours (Updater.ahk UpAuto) is left to the Updates button
+;Never closed under it. A version tried 3 times in 6 hours (Updater.ahk UpAuto) is left to the dashboard's Help > Check for updates
 UpdAuto()
 	{
 	static lookAt := 0, startAt := 0, ranAt := 0, saidTag := "", gaveUpTag := "", waitTag := "", aliveAt := 0, aliveTag := ""
@@ -1175,7 +1175,7 @@ UpdAuto()
 			aliveAt := 0
 			return
 			}
-		;(the Updates button clicked meanwhile: closed for it as soon as it's out of battle - you asked)
+		;(Update to vX picked in the dashboard's menu bar meanwhile: closed for it as soon as it's out of battle - you asked)
 		nowAsked := IniRead(ini, "auto", "now", 0)
 		if (!UpdSafe(nowAsked = 1))
 			{
@@ -1207,7 +1207,7 @@ UpdAuto()
 	if (triedTag = upd.latest && age != "" && age < 6 && V1Ge(tries, 3))
 		{
 		if (gaveUpTag != upd.latest)
-			DebugLog("Updates: " upd.latest " didn't install by itself in 3 tries (updater.log) - left to the Updates button")
+			DebugLog("Updates: " upd.latest " didn't install by itself in 3 tries (updater.log) - left to the dashboard's Help > Check for updates")
 		gaveUpTag := upd.latest
 		return
 		}
@@ -4053,6 +4053,7 @@ LogMirrorGameShown()
 #Include "%A_ScriptDir%\Planner.ahk"
 #Include "%A_ScriptDir%\Party.ahk"
 #Include "%A_ScriptDir%\Settings.ahk"
+#Include "%A_ScriptDir%\SettingsFile.ahk"
 #Include "%A_ScriptDir%\Alerts.ahk"
 #Include "%A_ScriptDir%\Dashboard.ahk"
 #Include "%A_ScriptDir%\BugReport.ahk"

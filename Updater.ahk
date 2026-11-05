@@ -185,7 +185,7 @@ UpAuto()
 	;(v1: an ini value that isn't a number compared as text, and made "tries + 1" blank)
 	if (V1Ge(tries, 3))
 		{
-		UpLog("auto: " rel.tag " already tried 3 times - left to the Updates button")
+		UpLog("auto: " rel.tag " already tried 3 times - left to the dashboard's Help > Check for updates")
 		return false
 		}
 	V1Do(IniWrite, rel.tag, ini, "auto", "tag")

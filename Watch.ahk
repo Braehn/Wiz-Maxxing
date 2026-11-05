@@ -259,7 +259,7 @@ WatchGame(dir)
 	}
 
 ;The watcher's update check (UpCheck) - only when no other check or install is going on (the bot's update by
-;itself, the Updates button): the same lock as UpOnlyOne, let go of afterwards - the watcher runs for days. True if it
+;itself, the dashboard's Update to vX): the same lock as UpOnlyOne, let go of afterwards - the watcher runs for days. True if it
 ;updated
 WatchUpCheck()
 	{

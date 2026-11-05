@@ -119,9 +119,12 @@ class TrayWiring(unittest.TestCase):
             self.assertIn('"%s"' % key, simple)
 
     def test_save_hook(self):
-        """Save applies them at once: through V1IsFunc (Settings.ahk reaches Autofarmer.ahk's functions only so)"""
+        """Save applies them at once: through V1IsFunc (Settings.ahk reaches Autofarmer.ahk's functions only so) -
+        CfgSaveNow hands what changed to CfgApply, which the menu bar and a loaded settings file use too"""
         save = self.fn(self.cfg, 'CfgSaveNow')
-        self.assertRegex(save, r'if \(V1IsFunc\("TrayWinTick"\)\)\s*TrayWinTick\.Call\(\)')
+        self.assertIn('CfgApply(cfgPairs, "Settings"', save)
+        apply = self.fn(self.cfg, 'CfgApply')
+        self.assertRegex(apply, r'if \(V1IsFunc\("TrayWinTick"\)\)\s*TrayWinTick\.Call\(\)')
         tick = self.fn(self.af, 'TrayWinTick')
         self.assertIn('tgOn := TrayGameOn()', tick)
         self.assertIn('TrayWinShow()', tick)

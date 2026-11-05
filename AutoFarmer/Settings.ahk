@@ -1,10 +1,12 @@
 #Warn Unreachable, Off
-; Settings.ahk - the Settings window (the dashboard's Settings button, or the tray menu): the mouse and the bot's
+; Settings.ahk - the Settings window (the dashboard's Settings > Settings..., or the tray menu): the mouse and the bot's
 ; waits, and how it plays its cards. AHK v1.1, functions and labels only; #Included by Autofarmer.ahk.
 ;
 ; Every setting is a line in PlayerStats.txt (key:value) - the window only shows them. Save writes the ones you
 ; changed there, each in its own line with its comment kept (one the file doesn't have yet goes at its end),
 ; and the bot uses them from its next click or round on: no restart. Point at a setting to see what it does.
+; The dashboard's menu bar and a settings file loaded set them the same way (CfgApply); SettingsFile.ahk writes
+; them to a file of your own (File > Save settings as...) and reads one back (File > Load settings from...).
 ;
 ; Also here: the mouse put back where it was when the bot took it (MouseGrab / MouseLetGo, mousereturn), and your mouse
 ; locked while the bot uses it (MouseLockOn / MouseLockOff, mouselock).
@@ -31,13 +33,13 @@ CfgList()
 	list := []
 	list.Push(V1Obj({key: "-", label: "THE MOUSE AND WAITS"}))
 	list.Push(V1Obj({key: "handsoffon", label: "Wait for me while I play", kind: "check", def: 1
-		, help: "While you use the keyboard or mouse yourself the bot waits: no battle rounds, no walking, no potions. (The dashboard's Wait for me button switches it too.) On again, with 3 seconds, every time the bot starts - it never takes the mouse from you as it starts."}))
+		, help: "While you use the keyboard or mouse yourself the bot waits: no battle rounds, no walking, no potions. (The dashboard's Bot menu: Wait for me switches it too.) On again, with 3 seconds, every time the bot starts - it never takes the mouse from you as it starts."}))
 	list.Push(V1Obj({key: "handsoff", label: "Wait for me: seconds after you stop", kind: "num", lo: 0, hi: 3600, def: 3
 		, help: "How long after your last key press, click or mouse move the bot carries on. 0 = it never waits for you."}))
 	list.Push(V1Obj({key: "mouselock", label: "Lock my mouse while the bot uses it", kind: "check", def: 1
 		, help: "While the bot has the mouse - a battle round, a click, a mouse turn while walking, a potion, login or quick sell click - your mouse can't move the pointer, and over Wizard101 its buttons and wheel do nothing (what you do with it then doesn't count as you playing). The keyboard always stays free: {key:bot} stops the bot and frees the mouse, and with Wait for me on any key leaves the round to you. Freed at once when Wizard101 isn't the window in front (Alt+Tab), and if nothing's renewed it for 15 s. Off: your mouse always works - moving it makes the bot wait for you, as Wait for me says."}))
 	list.Push(V1Obj({key: "gamefront", label: "Bring Wizard101 to the front when needed", kind: "check", def: 0
-		, help: "When the quest arrow shows (walking) or a battle round is up and Wizard101 isn't the window in front, the bot brings it to the front - walking, only once you've left the keyboard and mouse alone 3 s. Off: click into it yourself. Also the dashboard's 'Game to front' button."}))
+		, help: "When the quest arrow shows (walking) or a battle round is up and Wizard101 isn't the window in front, the bot brings it to the front - walking, only once you've left the keyboard and mouse alone 3 s. Off: click into it yourself. Also the dashboard's Bot menu: Bring Wizard101 to the front."}))
 	list.Push(V1Obj({key: "traybot", label: "Put the bot's window in the tray (untried)", kind: "check", def: 0
 		, help: "New, not tried in the game yet. On: the dashboard's X (Alt+F4 in it too) and its minimise button put it in the tray instead - the bot plays on. Double-click the tray icon, or {key:dash}, to bring it back - the tray menu's Exit, or {key:quit}, stops the bot. Off: its X stops the bot, as before."}))
 	list.Push(V1Obj({key: "traygame", label: "Put Wizard101 in the tray (untried)", kind: "check", def: 0
@@ -193,7 +195,7 @@ CfgList()
 		, help: "The Network tab's buttons (bot on, bot off, Play for me off, restart) only work between bots with the same PIN, not 0. Play for me can only be switched off from the network - on only at that PC (its dashboard's button or tray menu)."}))
 	list.Push(V1Obj({key: "-", label: "UPDATES"}))
 	list.Push(V1Obj({key: "autoupdate", label: "Update by itself: look every (minutes, 0 = never)", kind: "num", lo: 0, hi: 1440, def: 10
-		, help: "A new version on GitHub is downloaded while the bot plays on, then installed with no question: the bot closes itself for it once it's out of battle, nothing's loading and you've left the keyboard and mouse alone a minute (Play for me: no wait) - not during a dungeon run or a recording - and starts again as it was: on, off or in standby, Play for me, walking ({key:walk}), auto-reconnect and Learn every card as they were. Your settings, learned cards and routes are kept, as with the Updates button. A version that won't install 3 times is left to the Updates button. 0: only when you click it."}))
+		, help: "A new version on GitHub is downloaded while the bot plays on, then installed with no question: the bot closes itself for it once it's out of battle, nothing's loading and you've left the keyboard and mouse alone a minute (Play for me: no wait) - not during a dungeon run or a recording - and starts again as it was: on, off or in standby, Play for me, walking ({key:walk}), auto-reconnect and Learn every card as they were. Your settings, learned cards and routes are kept, as with the dashboard's Help > Check for updates. A version that won't install 3 times is left to that. 0: only when you pick it."}))
 	list.Push(V1Obj({key: "-", label: "ALERTS"}))
 	list.Push(V1Obj({key: "logmirror", label: "Copy the log to OneDrive (help from another PC)", kind: "check", def: 0
 		, help: "debug.log is also written to your OneDrive folder (Wiz-Maxxing logs\<this PC's name>), with a picture of the game every 2 minutes and at each alert (the newest 15) - OneDrive syncs it to your other PCs, so the bot can be followed from there. Nothing else is sent anywhere."}))
@@ -226,7 +228,7 @@ CfgList()
 	list.Push(V1Obj({key: "overlaymapsize", label: "...the map's size (% of the game's height)", kind: "num", lo: 15, hi: 60, def: 28
 		, help: "The map is a square this tall: 28 is a little over a quarter of the game's height."}))
 	list.Push(V1Obj({key: "overlaylogat", label: "...the log", kind: "pick", def: 2, picks: ["Off", "Top left", "Top right", "Bottom left", "Bottom right"]
-		, help: "Where the log goes over the game, or Off: the newest lines of the dashboard's log in its colours (its Colours button), the newest at the bottom, older ones fainter, a line too long cut short. dashboard.ini [overlay]: logdx / logdy move it by pixels."}))
+		, help: "Where the log goes over the game, or Off: the newest lines of the dashboard's log in its colours (View > Log colours...), the newest at the bottom, older ones fainter, a line too long cut short. dashboard.ini [overlay]: logdx / logdy move it by pixels."}))
 	list.Push(V1Obj({key: "overlaylines", label: "...the log's lines", kind: "num", lo: 3, hi: 30, def: 10
 		, help: "How many of the newest lines it shows (fewer when they don't fit)."}))
 	list.Push(V1Obj({key: "overlaylogwidth", label: "...the log's width (% of the game's width)", kind: "num", lo: 20, hi: 90, def: 38
@@ -515,59 +517,131 @@ CfgHover(wParam, lParam, msg, hwnd)
 	Cfg["CfgHelpText"].Value := cfgT
 	}
 
-;Writes the settings changed in the window to PlayerStats.txt and reads them all again (used from now on).
+;Writes the settings changed in the window to PlayerStats.txt and reads them all again (used from now on) - CfgApply.
 ;A number outside its range is brought into it; one that isn't a number is left as it was
 CfgSaveNow()
 	{
-	cfgPairs := [], cfgSaid := "", cfgFixed := ""
-	for each, cfgS in CfgList()
+	cfgPairs := CfgCollect(&cfgFixed)
+	if (!cfgPairs.Count)
 		{
-		if (!CfgCtls.Has(cfgS.key))
-			continue
-		cfgC := CfgCtls[cfgS.key]
-		;(v1: GuiControlGet by the control's hwnd - an Edit's text, a checkbox's 0 / 1, an AltSubmit list's position)
-		cfgV := GuiCtrlFromHwnd(cfgC).Value
-		if (cfgS.kind = "num")
-			{
-			cfgV := Trim(cfgV)
-			if !IsInteger(cfgV)
-				{
-				cfgFixed .= ", " cfgS.key " (not a number - left as it was)"
-				GuiCtrlFromHwnd(cfgC).Value := CfgShownVals[cfgS.key]
-				continue
-				}
-			if (cfgV < cfgS.lo || cfgV > cfgS.hi)
-				{
-				cfgV := Max(cfgS.lo, Min(cfgS.hi, cfgV))
-				cfgFixed .= ", " cfgS.key " (" cfgS.lo " to " cfgS.hi ": " cfgV ")"
-				GuiCtrlFromHwnd(cfgC).Value := cfgV
-				}
-			}
-		cfgV := V1N(cfgV) + 0
-		if (cfgV != CfgShownVals[cfgS.key])
-			cfgPairs.Push([cfgS.key, cfgV]), cfgSaid .= ", " cfgS.key " " CfgShownVals[cfgS.key] " -> " cfgV
-		}
-	if (!cfgPairs.Length)
-		{
-		Cfg["CfgNote"].Value := "Nothing changed" (cfgFixed = "" ? "" : " - " SubStr(cfgFixed, 3))
+		Cfg["CfgNote"].Value := "Nothing changed" (cfgFixed = "" ? "" : " - " cfgFixed)
 		return
 		}
-	;(the mobs' reach you set yourself: the least the shrink after quiet walking comes back down to - Vision.ahk
-	;MobShrinkTick)
-	for each, cfgKv in cfgPairs.Clone()
-		if (cfgKv[1] = "mobradius" || cfgKv[1] = "mobbody")
-			cfgPairs.Push([cfgKv[1] "floor", cfgKv[2]])
-	if (!CfgWrite(cfgPairs))
+	if (!CfgApply(cfgPairs, "Settings", cfgFixed))
 		{
 		Cfg["CfgNote"].Value := "Couldn't write PlayerStats.txt - nothing was saved"
-		DebugLog("Settings: couldn't write PlayerStats.txt - nothing was saved")
 		return
 		}
-	for each, cfgKv in cfgPairs
-		CfgShownVals[cfgKv[1]] := cfgKv[2]
-	;(the tray menu's tick and the dashboard's Wait for me button)
-	HandsOffShow()
-	DebugLog("Settings saved (used from now on): " SubStr(cfgSaid, 3) (cfgFixed = "" ? "" : " | " SubStr(cfgFixed, 3)))
+	;(each as the window shows it now - one CfgApply didn't need to write too: the tray menu had set it meanwhile)
+	for cfgK, cfgV in cfgPairs
+		CfgShownVals[cfgK] := cfgV
+	Cfg["CfgNote"].Value := "Saved " cfgPairs.Count " change" (cfgPairs.Count = 1 ? "" : "s") " - used from now on" (cfgFixed = "" ? "" : " (" cfgFixed ")")
+	}
+
+;The Settings window's settings not as it showed them (CfgShownVals): {key: value} - a checkbox's 0 / 1, a list's
+;position, a number. One outside its range is brought into it, one that isn't a number put back as it was - both said
+;in fixed ("key (...), ...", for the window's note and the log)
+CfgCollect(&fixed)
+	{
+	ccPairs := V1Obj(), fixed := ""
+	for each, ccS in CfgList()
+		{
+		if (!CfgCtls.Has(ccS.key))
+			continue
+		ccC := CfgCtls[ccS.key]
+		;(v1: GuiControlGet by the control's hwnd - an Edit's text, a checkbox's 0 / 1, an AltSubmit list's position)
+		ccV := GuiCtrlFromHwnd(ccC).Value
+		if (ccS.kind = "num")
+			{
+			ccV := Trim(ccV)
+			if !IsInteger(ccV)
+				{
+				fixed .= ", " ccS.key " (not a number - left as it was)"
+				GuiCtrlFromHwnd(ccC).Value := CfgShownVals[ccS.key]
+				continue
+				}
+			if (ccV < ccS.lo || ccV > ccS.hi)
+				{
+				ccV := Max(ccS.lo, Min(ccS.hi, ccV))
+				fixed .= ", " ccS.key " (" ccS.lo " to " ccS.hi ": " ccV ")"
+				GuiCtrlFromHwnd(ccC).Value := ccV
+				}
+			}
+		ccV := V1N(ccV) + 0
+		if (ccV != CfgShownVals[ccS.key])
+			ccPairs[ccS.key] := ccV
+		}
+	fixed := SubStr(fixed, 3)
+	return ccPairs
+	}
+
+;Settings set - pairs: a Map, CfgList key -> its new number - by the Settings window's Save (CfgSaveNow), the
+;dashboard's menu bar, a settings file loaded (SettingsFile.ahk). The ones not as they're set now (Stats) are written to
+;PlayerStats.txt (CfgWrite) and used from now on: the tray menu's ticks, the dashboard's menu bar, battles
+;only, the battle recorder, the speedhack's Cheat Engine and the tray settings told; an open Settings window shows
+;them. One debug.log line - source ": key old -> new, ..." (note after it). True (also with nothing to change), or
+;false if PlayerStats.txt couldn't be written - nothing changed then. Works with the Settings window closed too
+CfgApply(pairs, source, note := "")
+	{
+	capWas := A_IsCritical
+	;(not halfway through while the bot writes PlayerStats.txt itself: StatsSet is Critical too)
+	Critical()
+	if !(pairs is Map)
+		return CfgUncritical(capWas, false)
+	capList := [], capSaid := "", capBy := V1Obj(), capFloor := []
+	for each, capS in CfgList()
+		{
+		if (!capS.Has("def") || !pairs.Has(capS.key) || !V1IsNum(pairs[capS.key]))
+			continue
+		capV := pairs[capS.key] + 0
+		capOld := Stats.Has(capS.key) ? Stats[capS.key] : capS.def
+		if (V1IsNum(capOld) && capOld + 0 = capV)
+			{
+			;(the mobs' reach set to what the bot widened it to meanwhile: the reach stays, the least it shrinks back
+			;to is yours now - Vision.ahk MobShrinkTick)
+			if ((capS.key = "mobradius" || capS.key = "mobbody") && !(Stats.Has(capS.key "floor") && V1IsNum(Stats[capS.key "floor"]) && Stats[capS.key "floor"] + 0 = capV))
+				capFloor.Push([capS.key "floor", capV]), capSaid .= ", " capS.key "floor -> " capV
+			continue
+			}
+		capList.Push([capS.key, capV]), capSaid .= ", " capS.key " " capOld " -> " capV, capBy[capS.key] := capS
+		}
+	if (!capList.Length && !capFloor.Length)
+		return CfgUncritical(capWas, true)
+	;(the mobs' reach you set yourself: the least the shrink after quiet walking comes back down to - Vision.ahk
+	;MobShrinkTick)
+	capWrite := capList.Clone()
+	for each, capKv in capFloor
+		capWrite.Push(capKv)
+	for each, capKv in capList
+		if (capKv[1] = "mobradius" || capKv[1] = "mobbody")
+			capWrite.Push([capKv[1] "floor", capKv[2]])
+	if (!CfgWrite(capWrite))
+		{
+		DebugLog(source ": couldn't write PlayerStats.txt - nothing was saved")
+		return CfgUncritical(capWas, false)
+		}
+	DebugLog(source ": " SubStr(capSaid, 3) (note = "" ? "" : " | " note))
+	;(the Settings window open: it shows what's set now - its Save won't take it back; as Party.ahk's PartyWinOk)
+	if (CfgIsOpen())
+		for each, capKv in capList
+			if (CfgCtls.Has(capKv[1]))
+				{
+				capS := capBy[capKv[1]]
+				capShow := (capS.kind = "check") ? (capKv[2] ? 1 : 0) : (capS.kind = "pick") ? Max(1, Min(capS.picks.Length, Round(capKv[2]))) : Round(capKv[2])
+				try
+					{
+					if (capS.kind = "pick")
+						GuiCtrlFromHwnd(CfgCtls[capKv[1]]).Choose(capShow)
+					else
+						GuiCtrlFromHwnd(CfgCtls[capKv[1]]).Value := capShow
+					}
+				CfgShownVals[capKv[1]] := capShow
+				}
+	;(the tray menu's ticks and the Bot menu's: Wait for me, Bring Wizard101 to the front - Autofarmer.ahk)
+	if (V1IsFunc("HandsOffShow"))
+		HandsOffShow.Call()
+	if (V1IsFunc("GameFrontShow"))
+		GameFrontShow.Call()
 	;(battles only switched: said, walking off - Autofarmer.ahk BattlesOnlyTick, the tray menu's tick)
 	if (V1IsFunc("BattlesOnlyTick"))
 		BattlesOnlyTick.Call()
@@ -575,14 +649,23 @@ CfgSaveNow()
 	if (V1IsFunc("BrecHello"))
 		BrecHello.Call("later")
 	;(the speedhack switched on: Cheat Engine started, when Setup set it up - Autofarmer.ahk SpeedCheatEngine)
-	for each, cfgKv in cfgPairs
-		if (cfgKv[1] = "speedhack" && cfgKv[2] = 1 && V1IsFunc("SpeedCheatEngine"))
-			SpeedCheatEngine.Call("the speedhack switched on in Settings")
+	for each, capKv in capList
+		if (capKv[1] = "speedhack" && capKv[2] = 1 && V1IsFunc("SpeedCheatEngine"))
+			SpeedCheatEngine.Call("the speedhack switched on " (source = "Settings" ? "in Settings" : "- " source))
 	;(the tray settings: the tray menu's items and double-click, Alt+F4's hotkey in Wizard101, the watch on its window -
 	;traygame off: a Wizard101 in the tray shown again - Autofarmer.ahk TrayWinTick)
 	if (V1IsFunc("TrayWinTick"))
 		TrayWinTick.Call()
-	Cfg["CfgNote"].Value := "Saved " cfgPairs.Length " change" (cfgPairs.Length = 1 ? "" : "s") " - used from now on" (cfgFixed = "" ? "" : " (" SubStr(cfgFixed, 3) ")")
+	;(the dashboard's menu bar: its ticks - Dashboard.ahk)
+	if (V1IsFunc("DashMenuTicks"))
+		DashMenuTicks.Call()
+	return CfgUncritical(capWas, true)
+	}
+
+;The Settings window open now - its controls and what they showed known: 1, else 0
+CfgIsOpen()
+	{
+	return (CfgHwnd && WinExist("ahk_id " CfgHwnd) && IsObject(CfgCtls) && IsObject(CfgShownVals)) ? 1 : 0
 	}
 
 ;Every setting's default in the window (saved only with Save)
