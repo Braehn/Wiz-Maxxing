@@ -1506,15 +1506,19 @@ class ZeroEffect(unittest.TestCase):
     def test_mixed_deck_pinned(self):
         # (v1.7.0: 4 Stormblades and 4 Storm Traps - each slot once a battle, the used copies held: re-pinned; v1.11.0:
         # the bot's boost order, the Storm Trap before the Stormblade - re-pinned; v1.10.1 gave hp_left 12.4 and Storm
-        # Lord 2.87, Stormblade 0.94, Storm Trap 0.93, Thunder Snake 0.34 a battle)
+        # Lord 2.87, Stormblade 0.94, Storm Trap 0.93, Thunder Snake 0.34 a battle. v1.11.1: the hit paid for is the
+        # plan - a Thunder Snake goes as the bot casts it, not held for the Storm Lord: re-pinned; v1.11.0 gave
+        # (0.2, 0.8, 0.0, 15.0, 17, 12.9, 192, 10.0), Storm Lord 2.83, Storm Trap 0.93, Stormblade 0.93, Thunder Snake
+        # 0.41)
         cards = S.deck_cards({"cards": [hit(count=8), hit("Thunder Snake", 2, 150, count=6),
                                         boost("blade", "Stormblade", 35, count=4),
                                         boost("trap", "Storm Trap", 30, count=4)]})
         r = S.simulate(cards, S.Me("storm", 2500, damage=40), [biter("Ogre", 3000, 150, 200),
                                                               biter("Imp", 800, 60, 80, passes=True)], n=120, seed=11)
-        self.assertEqual(tuple(r[k] for k in self.KEYS), (0.2, 0.8, 0.0, 15.0, 17, 12.9, 192, 10.0))
-        self.assertEqual(r["casts"], {"Storm Lord": 2.83, "Storm Trap": 0.93, "Stormblade": 0.93,
-                                      "Thunder Snake": 0.41})
+        self.assertEqual(tuple(r[k] for k in self.KEYS),
+                         (0.06666666666666667, 0.9333333333333333, 0.0, 15.5, 18, 10.7, 202, 11.0))
+        self.assertEqual(r["casts"], {"Thunder Snake": 3.73, "Storm Lord": 1.85, "Storm Trap": 0.99,
+                                      "Stormblade": 0.98})
 
     def test_timeout_deck_pinned(self):
         # (v1.7.0: 2 Stormblades - the second held: re-pinned)
@@ -1542,27 +1546,32 @@ class ZeroEffect(unittest.TestCase):
                                                                                       "accuracy": 85, "type": "Damage"})])
         r = S.simulate(S.deck_cards({"cards": main + tside}), S.Me("storm", 3000), [tank], n=120, seed=5)
         self.assertEqual(r, S.simulate(S.deck_cards({"cards": main}), S.Me("storm", 3000), [tank], n=120, seed=5))
+        # (v1.11.1: the Thunder Snakes paid for go, as the bot casts them - v1.11.0 gave (0.9917, 0.0083, 0.0, 19, 24,
+        # 38.5, 97, 19), Storm Lord 4.17, Thunder Snake 2.61, Stormblade 0.95; the planner's pass 0.288, Thunder Snake
+        # 0.283)
         self.assertEqual(tuple(r[k] for k in self.KEYS),
-                         (0.9916666666666667, 0.008333333333333333, 0.0, 19, 24, 38.5, 97, 19))
-        self.assertEqual(r["casts"], {"Storm Lord": 4.17, "Thunder Snake": 2.61, "Stormblade": 0.95})
+                         (0.8416666666666667, 0.058333333333333334, 0.1, 24, 27, 24.1, 97, 24))
+        self.assertEqual(r["casts"], {"Thunder Snake": 9.47, "Storm Lord": 4.03, "Stormblade": 1.0})
         # (the planner: a treasure side in the State's pile is a pile of its own, never dealt - the same plays as with
         # the treasure cards out of its pile)
         tstun = S.Card("Stun", "stun", tc=True)
         strip = lambda p: [(x["name"], x["aim"], x["n"], round(x["score"], 9)) for x in p["plays"]]  # noqa: E731
         st = S.State([lord(), snake(), tstun], [snake()] * 6 + [tstun] * 6, pips=3, fhp=[3000], me_first=True)
         p = S.plan_round(st, sure(), [tank], n=30, seed=3, budget_ms=10000)
-        self.assertEqual(strip(p), [("pass", None, 30, 0.288038341), ("Thunder Snake", 0, 30, 0.282951066)])
+        self.assertEqual(strip(p), [("Thunder Snake", 0, 30, 0.181723894), ("pass", None, 30, 0.180653003)])
         st = S.State([lord(), snake(), tstun], [snake()] * 6, pips=3, fhp=[3000], me_first=True)
         self.assertEqual(strip(S.plan_round(st, sure(), [tank], n=30, seed=3, budget_ms=10000)), strip(p))
 
     def test_plan_pinned(self):
-        # (v1.7.0: a pile of 3 Stormblades - the copies held once one went: re-pinned)
+        # (v1.7.0: a pile of 3 Stormblades - the copies held once one went: re-pinned; v1.11.1: the rollouts cast the
+        # Snakes paid for, as the bot does - re-pinned: v1.11.0 gave pass 0.366897899, Stormblade 0.366185891, Snake
+        # 0.364007468 and 0.351465871)
         hand = [lord(), S.Card("Snake", "damage", "storm", 2, heads={"storm": 150}, tid=2), stormblade()]
         p = S.plan_round(S.State(hand, hand * 3, pips=6, fhp=[2000, 900], rnd=3), sure(),
                          [biter("A", 2400), biter("B", 1200)], n=30, seed=5, budget_ms=10000)
         self.assertEqual([(x["name"], x["aim"], x["n"], round(x["score"], 9)) for x in p["plays"]],
-                         [("pass", None, 30, 0.366897899), ("Stormblade", None, 30, 0.366185891),
-                          ("Snake", 0, 30, 0.364007468), ("Snake", 1, 30, 0.351465871)])
+                         [("Snake", 0, 30, 0.26739399), ("Stormblade", None, 30, 0.267376291),
+                          ("Snake", 1, 30, 0.266796914), ("pass", None, 30, 0.266601316)])
 
     def test_treasure_side_changes_nothing(self):
         # (common random numbers: a treasure side - listed first, so best_decks' sort and the main side's filter both
@@ -1581,9 +1590,11 @@ class ZeroEffect(unittest.TestCase):
                              S.simulate(b, sure(), tank, S.Opts(drawenchant=1), n=30, seed=seed))
             self.assertEqual(S.simulate(b, sure(), foes, S.Opts(drawenchant=1), n=30, seed=seed),
                              S.simulate(b, sure(), foes, S.Opts(), n=30, seed=seed))
+        # (the Ogre alone - v1.11.0's group was the Ogre and the Imp: with the Thunder Snakes cast as the bot casts
+        # them, v1.11.1 wins none of the 40 there, and the last check would mean nothing)
         res = S.best_decks([("a", "A", S.deck_cards({"cards": tside}), None),
-                            ("b", "B", S.deck_cards({"cards": main}), None)], [["Ogre", "Imp"]],
-                           lambda names: [biter("Ogre", 2500), biter("Imp", 700)], sure(), n=40)
+                            ("b", "B", S.deck_cards({"cards": main}), None)], [["Ogre"]],
+                           lambda names: [biter("Ogre", 2500)], sure(), n=40)
         rows = [{k: v for k, v in d.items() if k not in ("key", "name")} for d in res["decks"]]
         self.assertEqual(len(rows), 2)
         self.assertEqual(rows[0], rows[1])
@@ -1593,13 +1604,14 @@ class ZeroEffect(unittest.TestCase):
         # (one copy of each blade and trap, no Reshuffle, no treasure side: reboost off and on the same - each slot cast
         # once either way. v1.11.0: the bot's boost order, the Storm Trap before the Stormblade - re-pinned; v1.6.0 to
         # v1.10.1 gave won 0.7917, hp_left 20.0, dmg_in 168, Storm Lord 2.88, Storm Trap 0.78, Stormblade 0.72, Thunder
-        # Snake 0.66 a battle)
+        # Snake 0.66 a battle. v1.11.1: the Thunder Snakes paid for go, as the bot casts them - re-pinned; v1.11.0 gave
+        # won 0.7667, rounds 12, p90 14, hp_left 21.2, dmg_in 170, Storm Lord 3.01, Storm Trap 0.76, Stormblade 0.75,
+        # Thunder Snake 0.57)
         cards = S.deck_cards({"cards": [hit(count=6), hit("Thunder Snake", 2, 150, count=6),
                                         boost("blade", "Stormblade", 35), boost("trap", "Storm Trap", 30)]})
-        pinned = {"n": 120, "won": 0.7666666666666667, "lost": 0.23333333333333334, "timeout": 0.0, "rounds": 12.0,
-                  "rounds_p90": 14, "hp_left": 21.2, "dmg_in": 170, "first_kill": 12.0,
-                  "casts": {"Storm Lord": 3.01, "Storm Trap": 0.76, "Stormblade": 0.75, "Thunder Snake": 0.57},
-                  "why": []}
+        pinned = {"n": 120, "won": 0.2, "lost": 0.8, "timeout": 0.0, "rounds": 14.0, "rounds_p90": 15, "hp_left": 10.8,
+                  "dmg_in": 172, "first_kill": 14.0,
+                  "casts": {"Thunder Snake": 6.0, "Storm Lord": 1.59, "Storm Trap": 1.0, "Stormblade": 1.0}, "why": []}
         for o in (S.Opts(), S.Opts(reboost=1)):
             r = S.simulate(cards, S.Me("storm", 2500, damage=40), [biter("Ogre", 3000, 150, 200)], o, n=120, seed=11)
             self.assertEqual(r, pinned)
@@ -2784,15 +2796,19 @@ class SpentCopies(unittest.TestCase):
         # (ZeroEffect's mixed deck and timeout deck and the treasure-side fixture's main deck, discardspent on - their
         # own pins, with it off, stay as they were. The mixed deck re-pinned in v1.11.0 for the bot's boost order, the
         # Storm Trap first - v1.10.1 gave (0.2667, 0.7333, 0.0, 15.0, 16, 16.0, 188, 10), Storm Lord 3.23, Stormblade
-        # 0.96, Storm Trap 0.95 a battle; the two with a blade only don't move)
+        # 0.96, Storm Trap 0.95 a battle; the two with a blade only don't move. v1.11.1: the Thunder Snakes paid for go,
+        # as the bot casts them - the mixed deck and the treasure-side one re-pinned; v1.11.0 gave (0.325, 0.675, 0.0,
+        # 15, 18, 14.0, 184, 10), Storm Lord 3.3, Storm Trap 0.97, Stormblade 0.97, Thunder Snake 0.03; and (0.925,
+        # 0.025, 0.05, 19, 22, 38.7, 97, 19), Storm Lord 4.61, Thunder Snake 2.83, Stormblade 1.0)
         cards = S.deck_cards({"cards": [hit(count=8), hit("Thunder Snake", 2, 150, count=6),
                                         boost("blade", "Stormblade", 35, count=4),
                                         boost("trap", "Storm Trap", 30, count=4)]})
         r = S.simulate(cards, S.Me("storm", 2500, damage=40),
                        [biter("Ogre", 3000, 150, 200), biter("Imp", 800, 60, 80, passes=True)], ON, n=120, seed=11)
-        self.assertEqual(tuple(r[k] for k in self.KEYS), (0.325, 0.675, 0.0, 15, 18, 14.0, 184, 10))
+        self.assertEqual(tuple(r[k] for k in self.KEYS),
+                         (0.016666666666666666, 0.9833333333333333, 0.0, 19.0, 19, 14.7, 205, 12.0))
         self.assertEqual(r["casts"],
-                         {"Storm Lord": 3.3, "Storm Trap": 0.97, "Stormblade": 0.97, "Thunder Snake": 0.03})
+                         {"Thunder Snake": 5.15, "Storm Lord": 1.32, "Storm Trap": 1.0, "Stormblade": 1.0})
         cards = S.deck_cards({"cards": [hit("Thunder Snake", 2, 300, count=10),
                                         boost("blade", "Stormblade", 35, count=2)]})
         r = S.simulate(cards, S.Me("storm", 3000), [biter("Tank", 2600, 50, 60)], ON, n=100, seed=3)
@@ -2806,8 +2822,9 @@ class SpentCopies(unittest.TestCase):
                                                    ("Bite", 1.0, {"pips": 2, "min": 200, "max": 250, "accuracy": 85,
                                                                   "type": "Damage"})])
         r = S.simulate(S.deck_cards({"cards": main + tside}), S.Me("storm", 3000), [tank], ON, n=120, seed=5)
-        self.assertEqual(tuple(r[k] for k in self.KEYS), (0.925, 0.025, 0.05, 19, 22, 38.7, 97, 19))
-        self.assertEqual(r["casts"], {"Storm Lord": 4.61, "Thunder Snake": 2.83, "Stormblade": 1.0})
+        self.assertEqual(tuple(r[k] for k in self.KEYS),
+                         (0.85, 0.058333333333333334, 0.09166666666666666, 24.0, 27, 23.2, 97, 24.0))
+        self.assertEqual(r["casts"], {"Thunder Snake": 10.0, "Storm Lord": 3.88, "Stormblade": 1.0})
         self.assertEqual(r, S.simulate(S.deck_cards({"cards": main}), S.Me("storm", 3000), [tank], ON, n=120, seed=5))
 
     def test_single_copies_unchanged(self):
@@ -2823,7 +2840,8 @@ class SpentCopies(unittest.TestCase):
                                        boost("trap", "Storm Trap", 30, count=6)]})
         held = S.simulate(deck, sure(damage=40), [foe], S.Opts(), n=200, seed=7)
         spent = S.simulate(deck, sure(damage=40), [foe], ON, n=200, seed=7)
-        self.assertEqual((held["won"], spent["won"]), (0.875, 1.0))
+        # (v1.11.1: held 0.845 - the blades and traps go with no hit in hand too, for your school's hit; v1.11.0 0.875)
+        self.assertEqual((held["won"], spent["won"]), (0.845, 1.0))
         self.assertEqual(S.simulate(deck, sure(damage=40), [foe], S.Opts(reboost=1, discardspent=1), n=200, seed=7),
                          S.simulate(deck, sure(damage=40), [foe], S.Opts(reboost=1), n=200, seed=7))
 
@@ -3233,19 +3251,20 @@ class SharpenPotent(unittest.TestCase):
         def run(o):
             return S.simulate(deck, sure(damage=40), [foe], o, n=200, seed=7)
         r = run(S.Opts())
-        self.assertEqual(tuple(r[k] for k in keys), (0.94, 0.0, 0.06, 16.0, 21, 49.7, 93, 16.0))
-        self.assertEqual(r["casts"], {"Storm Lord": 3.12, "Storm Trap": 1.83, "Stormblade": 1.75, "Potent Trap": 0.88,
-                                      "Sharpened Blade": 0.8})
+        self.assertEqual(tuple(r[k] for k in keys), (0.97, 0.0, 0.03, 16.0, 21, 49.9, 92, 16.0))
+        self.assertEqual(r["casts"], {"Storm Lord": 3.22, "Storm Trap": 1.91, "Stormblade": 1.78, "Potent Trap": 0.92,
+                                      "Sharpened Blade": 0.79})
         on = run(ON)
-        self.assertEqual(tuple(on[k] for k in keys), (0.995, 0.0, 0.005, 15, 20, 51.9, 93, 15))
-        self.assertEqual(list(on["casts"].items()), [("Storm Lord", 3.04), ("Storm Trap", 1.99), ("Stormblade", 1.97),
+        self.assertEqual(tuple(on[k] for k in keys), (1.0, 0.0, 0.0, 15.0, 19, 51.9, 93, 15.0))
+        self.assertEqual(list(on["casts"].items()), [("Storm Lord", 3.07), ("Storm Trap", 2.0), ("Stormblade", 1.98),
                                                      ("Potent Trap", 0.99), ("Sharpened Blade", 0.97)])
         rb = run(S.Opts(reboost=1))
-        self.assertEqual(tuple(rb[k] for k in keys), (0.945, 0.0, 0.055, 11, 16, 61.4, 94, 11))
+        self.assertEqual(tuple(rb[k] for k in keys), (1.0, 0.0, 0.0, 11.0, 16, 62.3, 94, 11.0))
         self.assertEqual(run(S.Opts(discardunused=0)), r)
         # (HEAD v1.8.1 gave Opts() 0.88 / ON 1.0 in 21 / 22 rounds, discardunused 0 0.51; v1.9.0 to v1.10.1 - the
         # biggest % first, the Stormblade before the Storm Trap - Opts() 0.945, ON 1.0 in 19 rounds (p90), rb 0.94 with
-        # 62.0 % health left)
+        # 62.0 % health left; v1.11.0 - no boost with no hit in hand - Opts() 0.94, ON 0.995 in 20 rounds (p90), rb
+        # 0.945 with 61.4 % health left)
 
     def test_sharpen_deck_reboostkeep_pinned(self):
         # (v1.9.1: test_sharpen_deck_pinned's deck - reboost with this AutoFarmer's reboostkeep: the blade's copies kept
@@ -3262,16 +3281,17 @@ class SharpenPotent(unittest.TestCase):
         def run(o):
             return S.simulate(deck, sure(damage=40), [foe], o, n=200, seed=7)
         rk = run(S.Opts(reboost=1, reboostkeep=1))
-        self.assertEqual(tuple(rk[k] for k in keys), (0.98, 0.0, 0.02, 11.0, 16, 61.6, 95, 11.0))
-        self.assertEqual(rk["casts"], {"Storm Trap": 3.44, "Stormblade": 3.15, "Storm Lord": 2.34, "Potent Trap": 1.29,
-                                       "Sharpened Blade": 1.03})
+        self.assertEqual(tuple(rk[k] for k in keys), (1.0, 0.0, 0.0, 11.0, 16, 62.4, 95, 11.0))
+        self.assertEqual(rk["casts"], {"Storm Trap": 3.42, "Stormblade": 3.27, "Storm Lord": 2.34, "Potent Trap": 1.29,
+                                       "Sharpened Blade": 1.13})
         self.assertEqual(run(S.Opts(reboost=1, reboostkeep=1, discardspent=1)), rk)
         self.assertEqual(run(S.Opts(reboost=1, reboostkeep=1, discardunused=0)), rk)
         self.assertEqual(run(S.Opts(reboostkeep=1)), run(S.Opts()))
         self.assertEqual(run(S.Opts(discardspent=1, reboostkeep=1)), run(ON))
-        # (no reboostkeep - test_sharpen_deck_pinned's rb: 0.945 in 16 rounds (p90), Stormblade 2.86 a battle; v1.9.0 to
-        # v1.10.1, the biggest % first: 0.94, Stormblade 2.69. rk in v1.9.1 to v1.10.1: 0.985, Storm Trap 3.33,
-        # Stormblade 3.29 a battle)
+        # (no reboostkeep - test_sharpen_deck_pinned's rb: 1.0 in 16 rounds (p90), Stormblade 2.93 a battle, 62.3 %
+        # health left; v1.11.0, no boost with no hit in hand: 0.945, Stormblade 2.86; v1.9.0 to v1.10.1, the biggest %
+        # first: 0.94, Stormblade 2.69. rk in v1.11.0: 0.98, Storm Trap 3.44, Stormblade 3.15; in v1.9.1 to v1.10.1:
+        # 0.985, Storm Trap 3.33, Stormblade 3.29 a battle)
 
 
 # ============================================================================ v1.11.0: the bot's boost order
@@ -3458,6 +3478,202 @@ class BoostOrder(unittest.TestCase):
         r = S.simulate(cards, S.Me("storm", 3000, damage=60), mobs, ON, n=400, seed=7)
         self.assertEqual(tuple(r[k] for k in ZeroEffect.KEYS), (0.685, 0.285, 0.03, 20.0, 22, 20.0, 137, 6.0))
         self.assertEqual(r["casts"], {"Storm Lord": 4.83, "Storm Aura": 2.99, "Stormblade": 1.0, "Bladestorm": 1.0})
+
+
+# ============================================================================ v1.11.1: boosts with no hit in hand and
+# boostmax's escape (KillCalc.ahk BoostPick's PlanHeads "your school's"; Settings.ahk CardBoostOk / CardHitReady)
+class NoHitBoosts(unittest.TestCase):
+    """v1.11.1: with no hit in hand the bot's chain still boosts - for your school's hit (BoostPick: PlanHeads
+    {your school: 1}); boostmax stops the boosts only while a hit can go (CardBoostOk: CardHitReady - a payable hit;
+    none: boosting is all it can do); BoostRun counted at the click (a fizzle too) and reset by a hit that went out.
+    v1.11.0 cast no boost with no hit in hand, and none past boostmax"""
+
+    def picks(self, hand, opts=None, me=None, **kw):
+        """the cards choose() casts one round after another (no pip, no draw) - None stops it"""
+        st = S.State(list(hand), [], **dict({"fhp": [9000], "me_first": True, "pips": 0}, **kw))
+        b = S._Battle.from_state(st, me or sure(), [S.Foe("A", 9000)], opts or S.Opts(), random.Random(1))
+        out = []
+        for _ in range(12):
+            c = b.choose()
+            if c is None:
+                break
+            b.cast(c)
+            out.append(c.name)
+        return b, out
+
+    def test_no_hit_boosts_for_your_school(self):
+        # (a storm wizard: the chain's order for a storm hit - Fireblade fits none of it, never cast; v1.11.0: none)
+        fireblade = S.Card("Fireblade", "blade", "fire", 0, boosts={"fire": 35})
+        hand = [fireblade, aura(), bladestorm(), eblade(), stormblade(), trap()]
+        b, out = self.picks(hand)
+        self.assertEqual(out, ["Storm Trap", "Stormblade", "Elemental Blade", "Bladestorm", "Storm Aura"])
+        self.assertEqual(names(b.hand), ["Fireblade"])
+        self.assertEqual(self.picks(hand, S.Opts(cardlogic=2))[1], out)        # (hit first: nothing to hit with)
+        # (a fire wizard's: Fireblade and the Elemental Blade - the group fits fire -, Bladestorm; no storm one)
+        fire = S.Me("fire", 3000, accuracy=30)
+        self.assertEqual(self.picks(hand, me=fire)[1], ["Fireblade", "Elemental Blade", "Bladestorm"])
+        # (no school known: none, as before)
+        self.assertEqual(self.picks(hand, me=S.Me("", 3000, accuracy=30))[1], [])
+        st = S.State([bladestorm()], [], pips=0, fhp=[9000], me_first=True)    # (an every-school Bladestorm: none)
+        self.assertIsNone(S._Battle.from_state(st, S.Me("", 3000, accuracy=30), [S.Foe("A", 9000)], S.Opts(),
+                                               random.Random(1)).pick_boost(None))
+
+    def test_a_hit_in_hand_is_the_plan(self):
+        # (a hit in hand not paid for yet is the plan - its heads, not your school's: a fire hit's Fireblade, never
+        # the Stormblade)
+        fireblade = S.Card("Fireblade", "blade", "fire", 0, boosts={"fire": 35})
+        cat = S.Card("Fire Cat", "damage", "fire", 7, heads={"fire": 100})
+        self.assertEqual(self.picks([stormblade(), fireblade, cat])[1], ["Fireblade"])
+
+    def test_the_planners_chain_pick(self):
+        # (/plan's chain line - the bot's own pick - with no hit in hand: the Storm Trap; v1.11.0: a pass)
+        st = S.State([stormblade(), trap(), satyr()], [lord()] * 5, fhp=[9000], me_first=True, pips=0)
+        p = S.plan_round(st, sure(), [S.Foe("A", 9000)], n=10, seed=1, budget_ms=5000)
+        self.assertEqual(p["chain"]["name"], "Storm Trap")
+
+    def test_boostmax_escape(self):
+        # (boostmax 1, a boost gone since the last hit: no more while a hit can go - the Storm Lord paid for; none
+        # can: the boosts go on, boost first or hit first; v1.11.0: a pass)
+        o1, h1 = S.Opts(boostmax=1), S.Opts(boostmax=1, cardlogic=2)
+        self.assertEqual(self.picks([stormblade(), trap(), lord()], o1, boosts_run=1, pips=7)[1][0], "Storm Lord")
+        self.assertEqual(self.picks([stormblade(), trap(), lord()], o1, boosts_run=1)[1], ["Storm Trap", "Stormblade"])
+        self.assertEqual(self.picks([stormblade(), trap(), lord()], h1, boosts_run=1)[1], ["Storm Trap", "Stormblade"])
+        # (no hit in hand at all: the same)
+        self.assertEqual(self.picks([stormblade(), trap()], o1, boosts_run=5)[1], ["Storm Trap", "Stormblade"])
+        # (a payable Thunder Snake is a hit that can go - the bot's pip saving (pipsave) isn't modelled: the boosts
+        # stop, and the Snake goes - the plan, the hit paid for (PlanChoose); then the Stormblade for the Storm Lord)
+        self.assertEqual(self.picks([stormblade(), snake(), lord()], o1, boosts_run=1, pips=2)[1],
+                         ["Thunder Snake", "Stormblade"])
+
+    def test_boostmax_counted_at_the_click(self):
+        # (the bot counts a boost once it went out, and a hit that went out resets the count - a fizzle too: it can't
+        # see one; v1.11.0 counted only the ones that landed)
+        miss = S.Me("storm", 3000, accuracy=-100)
+        st = S.State([stormblade(), lord()], [], fhp=[9000], me_first=True, pips=7)
+        b = S._Battle.from_state(st, miss, [S.Foe("A", 9000)], S.Opts(), random.Random(1))
+        self.assertFalse(b.cast(b.hand[0]))
+        self.assertEqual(b.boosts_run, 1)
+        b.boosts_run = 2
+        self.assertFalse(b.cast(b.hand[0]))
+        self.assertEqual(b.boosts_run, 0)
+        # (boostmax 1: the fizzled Storm Trap counts - the Storm Lord next, then the Stormblade; v1.11.0: Storm Trap,
+        # Stormblade, Storm Lord)
+        self.assertEqual(self.picks([stormblade(), trap(), lord()], S.Opts(boostmax=1), me=miss, pips=7)[1],
+                         ["Storm Trap", "Storm Lord", "Stormblade"])
+
+
+# ============================================================================ v1.11.1: the plan's pick - the hit you
+# can pay for (KillCalc.ahk PlanChoose; Settings.ahk CastBestHit, WandWastes)
+class PlanPick(unittest.TestCase):
+    """v1.11.1: the planned hit is, of the deck's hits in hand you can pay for, the one dealing the most with the blades
+    and traps in hand too - none paid for: of them all, its boosts going on while it waits for pips (KillCalc.ahk
+    PlanChoose's two passes, PlanProject) -, and CastBestHit casts the plan first: a deck hit that can go is always the
+    plan - boost first after its boosts, hit first at once. An item card's hit (the wand's) is never the plan: it goes
+    at the chain's end when no other went, not onto a blade or trap meant for the plan (WandWastes). The bot holds a
+    payable hit back only while it saves pips for a finishing hit (pipsave - not modelled). v1.11.0 planned the best hit
+    in hand, paid for or not, and held a payable one back for one 1.5 times better (hand_has_better)"""
+    picks = NoHitBoosts.picks
+
+    def test_the_payable_hit_is_the_plan(self):
+        # (boost first: the Stormblade for the Thunder Snake, then the Snake - the Storm Lord waits for its 7 pips;
+        # v1.11.0: the Stormblade, then a pass - the Snake held for the Lord)
+        self.assertEqual(self.picks([stormblade(), snake(), lord()], pips=2)[1], ["Stormblade", "Thunder Snake"])
+        # (the boosts are the payable hit's: a Fire Cat's Fireblade, not the Storm Lord's Stormblade - that one after
+        # it, for the Lord; v1.11.0: the Stormblade, then a pass)
+        fireblade = S.Card("Fireblade", "blade", "fire", 0, boosts={"fire": 35})
+        cat = S.Card("Fire Cat", "damage", "fire", 1, heads={"fire": 100})
+        self.assertEqual(self.picks([stormblade(), fireblade, cat, lord()], pips=1)[1],
+                         ["Fireblade", "Fire Cat", "Stormblade"])
+
+    def test_the_most_damage_of_those_paid_for(self):
+        # (two you can pay for: the one dealing the most, the Storm Shark - the Storm Lord not paid for plays no part;
+        # v1.11.0: a pass, both held for the Lord)
+        shark = S.Card("Storm Shark", "damage", "storm", 3, heads={"storm": 300})
+        self.assertEqual(self.picks([snake(), shark, lord()], pips=3)[1], ["Storm Shark"])
+        self.assertEqual(self.picks([snake(), shark, lord()], S.Opts(cardlogic=2), pips=3)[1], ["Storm Shark"])
+
+    def test_hit_first_casts_the_payable_hit(self):
+        # (hit first: the Thunder Snake at once, then the Stormblade for the Storm Lord - nothing else can go; v1.11.0:
+        # the Stormblade, then a pass)
+        h = S.Opts(cardlogic=2)
+        self.assertEqual(self.picks([stormblade(), snake(), lord()], h, pips=2)[1], ["Thunder Snake", "Stormblade"])
+        # (none paid for: the boosts for the best of them - the Storm Lord's -, as before)
+        self.assertEqual(self.picks([stormblade(), snake(), lord()], h, pips=1)[1], ["Stormblade"])
+        self.assertEqual(self.picks([stormblade(), snake(), lord()], pips=1)[1], ["Stormblade"])
+
+    def test_the_planners_chain_pick(self):
+        # (/plan's chain line - the bot's own pick: the Thunder Snake; v1.11.0: a pass, the Snake held for the Lord)
+        st = S.State([snake(), lord()], [lord()] * 5, fhp=[9000], me_first=True, pips=2)
+        p = S.plan_round(st, sure(), [S.Foe("A", 9000)], n=10, seed=1, budget_ms=5000)
+        self.assertEqual(p["chain"]["name"], "Thunder Snake")
+
+    def test_the_wands_hit(self):
+        # (an item card's hit - the wand's - is never the plan, nor a hit that can go for boostmax (Settings.ahk
+        # CastBestHit, CardHitReady: "not the wand's"); it goes at the chain's end when no deck hit went - not while a
+        # blade or trap on that fits the planned hit would go to waste on it (KillCalc.ahk WandWastes))
+        wand = S.Card("Lightning Strike", "damage", "storm", 0, heads={"storm": 95}, item=True)
+        # (nothing on: the wand's hit while the Storm Lord waits; v1.11.0: a pass, held for the Lord)
+        self.assertEqual(self.picks([wand, lord()])[1], ["Lightning Strike"])
+        # (the Stormblade on, meant for the Lord: no wand's hit - a pass, as v1.11.0's)
+        self.assertEqual(self.picks([stormblade(), wand, lord()])[1], ["Stormblade"])
+        # (no deck hit in hand: the boosts for the wand's hit first - a storm one -, hit first too, then the wand's - no
+        # planned hit to waste them on; v1.11.0: the wand's hit was the plan - hit first cast it at once)
+        self.assertEqual(self.picks([stormblade(), wand], S.Opts(cardlogic=2))[1], ["Stormblade", "Lightning Strike"])
+        # (an item card's fire hit, no deck hit: the boosts for it - KillCalc.ahk BoostPick's PlanHeads from the game's
+        # hand -, the Fireblade, then the wand's hit, then the Stormblade for your school's - no hit left; boost first
+        # and hit first. Of two item cards' hits, neither paid for, the strongest by its number: the ice one's Iceblade,
+        # then nothing - not your school's while one is in hand; v1.11.1 as first built: the Stormblade first)
+        fwand = S.Card("Fire Wand Hit", "damage", "fire", 0, heads={"fire": 120}, item=True)
+        fireblade = S.Card("Fireblade", "blade", "fire", 0, boosts={"fire": 35})
+        for o in (S.Opts(), S.Opts(cardlogic=2)):
+            self.assertEqual(self.picks([stormblade(), fireblade, fwand], o, pips=1)[1],
+                             ["Fireblade", "Fire Wand Hit", "Stormblade"])
+        iceblade = S.Card("Iceblade", "blade", "ice", 0, boosts={"ice": 35})
+        two = [stormblade(), fireblade, iceblade, S.Card("Fire Pet Hit", "damage", "fire", 1, value=120, item=True),
+               S.Card("Ice Pet Hit", "damage", "ice", 1, value=200, item=True)]
+        self.assertEqual(self.picks(two)[1], ["Iceblade"])
+        # (boostmax 1 and a boost gone: the wand's hit is no hit that can go - the boosts go on, then nothing: the Storm
+        # Trap and the Stormblade on are the Lord's; v1.11.0: a pass)
+        self.assertEqual(self.picks([stormblade(), trap(), wand, lord()], S.Opts(boostmax=1), boosts_run=1)[1],
+                         ["Storm Trap", "Stormblade"])
+
+    def test_the_wands_hit_and_what_is_on(self):
+        # (KillCalc.ahk WandWastes, each part: a blade on me or a trap on the wand's target that fits a head of the
+        # wand's hit AND of the plan - one that fits only the wand's, or only the plan's, isn't wasted on it)
+        wand = S.Card("Lightning Strike", "damage", "storm", 0, heads={"storm": 95}, item=True)
+        fwand = S.Card("Fire Wand Hit", "damage", "fire", 0, heads={"fire": 120}, item=True)
+        b = battle([wand, lord()], pips=0, fhp=[9000])
+        b.blades = [("Fireblade", {"fire": 35})]                  # (fits the fire wand's, not the storm Lord's)
+        self.assertFalse(b._wastes(fwand, lord()))
+        b.blades = [("Stormblade", {"storm": 35})]                # (fits the Lord's, not the fire wand's)
+        self.assertFalse(b._wastes(fwand, lord()))
+        self.assertTrue(b._wastes(wand, lord()))                  # (fits both)
+        b.blades, b.traps = [], [[{"storm": 30}]]                 # (a Storm Trap on the wand's target: both too)
+        self.assertTrue(b._wastes(wand, lord()))
+        self.assertFalse(b._wastes(fwand, lord()))
+        # (a deck hit you can pay for and the wand's both in hand, boost first: the deck hit first - CastBestHit
+        # (Autofarmer.ahk:5715) before the wand (5718) -, the wand's the round after)
+        self.assertEqual(self.picks([wand, snake()], pips=2)[1], ["Thunder Snake", "Lightning Strike"])
+        self.assertEqual(self.picks([wand, snake()], S.Opts(cardlogic=2), pips=2)[1],
+                         ["Thunder Snake", "Lightning Strike"])
+
+    def test_the_damage_counts_the_boosts_in_hand(self):
+        # (the plan's damage counts the blades and traps in hand that can still go (KillCalc.ahk PlanProject): the
+        # Storm Shark with the Stormblade in hand beats a Fire Cat that deals a little more bare - the Stormblade, then
+        # the Shark; hit first: the Shark at once. v1.11.0: the Cat first - bare it deals the most -, then the
+        # Stormblade for the Shark)
+        cat = S.Card("Fire Cat", "damage", "fire", 1, heads={"fire": 320})
+        shark = S.Card("Storm Shark", "damage", "storm", 3, heads={"storm": 300})
+        self.assertEqual(self.picks([stormblade(), cat, shark], pips=3)[1], ["Stormblade", "Storm Shark"])
+        self.assertEqual(self.picks([stormblade(), cat, shark], S.Opts(cardlogic=2), pips=3)[1], ["Storm Shark"])
+        # (the Stormblade used this battle can't go: the Cat deals the most)
+        b = self.picks([stormblade(), cat, shark], pips=3, boosts_used=[("blade", "", {"storm": 35})])[1]
+        self.assertEqual(b[0], "Fire Cat")
+        # (the blades on and in hand counted as they'd stand: project() leaves the boosts on as they were)
+        bt = battle([stormblade(), cat, shark], pips=3, fhp=[9000])
+        self.assertGreater(bt.project(shark), bt.value(shark))
+        self.assertEqual((bt.blades, bt.traps), ([], [[]]))
+        self.assertEqual(bt.project(cat), bt.value(cat))
 
 
 if __name__ == "__main__":
