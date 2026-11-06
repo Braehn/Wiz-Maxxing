@@ -51,25 +51,31 @@ THE MODEL (one battle, round by round, until every enemy is dead, the wizard is,
   bot's enemies.py does: the wiki's spells, each enemy's pips, your health; an enemy the wiki hasn't counts nothing):
   a heal on yourself under 90 % health, else Tower Shield on yourself (usetower), else an absorb whatever it costs
   (useabsorb); a heal under healat %; else, boost first (cardlogic 1, or 3 against a boss): a blade, trap or aura that
-  fits a head of the planned hit - the hit dealing the most to the enemies left, an enchant in hand counted; no hit in
-  hand: your school's, the bot's fallback (v1.11.1 - KillCalc.ahk BoostPick) -, in the bot's chain order (v1.11.0:
-  Feint, the school trap, the group trap, Hex, the school blade, the group blade, Balanceblade, Bladestorm, the aura
-  last - of one slot's the most % x the share of the hit it fits, ties your school's; a hit of two or more schools one
-  blade and one trap a round, the most % x share of the hit), while fewer than boostmax boosts went out since the last
-  hit went out (0: no limit; a fizzle counts both ways - the bot can't see one) or no hit in hand can be paid for
-  (v1.11.1 - Settings.ahk CardBoostOk: boosting is all it can do) - each blade and trap once a battle plain and
-  once sharpened (made potent) while a Sharpen (Potent) is in hand (reboost off - the bot's used flags, a slot's plain
-  one and its sharpened one: its kind and schools, an every-school one by its %; marked at the click, a fizzle too; a
-  treasure or item card's copy once more, on top of the deck's - it stacks; a used copy held in hand unless
-  discardspent throws it away; a hitter's Reshuffle lets them go again - the ones on stay on; reboost 1: the ones a
-  hit fits - a fizzled one too - go again after it, one cast of each between hits): the first Sharpen (Potent) in hand
+  fits a head of the planned hit - of the deck's hits in hand you can pay for the one dealing the most to the enemies
+  left, an enchant in hand counted and the blades and traps in hand that can still go (KillCalc.ahk PlanProject), none
+  paid for: of them all (v1.11.1 - KillCalc.ahk PlanChoose; an item card's, the wand's, never); no deck hit in hand:
+  your school's, the bot's fallback (v1.11.1 - KillCalc.ahk BoostPick) -, in the bot's chain order (v1.11.0: Feint, the
+  school trap, the group trap, Hex, the school blade, the group blade, Balanceblade, Bladestorm, the aura last - of one
+  slot's the most % x the share of the hit it fits, ties your school's; a hit of two or more schools one blade and one
+  trap a round, the most % x share of the hit), while fewer than boostmax boosts went out since the last hit went out
+  (0: no limit; a fizzle counts both ways - the bot can't see one) or no deck hit in hand can be paid for (v1.11.1 -
+  Settings.ahk CardBoostOk: boosting is all it can do; the wand's hit isn't one) - each blade and trap once a battle
+  plain and once sharpened (made potent) while a Sharpen (Potent) is in hand (reboost off - the bot's used flags, a
+  slot's plain one and its sharpened one: its kind and schools, an every-school one by its %; marked at the click, a
+  fizzle too; a treasure or item card's copy once more, on top of the deck's - it stacks; a used copy held in hand
+  unless discardspent throws it away; a hitter's Reshuffle lets them go again - the ones on stay on; reboost 1: the ones
+  a hit fits - a fizzled one too - go again after it, one cast of each between hits): the first Sharpen (Potent) in hand
   goes on it first (UseBlade / UseTrap) - no pip, no turn, the card's +N% (10 none) on each school the blade boosts,
-  never an item card's copy, a treasure card's copy one cast either way; a copy the bot moves to - the slot's first
-  copy in hand can't go (BoostCopyPick) - is cast plain, and none if no copy can go plain; a fizzle loses both; the
-  sharpened cast stacks with the plain one (name '<card>+'), not with another; then the planned hit once its pips are
-  there; else a payable hit with nothing better coming; else the filler: Tower Shield on yourself, else an absorb that
-  costs no pips, else Reshuffle (usereshuffle); else a pass (pips build). Hit first (cardlogic 2, or 3 against mobs):
-  the planned hit as soon as it's paid for, boosts only while waiting for pips or with no hit in hand (your school's).
+  never an item card's copy, a treasure card's copy one cast either way; a copy the bot moves to - the slot's first copy
+  in hand can't go (BoostCopyPick) - is cast plain, and none if no copy can go plain; a fizzle loses both; the sharpened
+  cast stacks with the plain one (name '<card>+'), not with another; then the planned hit once its pips are there
+  (v1.11.1: it is paid for whenever a deck hit is - Settings.ahk CastBestHit casts it first); else an item card's hit
+  (the wand's) paid for, the best, unless it would use up a blade or trap on that fits the planned hit too (KillCalc.ahk
+  WandWastes - v1.11.0 held any payable hit back for one in hand 1.5 times better); else the filler: Tower Shield on
+  yourself, else an absorb that costs no pips, else Reshuffle (usereshuffle); else a pass (pips build). Hit first
+  (cardlogic 2, or 3 against mobs): the planned hit as soon as it's paid for - so any deck hit you can pay for, the best
+  of them -, boosts only while none can be paid for or with no deck hit in hand (your school's), the wand's hit after
+  them.
   Enchants (the bot's: Epic, Colossal, Gargantuan, Monstrous, Giant, Strong - Primordial and the accuracy ones it never
   finds; a damage enchant it never finds it never discards either: a dead card in hand all battle): every hit the chain
   casts takes the best one in hand - not a kill the kill check found without one, not an
@@ -123,13 +129,20 @@ THE MODEL (one battle, round by round, until every enemy is dead, the wizard is,
   Feint 70 - your PlayerStats.txt's own aren't sent); of several cards in one slot the biggest % first (the bot: the
   copy it finds first); a blade or trap kept for a hit of two or more schools that can't go after all: the next by
   gain (the bot: the next one held back, in the chain's order - UseHeldBack); the aura only when it fits the planned
-  hit (the bot casts your school's, no check); saving pips for a finishing hit (pipsave - KillCalc.ahk PlanPips: no
-  other hit while it waits, and the boosts go past boostmax meanwhile; the simulator holds a payable hit only for one
-  in hand worth 1.5 times more, and counts it as a hit that can go); with every hit switched off (usehit1-4 0) and the
-  game's hand read, the bot's boosts for the strongest damage card in it (the simulator: your school's); a blade or trap
-  already carrying one in the game's hand, read as plain; the discards' 3 looks a round shared between their rules
-  (here 3 a rule); the enemies' cheats. So the numbers lean optimistic against an enemy that shields or heals and has
-  no battle recorded - verdict() says which ones.
+  hit (the bot casts your school's, no check); saving pips for a finishing hit (pipsave - KillCalc.ahk PlanPips: that
+  hit planned, no other cast while it waits, and the boosts go past boostmax meanwhile; the simulator never saves pips -
+  the best hit it can pay for goes, and counts as one that can go); the bot's hit slots (KillCalc.ahk PlanChoose,
+  Settings.ahk CastBestHit: hit4 only on a picked boss; of two hits dealing the same the first of hit4, hit3, hit2, hit1
+  - the simulator's the first in hand; a hit learned in no slot planned only with no slot hit in hand and cast after
+  them - the simulator plays every deck hit as a slot's; with the game's hand not read, the first payable hit in slot
+  order, not the one dealing the most); the traps counted in the plan's damage (on and in hand - PlanProject) and in the
+  kill check as solotraps:1 counts them (the bot's default, 0, counts none there; solotraps is sent, not read); every
+  item card's hit played as the wand's (a pet's or another gear's the bot casts as a learned hit in no slot: planned
+  with no slot hit in hand, cast by CastBestHit - in hit first before the boosts -, no WandWastes check; usewand is
+  sent, not read); with every hit switched off (usehit1-4 0) and the game's hand read, the bot's boosts for the
+  strongest damage card in it (the simulator: your school's); a blade or trap already carrying one in the game's hand,
+  read as plain; the discards' 3 looks a round shared between their rules (here 3 a rule); the enemies' cheats. So the
+  numbers lean optimistic against an enemy that shields or heals and has no battle recorded - verdict() says which ones.
   The party's other wizards: the team model (below) - the planner's; simulate() plays one wizard (team splits the
   enemies' single hits).
 
@@ -1653,10 +1666,48 @@ class _Battle:
         return [max(al, key=lambda i: self.fhp[i])] if al else []
 
     def value(self, card):
-        """what a hit deals to the enemies left (the plan's measure - the enchant in hand it would take counted:
-        KillCalc.ahk PlanProject), capped at their health"""
+        """what a hit deals to the enemies left with the boosts on, the enchant in hand it would take counted, capped at
+        their health (the kill check's tie-break, the wand's pick, a support's hit; the plan's measure is project())"""
         add = self._ench_for(card)
         return sum(min(self.fhp[i], self.least(card, i, add=add)) for i in self.targets(card))
+
+    def project(self, card):
+        """the plan's measure (KillCalc.ahk PlanProject - the planned hit the one dealing the most with the boosts in
+        hand): value() with the blades and traps in hand that can still go on too - each slot once, at the least % of
+        its copies in hand, the deck's own copies' when it has one (BoostPctFor), not a blade of a name on already nor
+        a trap like one on its enemy; a trap on the enemy the traps go on, while traps can go (usetraps, or a boss -
+        TrapOn) - blades whatever useblades, as the bot's BoostSearch finds them; no Feint, aura or Sharpen from the
+        hand, nor a blade or trap of two schools other than Elemental's or Spirit's (no slot of the bot's). No random
+        number; the boosts on as they were"""
+        o = self.opts
+        least = {}
+        for c in self.hand:
+            if c.kind not in ("blade", "trap") or (c.kind == "trap" and not (o.usetraps or o.boss)) \
+                    or chain_slot(c)[0] in ("feint", "blade?", "trap?") or not self._can_go(c):
+                continue
+            k = _slot(c.kind, c.boosts)
+            pct = min(c.boosts.values()) if c.boosts else 0
+            src = "deck" if _src(c) == "" else ""
+            got = least.get(k)
+            if got is None or (src, -pct) > (got[0], -got[1]):
+                least[k] = (src, pct, c)
+        if not least:
+            return self.value(card)
+        tt = self.targets(Card("", "damage", heads={"balance": 1}))
+        blades, traps = list(self.blades), [list(x) for x in self.traps]
+        for (kind, _s), (_src_, pct, c) in least.items():
+            boosts = {s: pct for s in c.boosts}
+            if kind == "blade":
+                if all(n != _on_name(c) for n, _b in blades):
+                    blades.append((_on_name(c), boosts))
+            elif tt and boosts not in traps[tt[0]]:
+                traps[tt[0]].append(boosts)
+        keep = self.blades, self.traps
+        try:
+            self.blades, self.traps = blades, traps
+            return self.value(card)
+        finally:
+            self.blades, self.traps = keep
 
     # ---------------------------------------------------------------- the defend check (EnemySpells.ahk)
     def _snap_danger(self):
@@ -2112,11 +2163,12 @@ class _Battle:
     def choose(self, kill=True):
         """the card the bot's chain plays now, Autofarmer.ahk's order: the kill check (no enchant, then with the best one
         in hand), the defend check (a heal under 90 %, else Tower Shield, else an absorb - defendat), a heal under
-        healat %, the planned hit and its boosts (boost first or hit first; no hit in hand: the boosts for your
-        school's; boostmax's limit only while a hit in hand is paid for), a payable hit with nothing better coming,
-        the filler (Tower Shield, else an absorb costing no pips, else Reshuffle) - None a pass. kill False: no kill
-        check (a round the bot drew for an enchant and none came - Autofarmer.ahk). Draws no random number (the planner
-        asks it what the bot would play)"""
+        healat %, the planned hit - of the deck's hits in hand the best you can pay for, else the best (KillCalc.ahk
+        PlanChoose, v1.11.1) - and its boosts (boost first or hit first; no deck hit in hand: the boosts for your
+        school's; boostmax's limit only while a deck hit in hand is paid for), the wand's hit - an item card's - unless
+        it would use up a boost on meant for the plan (WandWastes), the filler (Tower Shield, else an absorb costing no
+        pips, else Reshuffle) - None a pass. kill False: no kill check (a round the bot drew for an enchant and none
+        came - Autofarmer.ahk). Draws no random number (the planner asks it what the bot would play)"""
         o = self.opts
         self.ench_plain = False
         self.shield_to = None
@@ -2135,28 +2187,34 @@ class _Battle:
             heals = [c for c in self.hand if c.kind == "heal" and self.pay(c)[0]]
             if heals:
                 return max(heals, key=lambda c: c.value)
-        # (the planned hit: the one dealing the most to the enemies left)
-        plan = max(hits, key=self.value) if hits else None
+        # (the planned hit - KillCalc.ahk PlanChoose, v1.11.1: of the deck's hits in hand - the bot's slots - you can
+        # pay for, the one dealing the most to the enemies left with the boosts in hand too (project - PlanProject);
+        # none paid for: of them all, its boosts going on while it waits for pips. So the plan is paid for whenever a
+        # deck hit is - Settings.ahk CastBestHit casts it first. An item card's hit - the wand's - is never the plan)
+        deck = [c for c in hits if not c.item]
+        paid = [c for c in deck if self.pay(c)[0]]
+        plan = max(paid or deck, key=self.project) if deck else None
         boost = self.pick_boost(plan)
-        # (boostmax: no more boosts since the last hit while a hit can go - one in hand paid for; none: boosting is
-        # all it can do - Settings.ahk CardBoostOk / CardHitReady, v1.11.1. The bot's pip saving isn't modelled: a
-        # payable hit counts as one that can go)
-        can_boost = boost is not None and (o.boostmax <= 0 or self.boosts_run < o.boostmax or not payable)
-        plan_paid = plan is not None and self.pay(plan)[0]
+        # (boostmax: no more boosts since the last hit while a hit can go - a deck hit in hand paid for, not the wand's;
+        # none: boosting is all it can do - Settings.ahk CardBoostOk / CardHitReady, v1.11.1. The bot's pip saving isn't
+        # modelled: a payable hit counts as one that can go)
+        can_boost = boost is not None and (o.boostmax <= 0 or self.boosts_run < o.boostmax or not paid)
         if o.boost_first:
             if can_boost:
                 return boost
-            if plan_paid:
+            if paid:
                 return plan
         else:
-            if plan_paid:
+            if paid:
                 return plan
             if can_boost:
                 return boost
-        # (nothing: with no hit in hand, any hit to be had - the best payable)
-        if payable and not plan_paid and not can_boost:
-            best = max(payable, key=self.value)
-            if not self.hand_has_better(best):
+        # (the chain's end - Autofarmer.ahk: no deck hit went, the wand's hit - an item card's, the best paid for -
+        # unless it would use up a blade or trap on meant for the planned hit, KillCalc.ahk WandWastes)
+        wands = [c for c in payable if c.item]
+        if wands:
+            best = max(wands, key=self.value)
+            if plan is None or not self._wastes(best, plan):
                 return best
         return self._filler()
 
@@ -2181,9 +2239,11 @@ class _Battle:
                 return r
         return None
 
-    def hand_has_better(self, best):
-        """a hit in hand worth waiting for: the plan not paid yet but within reach of pips (a pass builds them)"""
-        return any(c.hit and not self.pay(c)[0] and self.value(c) > 1.5 * self.value(best) for c in self.hand)
+    def _wastes(self, c, plan):
+        """KillCalc.ahk WandWastes: item hit c (the wand's) would use up a blade on me or a trap on its target that fits
+        a head of the planned hit too - the bot then doesn't cast it. No random number"""
+        on = [b for _n, b in self.blades] + [x for i in self.targets(c) for x in self.traps[i]]
+        return any(_fits_any(b, c.heads) and _fits_any(b, plan.heads) for b in on)
 
     def _sharp_for(self, c):
         """the Sharpen / Potent UseBlade / UseTrap put on blade / trap c now: the first of its kind in hand (Find's

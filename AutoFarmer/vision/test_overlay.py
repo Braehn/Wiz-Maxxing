@@ -1200,6 +1200,107 @@ class AhkParity(unittest.TestCase):
         self.assertNotIn('pipsave', battlesim.Opts.KEYS)
         self.assertNotIn('pipsave', vars(battlesim.Opts()))
 
+    def test_plan_pick_wiring(self):
+        """v1.11.1: the simulator plans the hit the bot plans and casts it as the bot does (battlesim choose, project,
+        _wastes) - KillCalc.ahk PlanChoose (the game's hand read: pass 1 the most PlanProject of the slot hits in hand
+        you can pay for - pips saved for one: that one -, pass 2 of every slot hit in hand; a tie the first of hit4 - a
+        picked boss only -, hit3, hit2, hit1), PlanProject (the blades and traps on and those in hand that can still
+        go - SbFound, GbFound, blade3, blade4, trap3 - each once at BoostPctFor, a trap only while TrapOn; no Feint,
+        trap4 or aura; no enchant on an item card's), Settings.ahk CastBestHit (the plan first, then hit4 / 3 / 2 / 1,
+        then a learned hit in no slot), Autofarmer.ahk's round (hit first: CastBestHit before the chain; the chain's
+        end: CastBestHit, then the wand unless WandWastes), WandWastes (a blade or trap on that fits a head of the
+        wand's hit and of the plan - a slot hit's whose heads are sure), UseHit (a hit you can't pay for isn't cast, its
+        slot's flag 0; pips saved: no other); nothing new sent - pipsave, solotraps and usewand are sent and dropped"""
+        import battlesim
+        kc = '\n'.join(ahk_code(ahk_lines('KillCalc.ahk')))
+        m = re.search(r'\nPlanChoose\(\)\s*\{.*?\n\t\}', kc, re.S)
+        self.assertIsNotNone(m)
+        pc = m.group(0)
+        self.assertIn('pcL := (BossChoosen == 1) ? ["hit4", "hit3", "hit2", "hit1"] : ["hit3", "hit2", "hit1"]', pc)
+        self.assertRegex(pc, r'if \(BoostMemOk\)\s*\{\s*pcBest := "", pcBestV := -1\s*Loop 2\s*\{\s*'
+                             r'pcPass := A_Index\s*for pcI, pcH in pcL\s*'
+                             r'if \(%pcH% == 1 && \(pcPass = 2 \|\| \(PipSaveFor != "" \? PipSaveFor = pcH : '
+                             r'Affordable\(pcH\)\)\)\)\s*\{\s*pcV := PlanProject\(pcH\)\s*'
+                             r'if \(pcV > pcBestV\)\s*pcBest := pcH, pcBestV := pcV\s*\}\s*'
+                             r'if \(pcBest != ""\)\s*return pcBest\s*\}')
+        m = re.search(r'\nPlanProject\(hitN\)\s*\{.*?\n\t\}', kc, re.S)
+        self.assertIsNotNone(m)
+        pp = m.group(0)
+        self.assertIn('ppB := AppliedBlades.Clone(), ppT := BossTraps.Clone(), ppKeys := []', pp)
+        self.assertRegex(pp, r'for ppI, ppL in \[SbFound, GbFound\]\s*for ppK in ppL\s*ppKeys\.Push\(ppK\)')
+        self.assertRegex(pp, r'for ppI, ppK in \["blade3", "blade4", "trap3"\]\s*if \(%ppK% == 1\)\s*'
+                             r'ppKeys\.Push\(ppK\)')
+        self.assertRegex(pp, r'if \(BoostCanGo\(ppK\) && !ppB\.Has\(ppK\) && !ppT\.Has\(ppK\)\)\s*\{\s*'
+                             r'if \(BoostKind\(ppK\) = "trap"\)\s*ppT\[ppK\] := BoostPctFor\(ppK\)\s*else\s*'
+                             r'ppB\[ppK\] := BoostPctFor\(ppK\)\s*\}')
+        self.assertIn('ppHh := HitHeads(hitN), ppUe := (V1Ge(enchant, 1) && !ppHh.item)', pp)
+        self.assertIn('AppliedBlades := ppKeepB, BossTraps := ppKeepT\n', pp)
+        for k in ('feint', 'trap4', 'aura', 'sharpen', 'potent'):
+            self.assertNotIn(k, pp.lower(), k)
+        m = re.search(r'\nBoostCanGo\(key\)\s*\{.*?\n\t\}', kc, re.S)
+        self.assertIsNotNone(m)
+        self.assertRegex(m.group(0), r'if \(BoostKind\(key\) = "trap"\)\s*\{\s*if \(TrapOn != 1\)\s*return false')
+        # (TrapOn: the boss picked, else usetraps - project()'s `o.usetraps or o.boss`; a support's isn't the chain's)
+        self.assertRegex(kc, r'TrapOn := \(BossChoosen == 1\), ')
+        self.assertRegex(kc, r'if \(Stat\("usetraps"\) && TrapsInHand\(\) && TrapTarget\(&TrapAtX, &TrapAtY, '
+                             r'&TrapAtMax\)\)\s*TrapOn := 1, TrapMine := 1')
+        m = re.search(r'\nWandWastes\(\)\s*\{.*?\n\t\}', kc, re.S)
+        self.assertIsNotNone(m)
+        ww = m.group(0)
+        self.assertRegex(ww, r'if \(!IsObject\(PlanHeads\) \|\| !PlanHeads\.sure \|\| '
+                             r'!RegExMatch\(PlanHit, "\^hit\[1-4\]\$"\)\)\s*return false')
+        self.assertRegex(ww, r'for wwI, wwL in \[AppliedBlades, BossTraps\]\s*for wwK, wwV in wwL\s*'
+                             r'for wwS in wwW\.heads\s*if \(BoostFits\(wwK, wwS\)\)\s*'
+                             r'for wwT in PlanHeads\.heads\s*if \(BoostFits\(wwK, wwT\)\)\s*\{[^{}]*return true\s*\}')
+        st = '\n'.join(ahk_code(ahk_lines('Settings.ahk')))
+        m = re.search(r'\nCastBestHit\(\)\s*\{.*?\n\t\}', st, re.S)
+        self.assertIsNotNone(m)
+        cb = m.group(0)
+        self.assertRegex(cb, r'cbhP := PlanHit\s*if \(BoostMemOk && RegExMatch\(cbhP, "\^hit\[1-4\]\$"\) && '
+                             r'\(cbhP != "hit4" \|\| BossChoosen = 1\)\)\s*'
+                             r'if \(%cbhP% == 1 && UseHit\(&cbhP, &%cbhP%, &hitschool\)\)')
+        order = re.findall(r'\(\((hit\d) == 1\) (?:&& \(BossChoosen = 1\) )?&& UseHit\(&_title := "(hit\d)", &(hit\d), '
+                           r'&hitschool\)\)', cb)
+        self.assertEqual(order, [(h, h, h) for h in ('hit4', 'hit3', 'hit2', 'hit1')])
+        self.assertIn('((hit4 == 1) && (BossChoosen = 1) && UseHit(&_title := "hit4"', cb)
+        self.assertLess(cb.index('UseHit(&cbhP, '), cb.index('UseHit(&_title := "hit4"'))
+        self.assertLess(cb.index('UseHit(&_title := "hit1"'), cb.index('|| CastLearnedHit()'))
+        self.assertNotIn('wand', cb)
+        af = '\n'.join(ahk_code(ahk_lines('Autofarmer.ahk')))
+        self.assertRegex(af, r'\nHitsTried := 0\s*if \(!PartySupport\(\)\) && CardHitFirst\(\)\s*\{\s*HitsTried := 1\s*'
+                             r'if CastBestHit\(\)\s*\{\s*Goto\("EndRound"\)\s*\}\s*\}\s*'
+                             r'BoostOk := PartySupport\(\) \? 1 : CardBoostOk\(\)\n')
+        self.assertRegex(af, r'\} else if \(BattleRole = "blader"\) && PartyShield\(\)\s*\{\s*Goto\("EndRound"\)\s*'
+                             r'\} else if \(!HitsTried\) && CastBestHit\(\)\s*\{\s*Goto\("EndRound"\)\s*'
+                             r'\} else if \(wand == 1\) && Stat\("usewand"\) && !WandWastes\(\) && '
+                             r'UseHit\(&_title := "wand", &wand, &hitschool\)')
+        # (CastBestHit and WandWastes have no other caller: hit first's and the chain's end, the wand's)
+        calls = {}
+        for name in sorted(os.listdir(AF)):
+            if name.lower().endswith('.ahk'):
+                code = '\n'.join(ahk_code(ahk_lines(name)))
+                for fn in ('CastBestHit', 'WandWastes'):
+                    n = len(re.findall(r'\b%s\(' % fn, code)) - len(re.findall(r'(?m)^%s\(\)\s*\{' % fn, code))
+                    if n:
+                        calls[name, fn] = n
+        self.assertEqual(calls, {('Autofarmer.ahk', 'CastBestHit'): 2, ('Autofarmer.ahk', 'WandWastes'): 1})
+        m = re.search(r'\nUseHit\(&title, &hit, &dir, useEnchant := 1\)\s*\{.*?\n\t\}', af, re.S)
+        self.assertIsNotNone(m)
+        self.assertIn('if (PipSaveFor != "" && title != PipSaveFor && (title != "wand" || !PipSaveBare))', m.group(0))
+        self.assertRegex(m.group(0), r'if \(hit == 1\) && !Affordable\(title\)\s*\{[^{}]*?hit := 0\s*return false')
+        # (the simulator's side: the plan's measure project(), the wand's rule _wastes(); v1.11.0's own hold gone)
+        self.assertTrue(callable(getattr(battlesim._Battle, 'project', None)))
+        self.assertTrue(callable(getattr(battlesim._Battle, '_wastes', None)))
+        self.assertFalse(hasattr(battlesim._Battle, 'hand_has_better'))
+        # (nothing new sent: pipsave, solotraps and usewand are DeckKeys the simulator drops - not modelled)
+        dk = '\n'.join(ahk_code(ahk_lines('Decks.ahk')))
+        keys = re.search(r'DeckKeys\(\)\s*\{(.*?)return keys', dk, re.S)
+        self.assertIsNotNone(keys)
+        for k in ('pipsave', 'solotraps', 'usewand'):
+            self.assertIn('"%s"' % k, keys.group(1), k)
+            self.assertNotIn(k, battlesim.Opts.KEYS, k)
+            self.assertNotIn(k, vars(battlesim.Opts()), k)
+
     def test_hotkeys(self):
         lines = ahk_lines('Hotkeys.ahk')
         code = ahk_code(lines)

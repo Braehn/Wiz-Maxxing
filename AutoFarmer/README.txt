@@ -566,7 +566,10 @@ Can this deck beat it (the battle simulator - vision\battlesim.py): when a boss
 is ahead, each deck for bosses linked to an in-game deck is fought against it
 300 times in the simulator - your real cards (the main deck shuffled, 7 in
 hand, pips each round, power pips), the bot's way of playing (its card logic,
-boosts before a hit in the bot's order - traps (Feint first), then blades
+the hit it plans - of the hits in hand it can pay for the one dealing the
+most, else the best of them; the wand's hit only when no other goes, and
+not onto a blade meant for the planned hit (v1.11.1) -, boosts before a hit
+in the bot's order - traps (Feint first), then blades
 (your school's, the Elemental / Spirit one, Balanceblade, Bladestorm), the
 aura last; with no hit in hand too, the ones for your school's hit, and past
 "Boosts before each hit" while no hit in hand can be paid for (v1.11.1);
@@ -628,11 +631,13 @@ same dice (2000 battles each, discardspent on): 8 Storm Lord + 6 Stormblade + 6
 Storm Trap + 2 Sharpened Blade + 2 Potent Trap against a 6000-health boss won
 93.5% before v1.9.0, 96.9% with it (97.0% with v1.11.0's boost order, 97.6%
 with v1.11.1's boosts with no hit in hand); 10 Thunder Snake + 6 Storm Lord + 4
-Sharpened Blade against 3 mobs 22.6% before, 18.9% with it. Since v1.9.1, with
-reboost on, the bot keeps a blade's copies once both its casts went (the next
-hit it fits frees them - see Discarding below), and so does the simulator: 8
-Storm Lord, 3 Stormblade and 3 Sharpened Blade against 3 mobs won 44.5% in
-v1.9.0, 57.0% now (2000 battles each, the same dice).
+Sharpened Blade against 3 mobs 22.6% before, 18.9% with it (6.8% with v1.11.1,
+which casts each Thunder Snake it can pay for, as the bot does, where v1.11.0
+held them for a Storm Lord). Since v1.9.1, with reboost on, the bot keeps a
+blade's copies once both its casts went (the next hit it fits frees them - see
+Discarding below), and so does the simulator: 8 Storm Lord, 3 Stormblade and 3
+Sharpened Blade against 3 mobs won 44.5% in v1.9.0, 57.0% now (2000 battles
+each, the same dice).
 Try it on the command line:
     python vision\battlesim.py --deck deck.json --foe "Governor Nereus:9000:ice"
 Decks matched to the zone's enemies (deckzone - Settings, HOW IT PLAYS ITS
