@@ -1188,8 +1188,8 @@ class AhkParity(unittest.TestCase):
         m = re.search(r'\nResetVariables\(\)\s*\{.*?\n\t\}', af, re.S)
         self.assertIsNotNone(m)
         self.assertIn('\n\tBoostRun := 0\n', m.group(0))
-        # (nothing new sent: boostmax, cardlogic and usehit1-4 already are; pipsave is a DeckKey the simulator drops -
-        # its pip saving not modelled)
+        # (nothing new sent: boostmax, cardlogic and usehit1-4 already are; pipsave too - a DeckKey the simulator reads
+        # since v1.11.2, its pip saving - test_pip_save_wiring)
         dk = '\n'.join(ahk_code(ahk_lines('Decks.ahk')))
         keys = re.search(r'DeckKeys\(\)\s*\{(.*?)return keys', dk, re.S)
         self.assertIsNotNone(keys)
@@ -1197,8 +1197,7 @@ class AhkParity(unittest.TestCase):
             self.assertIn('"%s"' % k, keys.group(1), k)
         self.assertIn('boostmax', battlesim.Opts.KEYS)
         self.assertIn('cardlogic', battlesim.Opts.KEYS)
-        self.assertNotIn('pipsave', battlesim.Opts.KEYS)
-        self.assertNotIn('pipsave', vars(battlesim.Opts()))
+        self.assertIn('pipsave', battlesim.Opts.KEYS)
 
     def test_plan_pick_wiring(self):
         """v1.11.1: the simulator plans the hit the bot plans and casts it as the bot does (battlesim choose, project,
@@ -1210,7 +1209,8 @@ class AhkParity(unittest.TestCase):
         then a learned hit in no slot), Autofarmer.ahk's round (hit first: CastBestHit before the chain; the chain's
         end: CastBestHit, then the wand unless WandWastes), WandWastes (a blade or trap on that fits a head of the
         wand's hit and of the plan - a slot hit's whose heads are sure), UseHit (a hit you can't pay for isn't cast, its
-        slot's flag 0; pips saved: no other); nothing new sent - pipsave, solotraps and usewand are sent and dropped"""
+        slot's flag 0; pips saved: no other); nothing new sent - solotraps and usewand are sent and dropped (pipsave
+        read since v1.11.2)"""
         import battlesim
         kc = '\n'.join(ahk_code(ahk_lines('KillCalc.ahk')))
         m = re.search(r'\nPlanChoose\(\)\s*\{.*?\n\t\}', kc, re.S)
@@ -1292,14 +1292,116 @@ class AhkParity(unittest.TestCase):
         self.assertTrue(callable(getattr(battlesim._Battle, 'project', None)))
         self.assertTrue(callable(getattr(battlesim._Battle, '_wastes', None)))
         self.assertFalse(hasattr(battlesim._Battle, 'hand_has_better'))
-        # (nothing new sent: pipsave, solotraps and usewand are DeckKeys the simulator drops - not modelled)
+        # (nothing new sent: solotraps and usewand are DeckKeys the simulator drops - not modelled; pipsave one it
+        # reads since v1.11.2)
         dk = '\n'.join(ahk_code(ahk_lines('Decks.ahk')))
         keys = re.search(r'DeckKeys\(\)\s*\{(.*?)return keys', dk, re.S)
         self.assertIsNotNone(keys)
         for k in ('pipsave', 'solotraps', 'usewand'):
             self.assertIn('"%s"' % k, keys.group(1), k)
+        for k in ('solotraps', 'usewand'):
             self.assertNotIn(k, battlesim.Opts.KEYS, k)
             self.assertNotIn(k, vars(battlesim.Opts()), k)
+
+    def test_pip_save_wiring(self):
+        """v1.11.2: the simulator saves pips for a finishing hit as the bot does (battlesim _pip_save, _kills_later,
+        _kills_bare, choose) - KillCalc.ahk PlanPips (called by the kill check with nothing lethal, after a Draw too,
+        not by a support: pipsave rounds at most - 0 never -, given up for the battle; slot hits in hand, hit4 on a
+        picked boss, costing more than PipsNow and no more than pipsave away or past the 7 orbs' reach, an X-pip one
+        never; lethal once castable - PipLethalLater: the aura only if it lasts, the enchant in hand -; the soonest, a
+        tie the first slot; your health read this round and at least pipsavehealth %; the count - pipsave + 1 rounds
+        or the same pips 3 looks; PipSaveBare - PipLethalBare: no blade, trap, aura or enchant), reset by the kill's
+        cast and at a battle's start; and while it's set PlanChoose plans it, UseHit casts no other (the wand's only
+        with PipSaveBare, unenchanted), CardHitCanGo is false for the others and CastLearnedHit casts none - so
+        CardBoostOk lets the boosts past boostmax. pipsave is sent (a DeckKey: KillCalc.ahk's default 3 is in Stats,
+        so DeckSimVals always sends it); pipsavehealth isn't (the simulator takes the bot's 50)"""
+        import battlesim
+        kc = '\n'.join(ahk_code(ahk_lines('KillCalc.ahk')))
+        self.assertIn(',pipsave:3,pipsavehealth:50,', kc)
+        m = re.search(r'\nPlanPips\(\)\s*\{.*?\n\t\}', kc, re.S)
+        self.assertIsNotNone(m)
+        pp = m.group(0)
+        self.assertRegex(pp, r'PipSaveFor := "", PipSaveBare := 0\s*maxWait := Stat\("pipsave"\)\s*'
+                             r'if \(maxWait <= 0 \|\| PipSaveGaveUp \|\| PipsNow < 0 \|\| !IsObject\(EnemyHP\) \|\| '
+                             r'!EnemyHP\.Length\)\s*return')
+        self.assertIn('reach := PipsNow + Max(0, 7 - PipOrbs)', pp)
+        self.assertIn('if (inHand[A_Index] != 1 || (A_Index = 4 && BossChoosen != 1))', pp)
+        self.assertIn('cost := Stat(hitschool "." name "pips")', pp)
+        self.assertIn('if (cost <= 0 || cost <= PipsNow || cost - PipsNow > maxWait || cost > reach)', pp)
+        self.assertRegex(pp, r'wait := cost - PipsNow\s*if \(!PipLethalLater\(name, wait\)\)\s*continue\s*'
+                             r'if \(wait < bestWait\)\s*best := name, bestWait := wait, bestCost := cost')
+        self.assertRegex(pp, r'if \(best = ""\)\s*\{\s*PipSaveRounds := 0, PipSaveTarget := "", PipSaveStall := 0\s*'
+                             r'return')
+        self.assertIn('if (OwnHpPct < Stat("pipsavehealth"))', pp)
+        self.assertRegex(pp, r'if \(best != PipSaveTarget\)\s*PipSaveTarget := best, PipSaveRounds := 0, '
+                             r'PipSaveStall := 0, PipSaveLastPips := -1\s*'
+                             r'if \(PipsNow != PipSaveLastPips\)\s*PipSaveRounds\+\+, PipSaveStall := 0, '
+                             r'PipSaveLastPips := PipsNow\s*else\s*PipSaveStall\+\+\s*'
+                             r'if \(PipSaveRounds > maxWait \+ 1 \|\| PipSaveStall >= 3\)\s*\{\s*PipSaveGaveUp := 1')
+        self.assertRegex(pp, r'PipSaveFor := best\s*PipSaveBare := PipLethalBare\(best\)')
+        m = re.search(r'\nPipLethalLater\(name, wait\)\s*\{.*?\n\t\}', kc, re.S)
+        self.assertIsNotNone(m)
+        self.assertIn('AuraRounds := Max(0, AuraRounds - wait)', m.group(0))
+        self.assertIn('lethal := IsLethal(name, 0) || (V1Ge(enchant, 1) && IsLethal(name, 1))', m.group(0))
+        m = re.search(r'\nPipLethalBare\(name\)\s*\{.*?\n\t\}', kc, re.S)
+        self.assertIsNotNone(m)
+        self.assertRegex(m.group(0), r'AppliedBlades := V1Obj\(\), BossTraps := V1Obj\(\), AuraRounds := 0\s*'
+                                     r'lethal := IsLethal\(name, 0\)')
+        m = re.search(r'\nIsLethal\(hitName, useEnchant\)\s*\{.*?\n\t\}', kc, re.S)
+        self.assertIsNotNone(m)
+        self.assertIn('if (Stat(hitschool "." hitName "target") = 1 && EnemyHP.Length > 1)', m.group(0))
+        self.assertIn('margin := 1 + Stat("killmargin") / 100', m.group(0))
+        # (the round: PipSaveFor cleared, the kill check, a Draw, PlanPips - not a support's -, the kill's cast resets
+        # the count; a battle's start resets all, given up too)
+        af = '\n'.join(ahk_code(ahk_lines('Autofarmer.ahk')))
+        self.assertRegex(af, r'\nPipSaveFor := ""\n')
+        self.assertRegex(af, r'if \(!FindLethalHit\(&KillHit, &KillEnchant\)\)\s*\{\s*'
+                             r'if \(DrawWouldKill\(\) && DrawForKill\(\)\)\s*FindLethalHit\(&KillHit, &KillEnchant\)\s*'
+                             r'if \(KillHit = "" && !PartySupport\(\)\)\s*PlanPips\(\)')
+        self.assertLess(af.index('\nPipSaveFor := ""\n'), af.index('PlanPips()'))
+        self.assertIn('PipSaveFor := "", PipSaveRounds := 0, PipSaveGaveUp := 0, PipSaveTarget := "", '
+                      'PipSaveStall := 0, PipSaveLastPips := -1', af)
+        self.assertIn('pct := V1Round(V1Div(V1Mul(100, cur), most))', af)
+        self.assertIn('OwnHpPct := pct, OwnHpRound := roundnumber', af)
+        m = re.search(r'\nUseHit\(&title, &hit, &dir, useEnchant := 1\)\s*\{.*?\n\t\}', af, re.S)
+        self.assertIsNotNone(m)
+        self.assertRegex(m.group(0), r'if \(PipSaveFor != "" && title = "wand"\)\s*useEnchant := 0')
+        m = re.search(r'\nCastLearnedHit\(\)\s*\{.*?\n\t\}', af, re.S)
+        self.assertIsNotNone(m)
+        self.assertIn('PipSaveFor != ""', m.group(0))
+        # (PipSaveFor read nowhere else - UseHit's 3, CastLearnedHit's 1; PlanChoose's 6; CardHitReady's 1 and
+        # CardHitCanGo's 2: not by the discards, the chain's boosts or the wand's WandWastes)
+        reads = {}
+        for name in sorted(os.listdir(AF)):
+            if name.lower().endswith('.ahk'):
+                code = '\n'.join(ahk_code(ahk_lines(name)))
+                n = len(re.findall(r'\bPipSaveFor\s*(?:!=|=(?!=)|\?)|(?:=|!=)\s*PipSaveFor\b|%PipSaveFor%|'
+                                   r'RegExMatch\(PipSaveFor', code))
+                if n:
+                    reads[name] = n
+        self.assertEqual(reads, {'Autofarmer.ahk': 4, 'KillCalc.ahk': 6, 'Settings.ahk': 3})
+        # (pipsave sent - a DeckKey -, pipsavehealth not: neither a DeckKey nor one of DeckSimVals' own)
+        dk = '\n'.join(ahk_code(ahk_lines('Decks.ahk')))
+        keys = re.search(r'DeckKeys\(\)\s*\{(.*?)return keys', dk, re.S)
+        self.assertIsNotNone(keys)
+        self.assertIn('"pipsave"', keys.group(1))
+        self.assertNotIn('pipsavehealth', keys.group(1))
+        m = re.search(r'\nDeckSimVals\(d, sch\)\s*\{.*?\n\t\}', dk, re.S)
+        self.assertIsNotNone(m)
+        self.assertNotIn('pipsavehealth', m.group(0))
+        ps = '\n'.join(ahk_lines('PlayerStats.txt'))
+        self.assertRegex(ps, r'\npipsave:3\n')
+        self.assertRegex(ps, r'\npipsavehealth:50\n')
+        # (the simulator's side)
+        self.assertIn('pipsave', battlesim.Opts.KEYS)
+        self.assertNotIn('pipsavehealth', battlesim.Opts.KEYS)
+        o = battlesim.Opts()
+        self.assertEqual((o.pipsave, o.pipsavehealth), (3, 50.0))
+        self.assertEqual(battlesim.MAX_PIPS, 7)
+        for f in ('save_for', 'save_rounds', 'save_stall', 'save_last', 'save_off'):
+            self.assertIn(f, battlesim.WIZ_FIELDS, f)
+        for f in ('_pip_save', '_kills_later', '_kills_bare'):
+            self.assertTrue(callable(getattr(battlesim._Battle, f, None)), f)
 
     def test_hotkeys(self):
         lines = ahk_lines('Hotkeys.ahk')

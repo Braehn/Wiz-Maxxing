@@ -577,6 +577,9 @@ each blade and trap once a battle, and once more sharpened (a
 trap made potent) with a Sharpen (a Potent) in hand, unless reboost is on -,
 the kill check - first with no enchant, then with
 the best one in hand - and that enchant on every other hit it casts,
+saving pips for a hit that would end the battle as the bot saves them
+(pipsave, v1.11.2: no other hit meanwhile, the boosts for it past "Boosts
+before each hit"),
 treasure cards drawn for an enchant that makes the kill as the bot
 draws them (drawenchant), defending when the enemies' hits could finish
 you this round (enemyspells, defendat: a heal under 90% health, else
@@ -1268,7 +1271,9 @@ default 3): no other hit spends pips meanwhile (the wand's free hit, blades,
 traps, healing and Pass still go), and the kill check casts it the round it's
 affordable. Not while your health is under pipsavehealth % (default 50); it
 gives up for the battle if the pips don't come. debug.log and the dashboard
-say "saving pips for ...".
+say "saving pips for ...". The battle simulator saves them the same way
+(v1.11.2), with pipsavehealth at its default (50) - the AutoFarmer doesn't
+send it; your pipsave and a deck's own do count.
 
 Enemy spells (enemyspells:1 - Settings, HEALTH): each round the bot works out
 what each enemy will most likely cast and the chance their hits kill you this
