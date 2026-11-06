@@ -1548,10 +1548,11 @@ class ZeroEffect(unittest.TestCase):
         self.assertEqual(r, S.simulate(S.deck_cards({"cards": main}), S.Me("storm", 3000), [tank], n=120, seed=5))
         # (v1.11.1: the Thunder Snakes paid for go, as the bot casts them - v1.11.0 gave (0.9917, 0.0083, 0.0, 19, 24,
         # 38.5, 97, 19), Storm Lord 4.17, Thunder Snake 2.61, Stormblade 0.95; the planner's pass 0.288, Thunder Snake
-        # 0.283)
+        # 0.283. v1.11.2: the pips saved for a Storm Lord that ends it, as the bot saves them - v1.11.1 gave (0.8417,
+        # 0.0583, 0.1, 24, 27, 24.1, 97, 24), Thunder Snake 9.47, Storm Lord 4.03; the planner's plays the same)
         self.assertEqual(tuple(r[k] for k in self.KEYS),
-                         (0.8416666666666667, 0.058333333333333334, 0.1, 24, 27, 24.1, 97, 24))
-        self.assertEqual(r["casts"], {"Thunder Snake": 9.47, "Storm Lord": 4.03, "Stormblade": 1.0})
+                         (0.8333333333333334, 0.06666666666666667, 0.1, 24.0, 27, 24.2, 96, 24.0))
+        self.assertEqual(r["casts"], {"Thunder Snake": 9.51, "Storm Lord": 4.05, "Stormblade": 1.0})
         # (the planner: a treasure side in the State's pile is a pile of its own, never dealt - the same plays as with
         # the treasure cards out of its pile)
         tstun = S.Card("Stun", "stun", tc=True)
@@ -1606,12 +1607,13 @@ class ZeroEffect(unittest.TestCase):
         # v1.10.1 gave won 0.7917, hp_left 20.0, dmg_in 168, Storm Lord 2.88, Storm Trap 0.78, Stormblade 0.72, Thunder
         # Snake 0.66 a battle. v1.11.1: the Thunder Snakes paid for go, as the bot casts them - re-pinned; v1.11.0 gave
         # won 0.7667, rounds 12, p90 14, hp_left 21.2, dmg_in 170, Storm Lord 3.01, Storm Trap 0.76, Stormblade 0.75,
-        # Thunder Snake 0.57)
+        # Thunder Snake 0.57. v1.11.2: the pips saved for a Storm Lord that ends it, as the bot saves them - re-pinned;
+        # v1.11.1 gave won 0.2, dmg_in 172, Storm Lord 1.59)
         cards = S.deck_cards({"cards": [hit(count=6), hit("Thunder Snake", 2, 150, count=6),
                                         boost("blade", "Stormblade", 35), boost("trap", "Storm Trap", 30)]})
-        pinned = {"n": 120, "won": 0.2, "lost": 0.8, "timeout": 0.0, "rounds": 14.0, "rounds_p90": 15, "hp_left": 10.8,
-                  "dmg_in": 172, "first_kill": 14.0,
-                  "casts": {"Thunder Snake": 6.0, "Storm Lord": 1.59, "Storm Trap": 1.0, "Stormblade": 1.0}, "why": []}
+        pinned = {"n": 120, "won": 0.19166666666666668, "lost": 0.8083333333333333, "timeout": 0.0, "rounds": 14,
+                  "rounds_p90": 15, "hp_left": 10.8, "dmg_in": 173, "first_kill": 14,
+                  "casts": {"Thunder Snake": 6.0, "Storm Lord": 1.58, "Storm Trap": 1.0, "Stormblade": 1.0}, "why": []}
         for o in (S.Opts(), S.Opts(reboost=1)):
             r = S.simulate(cards, S.Me("storm", 2500, damage=40), [biter("Ogre", 3000, 150, 200)], o, n=120, seed=11)
             self.assertEqual(r, pinned)
@@ -3540,8 +3542,9 @@ class NoHitBoosts(unittest.TestCase):
         self.assertEqual(self.picks([stormblade(), trap(), lord()], h1, boosts_run=1)[1], ["Storm Trap", "Stormblade"])
         # (no hit in hand at all: the same)
         self.assertEqual(self.picks([stormblade(), trap()], o1, boosts_run=5)[1], ["Storm Trap", "Stormblade"])
-        # (a payable Thunder Snake is a hit that can go - the bot's pip saving (pipsave) isn't modelled: the boosts
-        # stop, and the Snake goes - the plan, the hit paid for (PlanChoose); then the Stormblade for the Storm Lord)
+        # (a payable Thunder Snake is a hit that can go - no pips saved: the Storm Lord wouldn't end the battle
+        # (pipsave - PipSave): the boosts stop, and the Snake goes - the plan, the hit paid for (PlanChoose); then the
+        # Stormblade for the Storm Lord)
         self.assertEqual(self.picks([stormblade(), snake(), lord()], o1, boosts_run=1, pips=2)[1],
                          ["Thunder Snake", "Stormblade"])
 
@@ -3570,8 +3573,8 @@ class PlanPick(unittest.TestCase):
     PlanChoose's two passes, PlanProject) -, and CastBestHit casts the plan first: a deck hit that can go is always the
     plan - boost first after its boosts, hit first at once. An item card's hit (the wand's) is never the plan: it goes
     at the chain's end when no other went, not onto a blade or trap meant for the plan (WandWastes). The bot holds a
-    payable hit back only while it saves pips for a finishing hit (pipsave - not modelled). v1.11.0 planned the best hit
-    in hand, paid for or not, and held a payable one back for one 1.5 times better (hand_has_better)"""
+    payable hit back only while it saves pips for a finishing hit (pipsave - PipSave, since v1.11.2). v1.11.0 planned
+    the best hit in hand, paid for or not, and held a payable one back for one 1.5 times better (hand_has_better)"""
     picks = NoHitBoosts.picks
 
     def test_the_payable_hit_is_the_plan(self):
@@ -3674,6 +3677,154 @@ class PlanPick(unittest.TestCase):
         self.assertGreater(bt.project(shark), bt.value(shark))
         self.assertEqual((bt.blades, bt.traps), ([], [[]]))
         self.assertEqual(bt.project(cat), bt.value(cat))
+
+
+# ============================================================================ v1.11.2: saving pips for a finishing hit
+# (KillCalc.ahk PlanPips; Autofarmer.ahk UseHit, Settings.ahk CardHitCanGo / CardBoostOk)
+class PipSave(unittest.TestCase):
+    """v1.11.2: nothing in hand ends the battle now, but a deck hit costing more than your pips would once castable -
+    an AoE that kills every enemy, a single-target hit that kills the last one - and it's at most pipsave rounds away
+    (a pip a round at least, within the 7 orbs' reach): the bot saves its pips for it (KillCalc.ahk PlanPips) - it's
+    the plan, no other hit goes (UseHit), so the boosts go on past boostmax (CardHitReady) and the wand's hit only when
+    the saved hit kills without the boosts on (PipSaveBare); not while your health is under pipsavehealth % (50);
+    given up for the battle after pipsave + 1 rounds saving for it, or the same pips 3 rounds running. v1.11.1 never
+    saved: the hit paid for went (the Storm Lord here: 850 at its least against 700 x 1.15 = 805 - the kill check's
+    test; the Thunder Snake's 127 kills nothing)"""
+    picks = NoHitBoosts.picks
+
+    def test_saves_for_the_finishing_hit(self):
+        # (4 pips, the Storm Lord's 7 three rounds away: no Thunder Snake meanwhile - a pass, boost first and hit first;
+        # v1.11.1: the Snake)
+        self.assertEqual(self.picks([snake(), lord()], pips=4, fhp=[700])[1], [])
+        self.assertEqual(self.picks([snake(), lord()], S.Opts(cardlogic=2), pips=4, fhp=[700])[1], [])
+        # (a power pip counts 2: 3 pips, one a power pip - 4, the same)
+        self.assertEqual(self.picks([snake(), lord()], pips=3, power=1, fhp=[700])[1], [])
+        # (the boosts go on for the hit saved for - boost first and hit first; v1.11.1: boost first the Stormblade, then
+        # the Snake; hit first the Snake, then the Stormblade)
+        self.assertEqual(self.picks([stormblade(), snake(), lord()], pips=4, fhp=[700])[1], ["Stormblade"])
+        self.assertEqual(self.picks([stormblade(), snake(), lord()], S.Opts(cardlogic=2), pips=4, fhp=[700])[1],
+                         ["Stormblade"])
+
+    def test_when_it_saves_not(self):
+        # (the Snake goes, as v1.11.1's: 3 pips - the Lord 4 rounds away; pipsave 2 (a deck's own - sent) at 4 pips;
+        # pipsave 0: never; the Lord short of the kill - 800 x 1.15 = 920; your health under pipsavehealth % (1400 of
+        # 3000: 47 %) - at 50 % it saves; pipsavehealth 40 (a constructor's - not sent) at 47 %: it saves)
+        hand = [snake(), lord()]
+        self.assertEqual(self.picks(hand, pips=3, fhp=[700])[1], ["Thunder Snake"])
+        self.assertEqual(self.picks(hand, S.Opts.of({"pipsave": "2"}), pips=4, fhp=[700])[1], ["Thunder Snake"])
+        self.assertEqual(self.picks(hand, S.Opts(pipsave=0), pips=4, fhp=[700])[1], ["Thunder Snake"])
+        self.assertEqual(self.picks(hand, pips=4, fhp=[800])[1], ["Thunder Snake"])
+        self.assertEqual(self.picks(hand, pips=4, fhp=[700], hp=1400)[1], ["Thunder Snake"])
+        self.assertEqual(self.picks(hand, pips=4, fhp=[700], hp=1500)[1], [])
+        self.assertEqual(self.picks(hand, S.Opts(pipsavehealth=40), pips=4, fhp=[700], hp=1400)[1], [])
+        # (a single-target hit with two enemies left ends nothing: the Snake; an AoE that kills both once castable -
+        # Tempest, 340 against 250 x 1.15 -: saved for; one of them too strong for it: the Snake)
+        two = [S.Foe("A", 9000), S.Foe("B", 9000)]
+        self.assertEqual(battle(hand, foes=two, pips=4, fhp=[700, 700]).choose().name, "Thunder Snake")
+        tempest = S.Card("Tempest", "aoe", "storm", 6, heads={"storm": 400})
+        self.assertIsNone(battle([snake(), tempest], foes=two, pips=4, fhp=[250, 250]).choose())
+        self.assertEqual(battle([snake(), tempest], foes=two, pips=4, fhp=[250, 400]).choose().name, "Thunder Snake")
+
+    def test_lethal_once_castable(self):
+        # (the aura counted only if it lasts till the hit can go - KillCalc.ahk PipLethalLater: the Lord kills 800 only
+        # with a Storm Aura on (1062); 4 rounds left - 3 to wait: saved for; 3 left: not - the Snake. The enchant in
+        # hand may go on it: an Epic (+300) makes 900 - saved for; v1.11.1: the Snake each time)
+        hand = [snake(), lord()]
+        self.assertEqual(self.picks(hand, pips=4, fhp=[800], aura=({"storm": 25}, 4))[1], [])
+        self.assertEqual(self.picks(hand, pips=4, fhp=[800], aura=({"storm": 25}, 3))[1], ["Thunder Snake"])
+        self.assertEqual(self.picks([ench()] + hand, pips=4, fhp=[900])[1], [])
+        b = battle(hand, pips=4, fhp=[800], aura=({"storm": 25}, 3))
+        self.assertTrue(b._kills_later(lord(), 2))
+        self.assertFalse(b._kills_later(lord(), 3))
+        self.assertEqual(b.aura, ({"storm": 25}, 3))            # (the aura as it was)
+
+    def test_boosts_past_boostmax_while_saving(self):
+        # (boostmax 1, a boost gone since the last hit: with pips saved no hit can go - the boosts go on (CardBoostOk:
+        # CardHitReady false); v1.11.1: the Snake first - a hit that could go -, then the boosts)
+        self.assertEqual(self.picks([stormblade(), trap(), snake(), lord()], S.Opts(boostmax=1), boosts_run=1, pips=4,
+                                    fhp=[700])[1], ["Storm Trap", "Stormblade"])
+
+    def test_the_wands_hit_while_saving(self):
+        # (the wand's hit - an item card's - goes only if the hit saved for kills without the boosts on (PipSaveBare):
+        # the Lord's 850 against 700 - the Lightning Strike goes; against 800 it kills only with the Storm Aura on - no
+        # wand's hit; with the Epic in hand - nor. v1.11.1: the Snake, then the Lightning Strike, each time)
+        wand = S.Card("Lightning Strike", "damage", "storm", 0, heads={"storm": 95}, item=True)
+        self.assertEqual(self.picks([wand, snake(), lord()], pips=4, fhp=[700])[1], ["Lightning Strike"])
+        self.assertEqual(self.picks([wand, snake(), lord()], pips=4, fhp=[800], aura=({"storm": 25}, 4))[1], [])
+        self.assertEqual(self.picks([ench(), wand, snake(), lord()], pips=4, fhp=[900])[1], [])
+        b = battle([lord()], pips=4, fhp=[700])
+        b.blades = [("Stormblade", {"storm": 35})]
+        self.assertTrue(b._kills_bare(lord()))
+        b.fhp = [800]
+        self.assertFalse(b._kills_bare(lord()))
+        self.assertTrue(b._kills(lord()))
+        self.assertEqual(b.blades, [("Stormblade", {"storm": 35})])
+
+    def test_given_up(self):
+        # (the same pips 3 rounds running: given up for the battle - the Snake from the 4th; pips that come and go -
+        # 4, 5, 4, 5 ...: saved pipsave + 1 = 4 rounds, the 5th given up. v1.11.1: the Snake every round)
+        st = S.State([snake(), lord()], [], fhp=[700], me_first=True, pips=4)
+        b = S._Battle.from_state(st, sure(), [S.Foe("A", 9000)], S.Opts(), random.Random(1))
+        self.assertEqual([getattr(b.choose(), "name", None) for _ in range(5)],
+                         [None, None, None, "Thunder Snake", "Thunder Snake"])
+        self.assertTrue(b.save_off)
+        # (given up for the rest of the battle - PlanPips's PipSaveGaveUp, cleared only at a battle's start: a sooner
+        # hit that would end it, a count afresh, still not saved for - the Snake goes)
+        b.hand.append(S.Card("Storm Giant", "damage", "storm", 6, heads={"storm": 1000}, tid=7))
+        b.pips = 5
+        self.assertEqual(b.choose().name, "Thunder Snake")
+        b = S._Battle.from_state(st, sure(), [S.Foe("A", 9000)], S.Opts(), random.Random(1))
+        out = []
+        for k in range(6):
+            b.pips = 4 + k % 2
+            out.append(getattr(b.choose(), "name", None))
+        self.assertEqual(out, [None, None, None, None, "Thunder Snake", "Thunder Snake"])
+        # (a kill that went out: the count afresh - Autofarmer.ahk; none to save for: afresh too)
+        b = S._Battle.from_state(st, sure(), [S.Foe("A", 9000)], S.Opts(), random.Random(1))
+        b.choose()
+        self.assertEqual((b.save_for, b.save_rounds), ("Storm Lord", 1))
+        b.pips = 7
+        self.assertEqual(b.choose().name, "Storm Lord")             # (the kill check's)
+        self.assertEqual((b.save_for, b.save_rounds, b.save_stall), (None, 0, 0))
+        b = S._Battle.from_state(st, sure(), [S.Foe("A", 9000)], S.Opts(), random.Random(1))
+        b.choose()
+        b.pips = 5
+        b.choose()
+        self.assertEqual((b.save_for, b.save_rounds), ("Storm Lord", 2))
+        b.fhp, b.pips = [9000], 4                                   # (the Lord short of the kill - PlanPips)
+        self.assertEqual(b.choose().name, "Thunder Snake")
+        self.assertEqual((b.save_for, b.save_rounds, b.save_stall), (None, 0, 0))
+        b.fhp, b.pips = [700], 5
+        self.assertIsNone(b.choose())
+        self.assertEqual((b.save_for, b.save_rounds), ("Storm Lord", 1))
+        # (a sooner hit to save for: its own count afresh - PlanPips's PipSaveTarget)
+        b = S._Battle.from_state(st, sure(), [S.Foe("A", 9000)], S.Opts(), random.Random(1))
+        b.choose()
+        b.pips = 5
+        b.choose()
+        b.hand.append(S.Card("Storm Giant", "damage", "storm", 6, heads={"storm": 1000}, tid=7))
+        b.pips = 4
+        self.assertIsNone(b.choose())
+        self.assertEqual((b.save_for, b.save_rounds), ("Storm Giant", 1))
+
+    def test_the_planners_chain_pick(self):
+        # (/plan's chain line - the bot's own pick: a pass, the pips saved for the Storm Lord; hit first with a
+        # Stormblade: the Stormblade; v1.11.1: the Thunder Snake both)
+        st = S.State([snake(), lord()], [lord()] * 5, fhp=[700], me_first=True, pips=4)
+        p = S.plan_round(st, sure(), [S.Foe("A", 9000)], n=10, seed=1, budget_ms=5000)
+        self.assertEqual(p["chain"]["name"], "pass")
+        st = S.State([stormblade(), snake(), lord()], [lord()] * 5, fhp=[700], me_first=True, pips=4)
+        p = S.plan_round(st, sure(), [S.Foe("A", 9000)], S.Opts(cardlogic=2), n=10, seed=1, budget_ms=5000)
+        self.assertEqual(p["chain"]["name"], "Stormblade")
+
+    def test_a_mates_own_count(self):
+        # (the team model: a hitter mate saves its own pips - its count its own; v1.11.1: its Snake went)
+        ann = S.Mate("Ann", 5, sure(), "hitter", [snake(), lord()], [], 4, 0, None)
+        st = S.State([satyr()], [], pips=0, fhp=[700], seat=4, me_first=True, mates=[ann])
+        b = S._Battle.from_state(st, sure(), [S.Foe("A", 9000)], S.Opts(), random.Random(1))
+        b.side_round(0, {})
+        self.assertNotIn("Thunder Snake", b.casts)
+        self.assertEqual((b._wiz(1).save_for, b._wiz(1).save_rounds, b.save_for), ("Storm Lord", 1, None))
 
 
 if __name__ == "__main__":
