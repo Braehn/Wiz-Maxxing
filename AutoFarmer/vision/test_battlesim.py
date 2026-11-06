@@ -3616,13 +3616,46 @@ class PlanPick(unittest.TestCase):
         self.assertEqual(self.picks([wand, lord()])[1], ["Lightning Strike"])
         # (the Stormblade on, meant for the Lord: no wand's hit - a pass, as v1.11.0's)
         self.assertEqual(self.picks([stormblade(), wand, lord()])[1], ["Stormblade"])
-        # (no deck hit in hand: the boosts for your school's hit first, hit first too, then the wand's - no planned hit
-        # to waste them on; v1.11.0: the wand's hit was the plan - hit first cast it at once)
+        # (no deck hit in hand: the boosts for the wand's hit first - a storm one -, hit first too, then the wand's - no
+        # planned hit to waste them on; v1.11.0: the wand's hit was the plan - hit first cast it at once)
         self.assertEqual(self.picks([stormblade(), wand], S.Opts(cardlogic=2))[1], ["Stormblade", "Lightning Strike"])
+        # (an item card's fire hit, no deck hit: the boosts for it - KillCalc.ahk BoostPick's PlanHeads from the game's
+        # hand -, the Fireblade, then the wand's hit, then the Stormblade for your school's - no hit left; boost first
+        # and hit first. Of two item cards' hits, neither paid for, the strongest by its number: the ice one's Iceblade,
+        # then nothing - not your school's while one is in hand; v1.11.1 as first built: the Stormblade first)
+        fwand = S.Card("Fire Wand Hit", "damage", "fire", 0, heads={"fire": 120}, item=True)
+        fireblade = S.Card("Fireblade", "blade", "fire", 0, boosts={"fire": 35})
+        for o in (S.Opts(), S.Opts(cardlogic=2)):
+            self.assertEqual(self.picks([stormblade(), fireblade, fwand], o, pips=1)[1],
+                             ["Fireblade", "Fire Wand Hit", "Stormblade"])
+        iceblade = S.Card("Iceblade", "blade", "ice", 0, boosts={"ice": 35})
+        two = [stormblade(), fireblade, iceblade, S.Card("Fire Pet Hit", "damage", "fire", 1, value=120, item=True),
+               S.Card("Ice Pet Hit", "damage", "ice", 1, value=200, item=True)]
+        self.assertEqual(self.picks(two)[1], ["Iceblade"])
         # (boostmax 1 and a boost gone: the wand's hit is no hit that can go - the boosts go on, then nothing: the Storm
         # Trap and the Stormblade on are the Lord's; v1.11.0: a pass)
         self.assertEqual(self.picks([stormblade(), trap(), wand, lord()], S.Opts(boostmax=1), boosts_run=1)[1],
                          ["Storm Trap", "Stormblade"])
+
+    def test_the_wands_hit_and_what_is_on(self):
+        # (KillCalc.ahk WandWastes, each part: a blade on me or a trap on the wand's target that fits a head of the
+        # wand's hit AND of the plan - one that fits only the wand's, or only the plan's, isn't wasted on it)
+        wand = S.Card("Lightning Strike", "damage", "storm", 0, heads={"storm": 95}, item=True)
+        fwand = S.Card("Fire Wand Hit", "damage", "fire", 0, heads={"fire": 120}, item=True)
+        b = battle([wand, lord()], pips=0, fhp=[9000])
+        b.blades = [("Fireblade", {"fire": 35})]                  # (fits the fire wand's, not the storm Lord's)
+        self.assertFalse(b._wastes(fwand, lord()))
+        b.blades = [("Stormblade", {"storm": 35})]                # (fits the Lord's, not the fire wand's)
+        self.assertFalse(b._wastes(fwand, lord()))
+        self.assertTrue(b._wastes(wand, lord()))                  # (fits both)
+        b.blades, b.traps = [], [[{"storm": 30}]]                 # (a Storm Trap on the wand's target: both too)
+        self.assertTrue(b._wastes(wand, lord()))
+        self.assertFalse(b._wastes(fwand, lord()))
+        # (a deck hit you can pay for and the wand's both in hand, boost first: the deck hit first - CastBestHit
+        # (Autofarmer.ahk:5715) before the wand (5718) -, the wand's the round after)
+        self.assertEqual(self.picks([wand, snake()], pips=2)[1], ["Thunder Snake", "Lightning Strike"])
+        self.assertEqual(self.picks([wand, snake()], S.Opts(cardlogic=2), pips=2)[1],
+                         ["Thunder Snake", "Lightning Strike"])
 
     def test_the_damage_counts_the_boosts_in_hand(self):
         # (the plan's damage counts the blades and traps in hand that can still go (KillCalc.ahk PlanProject): the

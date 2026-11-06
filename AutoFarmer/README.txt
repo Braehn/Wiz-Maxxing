@@ -568,8 +568,8 @@ is ahead, each deck for bosses linked to an in-game deck is fought against it
 hand, pips each round, power pips), the bot's way of playing (its card logic,
 the hit it plans - of the hits in hand it can pay for the one dealing the
 most, else the best of them; the wand's hit only when no other goes, and
-not onto a blade meant for the planned hit (v1.11.1) -, boosts before a hit
-in the bot's order - traps (Feint first), then blades
+not onto a blade or trap meant for the planned hit (v1.11.1) -, boosts
+before a hit in the bot's order - traps (Feint first), then blades
 (your school's, the Elemental / Spirit one, Balanceblade, Bladestorm), the
 aura last; with no hit in hand too, the ones for your school's hit, and past
 "Boosts before each hit" while no hit in hand can be paid for (v1.11.1);
