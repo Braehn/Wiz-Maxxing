@@ -5036,7 +5036,11 @@ Loop
 	;none fits and a round is up, measure the UI size and make a set for it
 	;(only when the game's window changed size since the pictures last matched, or nothing has matched for 10
 	;minutes - between battle rounds and in dialogues neither shows, and a made set can match what's there then)
-	if (!bookSeen && A_TickCount - LastSetTry > 3000 && (PicSetOkSize != GameW "x" GameH || A_TickCount - PicSetOkAt > 600000))
+	;(and a round up by the game's log for 3 s with no Pass button seen, the UI size not measured in this run: the spellbook
+	;proves the set out of battle, but the Pass button made at this size only matches once measured - 2026-11-11 19:19, the
+	;bot restarted out of battle at 1920x1080: no round of a whole battle seen, each passed by the game's timer, knocked out)
+	pmUnmeasured := !bookSeen && PicMeasuredSize != GameW "x" GameH && BattleLogPlanning(3000)
+	if (!bookSeen && A_TickCount - LastSetTry > 3000 && (PicSetOkSize != GameW "x" GameH || A_TickCount - PicSetOkAt > 600000 || pmUnmeasured))
 		{
 		LastSetTry := A_TickCount
 		if (DetectPicSet(true) || DetectUiScale())
