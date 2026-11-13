@@ -20,6 +20,11 @@
 ;     be seen - and Enter is only pressed once the username can be read back in it.
 ;  4. "Client is out of date" (a patch came out during maintenance): closes the game and starts the
 ;     launcher, fills in the login there so it can patch, and the launcher starts the game.
+;  5. The servers down for maintenance ("Server has been brought down for maintenance", GUI_ServerShutdown):
+;     that box has OK, no RECONNECT, so step 1 never gets a try in. 20 minutes on it with no RECONNECT
+;     seen: closes the game and starts it again (step 3, the saved login), and while the servers stay down
+;     keeps trying - the 4-try limit doesn't count then - for up to 12 hours (seen 2026-11-12: 14 hours
+;     sat on that box). No saved login: says so once (debug.log, Discord alert) and leaves it to you.
 ;  A failed try waits longer before the next: 30 s, 1, 2, 4 minutes, then every 10 minutes (servers
 ;  down for maintenance: 10 minutes straight away). After 6 failed RECONNECTs it restarts the game
 ;  (step 3). A login the game turns down is never typed again until it's saved again.
@@ -41,6 +46,9 @@ global RcHungCount, RcHungFirstAt
 ;A relog: when the game was last back in the world after one (the bot's reconnect, or a character picked - yours too; 0 none since the
 ;start: the walker's sigil that won't start counts fewer X presses after one - RcBackAgo), and when a character was picked (0 none)
 global RcBackAt, RcCharSelAt
+;The servers down for maintenance: when that was first seen (0 not), and the restart question already asked meanwhile -
+;once per spell of maintenance (RcGone). Cleared once back in the world
+global RcMaintAt, RcMaintAsked
 
 ;Call once at start. Picks up a disconnect box that's already showing
 ReconnectInit()
@@ -48,13 +56,13 @@ ReconnectInit()
 	global RcCredTarget, RcOn, RcState, RcStateAt, RcTries, RcNext, RcLookAt, RcCheckAt, RcProcAt, RcClickBg, RcLastBg ; (v1 globals it sets)
 	global RcClickAt, RcCharAt, RcPlayTries, RcNoRelaunch, RcLoginBad, RcNote, RcTyped, RcMsg, RcHead, RcPeekAt, RcPeeks ; (v1 globals it sets)
 	global RcLoadAt, RcLastLineAt, RcHungAsked, RcHungCount, RcHungFirstAt, ErrorLevel, RcPid, RcPos, RcScanning ; (v1 globals it sets)
-	global RcBackAt, RcCharSelAt ; (v2-only: the port tools don't know them)
+	global RcBackAt, RcCharSelAt, RcMaintAt, RcMaintAsked ; (v2-only: the port tools don't know them)
 	RcCredTarget := "Wizard101Bot"
 	RcOn := 1, RcState := "", RcStateAt := A_TickCount, RcTries := 0, RcNext := 0, RcLookAt := 0
 	RcCheckAt := 0, RcProcAt := 0, RcClickBg := -1, RcLastBg := 0, RcClickAt := 0, RcCharAt := 0
 	RcPlayTries := 0, RcNoRelaunch := 0, RcLoginBad := 0, RcNote := 0, RcTyped := 0, RcMsg := ""
 	RcHead := "", RcPeekAt := 0, RcPeeks := 0, RcLoadAt := 0, RcLastLineAt := A_TickCount, RcHungAsked := 0
-	RcHungCount := 0, RcHungFirstAt := 0, RcBackAt := 0, RcCharSelAt := 0
+	RcHungCount := 0, RcHungFirstAt := 0, RcBackAt := 0, RcCharSelAt := 0, RcMaintAt := 0, RcMaintAsked := 0
 	ErrorLevel := ProcessExist(GameExe)
 	RcPid := ErrorLevel
 	RcSetClient(RcFindClient())
@@ -79,7 +87,7 @@ ReconnectInit()
 		RcLogMsg("the game is logging back in after a disconnect (" (RcState = "select" ? "character select" : "going into the world") ")")
 		}
 	else
-		RcState := "", RcTries := 0
+		RcState := "", RcTries := 0, RcMaintAt := 0
 	A_TrayMenu.Check("Auto-reconnect on/off")
 	return true
 	}
@@ -191,6 +199,9 @@ RcStep()
 			RcNote := 1, RcLogMsg("can't see the RECONNECT button yet - still looking (" RcFindInfo ")")
 		if (!early && RcNote = 1)
 			RcNote := 2, RcLogMsg("still can't see the RECONNECT button (" RcFindInfo ") - carrying on meanwhile, looking again every 30 s")
+		;The servers down for maintenance: their box has OK, no RECONNECT - 20 minutes on it with none seen: start the game afresh
+		if (RcMaintAt && nowMs - RcStateAt >= 1200000)
+			return RcMaintRestart()
 		return early
 		}
 	if (RcState = "wait")
@@ -288,7 +299,7 @@ RcReadLog()
 RcLogLine(logLine)
 	{
 	global RcLastLineAt, RcLoadAt, RcMsg, RcLoginBad, RcTries, RcNext, RcClickBg, RcCharAt, RcTyped ; (v1 globals it sets)
-	global RcBackAt, RcCharSelAt ; (v2-only: the port tools don't know them)
+	global RcBackAt, RcCharSelAt, RcMaintAt, RcMaintAsked ; (v2-only: the port tools don't know them)
 	;(a zone change under way, and the log's last sign of life - RcHungCheck. Its memory notes come every 5 minutes
 	;whatever the game's doing: they don't count)
 	;(not the empty field after the chunk's last line break - RcReadLog's Loop Parse)
@@ -331,6 +342,14 @@ RcLogLine(logLine)
 		;While typing the login in: whatever the game says is about that
 		if (RcState = "login")
 			{
+			;(the servers still down: not the login's fault - before the check below, which a message naming the account would
+			;trip, and the login never typed again. Tried again later, the 4-try limit not counting meanwhile - RcGone)
+			if (RegExMatch(boxKey "|" boxMsg, "i)Shutdown|maintenance|try again later"))
+				{
+				RcMaintAt := RcMaintAt ? RcMaintAt : A_TickCount
+				RcFail("logging in: the game says `"" boxMsg "`" - the servers are still down for maintenance")
+				return
+				}
 			if (RegExMatch(boxMsg, "i)invalid|password|username|account"))
 				{
 				RcLoginBad := 1
@@ -352,7 +371,11 @@ RcLogLine(logLine)
 		if (!retry && RcState != "box")
 			RcTries := 0
 		RcMsg := boxMsg
-		RcNext := RegExMatch(boxKey "|" boxMsg, "i)Shutdown|maintenance|try again later") ? A_TickCount + 600000
+		maintBox := RegExMatch(boxKey "|" boxMsg, "i)Shutdown|maintenance|try again later")
+		;(that box has no RECONNECT: RcStep restarts the game once it's been up 20 minutes - RcMaintRestart)
+		if (maintBox)
+			RcMaintAt := RcMaintAt ? RcMaintAt : A_TickCount
+		RcNext := maintBox ? A_TickCount + 600000
 			: retry ? A_TickCount + RcBackoff() : 0
 		RcSet("box", "disconnected: `"" boxMsg "`" (" boxKey ")")
 		if (!RcScanning && !retry)
@@ -400,6 +423,8 @@ RcLogLine(logLine)
 				}
 			}
 		RcCharSelAt := 0
+		;(in the world: the servers are up)
+		RcMaintAt := 0, RcMaintAsked := 0
 		if (RcOn && RcState != "")
 			{
 			RegExMatch(logLine, "Zone=(\S+)", &zone)
@@ -535,10 +560,39 @@ RcBackoff()
 	return RcTries <= 1 ? 30000 : RcTries = 2 ? 60000 : RcTries = 3 ? 120000 : RcTries = 4 ? 240000 : 600000
 	}
 
+;The servers down for maintenance, and their box (OK, no RECONNECT) up 20 minutes: close the game and start it again with the
+;saved login (RcGone) - the only way back in after one. Seen 2026-11-12: 14 hours sat on that box. No saved login: said
+;once, and left to you
+RcMaintRestart()
+	{
+	global RcNote, RcTries, RcNext ; (v1 globals it sets)
+	if (RcLoginBad || !RcHaveLogin())
+		{
+		if (RcNote != 3)
+			{
+			RcNote := 3
+			RcLogMsg("the servers were down for maintenance and their box has no RECONNECT - only logging in again gets back, and there's no " (RcLoginBad ? "usable " : "") "saved login (tray menu: Set Wizard101 login...): log in yourself once they're back")
+			if (!RcScanning)
+				{
+				TrayTip("Wizard101's servers were down for maintenance - log in yourself once they're back (or save your login in the tray menu).", "Wizard101 bot", 2)
+				if (V1IsFunc("AlertSend"))
+					AlertSend.Call("reconnect", "Wizard101 needs logging in", "The servers were down for maintenance, and there's no saved login to get back in with (tray menu: Set Wizard101 login...).")
+				}
+			}
+		return false
+		}
+	maintMin := Round((A_TickCount - RcStateAt) / 60000)
+	RcTries := 0, RcNext := 0
+	RcCloseGame()
+	RcSet("gone", "the servers were down for maintenance: " maintMin " minutes on their box with no RECONNECT - closing the game to start it again with the saved login")
+	return true
+	}
+
 ;The game has closed: start it again (asking first, yes if nobody answers in 60 s) and log in
 RcGone()
 	{
 	global RcNote, RcNoRelaunch, ErrorLevel, RcHungAsked ; (v1 globals it sets)
+	global RcMaintAsked ; (v2-only: the port tools don't know it)
 	if (RcNoRelaunch || RcLoginBad)
 		return false
 	if (A_TickCount < RcNext)
@@ -555,7 +609,15 @@ RcGone()
 			}
 		return false
 		}
-	if (RcTries >= 4)
+	;(the servers down for maintenance: tries that fail meanwhile don't count - they come back when they come back - but
+	;not for ever)
+	if (RcMaintAt && A_TickCount - RcMaintAt > 43200000)
+		{
+		RcSet("stopped", "the servers went down for maintenance over 12 hours ago and the game still isn't back in - log in yourself")
+		TrayTip("Couldn't get back into Wizard101 after the maintenance - please log in yourself.", "Wizard101 bot", 2)
+		return false
+		}
+	if (RcTries >= 4 && !RcMaintAt)
 		{
 		RcSet("stopped", "couldn't get the game started and logged in after 4 tries - start it yourself")
 		TrayTip("Couldn't restart Wizard101 by itself - please start it yourself.", "Wizard101 bot", 2)
@@ -563,16 +625,19 @@ RcGone()
 		}
 	if (V1IsFunc("ReleaseKeys"))
 		ReleaseKeys.Call()
-	;(a hung game the bot closed itself has been asked about already - RcHungCheck)
-	if (!RcHungAsked)
+	;(a hung game the bot closed itself has been asked about already - RcHungCheck; the servers down for maintenance:
+	;asked the first time only, not at every try while they stay down)
+	if (!RcHungAsked && !(RcMaintAt && RcMaintAsked))
 		{
-		msgResult := MsgBox("Wizard101 has closed.`n`nStart it again and log back in?`n(It will in 60 seconds if nobody answers.)", "Wizard101 bot", "4145 T60")
+		msgResult := MsgBox((RcMaintAt ? "Wizard101's servers were down for maintenance." : "Wizard101 has closed.") "`n`nStart it again and log back in?`n(It will in 60 seconds if nobody answers.)", "Wizard101 bot", "4145 T60")
 		if (msgResult = "Cancel")
 			{
 			RcNoRelaunch := 1
 			RcLogMsg("the game has closed - you chose not to start it again")
 			return false
 			}
+		if (RcMaintAt)
+			RcMaintAsked := 1
 		}
 	;Things may have changed while the question was up: the game started some other way, or
 	;auto-reconnect switched off in the tray menu. (The hung game still going away: looked at again next time, not
@@ -1330,5 +1395,5 @@ ReconnectBlank()
 	global RcLookAt := "", RcCheckAt := "", RcProcAt := "", RcClickBg := "", RcLastBg := "", RcClickAt := "", RcCharAt := "", RcPlayTries := ""
 	global RcNoRelaunch := "", RcLoginBad := "", RcNote := "", RcScanning := "", RcTyped := "", RcCredTarget := "", RcHead := "", RcPeekAt := ""
 	global RcPeeks := "", RcFrontOk := "", RcFindInfo := "", RcLoadAt := "", RcLastLineAt := "", RcHungAsked := "", RcHungCount := ""
-	global RcHungFirstAt := "", RcBackAt := "", RcCharSelAt := ""
+	global RcHungFirstAt := "", RcBackAt := "", RcCharSelAt := "", RcMaintAt := "", RcMaintAsked := ""
 	}

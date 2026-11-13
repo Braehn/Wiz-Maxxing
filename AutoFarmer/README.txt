@@ -1222,6 +1222,13 @@ Auto-reconnect (Reconnect.ahk, on from the start):
 	  debug.log: "Reconnect: the game has been on a loading screen N minutes".
 	- "Client is out of date" after maintenance: it starts the launcher so it
 	  can patch (it fills in the launcher's login too - not tried yet).
+	- The servers down for maintenance ("Server has been brought down for
+	  maintenance"): that box has OK and no RECONNECT. After 20 minutes on it
+	  it closes Wizard101 and starts it again with your saved login (asking
+	  once, yes after 60 seconds), and keeps trying while the servers stay
+	  down - 30 s, 1, 2, 4, then every 10 minutes, for up to 12 hours. No
+	  saved login: it says so once (debug.log, a Discord alert if set up) and
+	  leaves the login to you. (Before 2026-11-12 it sat on that box for good.)
 	Tray menu: "Auto-reconnect on/off", and "Set Wizard101 login..." to save
 	your username and password for when the game has to be started again.
 	The login is kept encrypted in Windows Credential Manager as
