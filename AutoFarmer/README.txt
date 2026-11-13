@@ -1863,7 +1863,11 @@ it goes to buy more WITH GOLD (never Crowns):
 	  City) and to the Commons (End), walks to her by the zone's map (the same
 	  route planner as the quest walking), presses X at her prompt, clicks
 	  Fill All (found by the words on it - never with "Crown" round it),
-	  then its BUY (read in the whole window, else under COST, else - small
+	  then its BUY - both first by the game's memory (read-only, as quick
+	  sell's: the shop's window "Mystical Mixtures", its "Fill All Potions"
+	  and BUY buttons by name - "Potions: Fill All Potions by the game's
+	  memory"; a cost of 0 after Fill All: your potions are full, no BUY),
+	  else by the words on screen: BUY read in the whole window, else under COST, else - small
 	  UI sizes, where neither is read: 2026-11-08 at 0.856 - where BUY sits
 	  from the Fill All button, read at 3x: "Potions: BUY read where it sits
 	  from Fill All"; never with "Crown" round it),

@@ -1107,6 +1107,77 @@ PotionFindBuy(&seen)
 	return ""
 	}
 
+;The potion shop's Fill All Potions ("fill") or BUY ("buy") by the game's memory - read-only (NavGui, as quick sell's
+;clicks; the windows read 2026-11-08 16:57 with the shop up: "main" (PotionShopWindow) - shopTitleText "Mystical Mixtures",
+;fillallpotions "Fill All Potions", buyAction "BUY", costNumber, totalCoins, exit). PotionShopMemPick checks it.
+;{x, y (screen), mem: 1, cost (the cost shown now, "" not read)}, or "" and why ("" too when the game's memory isn't read at
+;all - navmem off, no helper: the screen's words, quietly). texts: the words of the shop's windows read (the Crown check)
+PotionShopMemAt(which, &texts, &why)
+	{
+	texts := "", why := ""
+	if (!Stat("navmem") || !VisionOn)
+		return ""
+	psmPaths := "main/shopTitleText,main/fillallpotions,main/buyAction,main/costLabel,main/costNumber,main/totalCoins"
+	g := NavGui(psmPaths, 800)
+	if (!IsObject(g))
+		{
+		why := "the game's windows can't be read (" NavGuiWhy ")"
+		return ""
+		}
+	for psmI, psmP in StrSplit(psmPaths, ",")
+		texts .= " " V1At(g.win[psmP], "text")
+	if (g.box.shown)
+		texts .= " " g.box.title " " g.box.caption
+	return PotionShopMemPick(g, which, &why)
+	}
+
+;PotionShopMemAt's checks (pure, but for the screen's place - QsPx, QsPxOk): the shop's window up - its title shown, with
+;"Mixtures" in it (that "main" is the potion shop) -, no message box over it, the button found and shown once, inside the
+;game and its window, not greyed, its label (case aside). g: NavGui's answer for PotionShopMemAt's paths
+PotionShopMemPick(g, which, &why)
+	{
+	why := ""
+	if (g.box.shown)
+		{
+		why := "a game message is up (`"" g.box.caption "`")"
+		return ""
+		}
+	t := g.win["main/shopTitleText"]
+	if (!V1At(t, "shown") || !InStr(V1At(t, "text"), "Mixtures"))
+		{
+		why := "the potion shop's window isn't up" (V1At(t, "text") != "" ? " (a 'main' window titled " t.text ")" : "")
+		return ""
+		}
+	psmPath := which = "fill" ? "main/fillallpotions" : "main/buyAction"
+	psmLabel := which = "fill" ? "Fill All Potions" : "BUY"
+	w := g.win[psmPath]
+	if (!IsObject(w) || !w.found)
+		why := psmLabel " not found in the shop's window"
+	else if (!w.shown)
+		why := psmLabel " not shown"
+	else if (w.dups != 1)
+		why := psmLabel " shown " w.dups " times - which one?"
+	else if (w.l = "" || w.r = "" || w.t = "" || w.b = "" || w.r <= w.l || w.b <= w.t)
+		why := psmLabel "'s rect is odd (" w.l "," w.t "," w.r "," w.b ")"
+	else if (w.l < 0 || w.t < 0 || w.r > g.rootW || w.b > g.rootH)
+		why := psmLabel " is off the game"
+	else if (w.pl != "" && (V1Lt(w.l, V1Sub(w.pl, 1)) || V1Lt(w.t, V1Sub(w.pt, 1)) || V1Gt(w.r, V1Add(w.pr, 1)) || V1Gt(w.b, V1Add(w.pb, 1))))
+		why := psmLabel " is outside the shop's window"
+	else if (w.greyed = 1)
+		why := psmLabel " is greyed out"
+	else if (StrLower(Trim(w.text)) != StrLower(psmLabel))
+		why := psmLabel "'s label reads `"" w.text "`""
+	if (why != "")
+		return ""
+	QsPx(w.l, w.t, w.r, w.b, g.rootW, g.rootH, &psmX, &psmY)
+	if (!QsPxOk(psmX, psmY, &psmWhy))
+		{
+		why := psmLabel ": " psmWhy
+		return ""
+		}
+	return V1Obj({x: psmX, y: psmY, mem: 1, cost: Trim(V1At(g.win["main/costNumber"], "text"))})
+	}
+
 ;The shop's BUY button when neither the whole window's read nor COST found it (small UI sizes: yellow on red, 2026-11-08 at
 ;0.856 - COST not read either): where it sits from the Fill All button just clicked (fill - its words' middle: the right
 ;panel's; the shop grows with the UI size - BUY's middle 412 left of it and 282 below at UI size 1, from 1130,507 -> 777,748
@@ -1350,8 +1421,19 @@ PotionBuyHere(s, since := 0)
 	DebugLog("Potions: " name "'s prompt - X")
 	Send("{Blind}x")
 	Sleep(1800)
-	;(the right panel's Fill All - the rightmost: once picked, its name shows on the left too)
-	w := PotionFindWords("i)^fill$", "i)^all[.!]?$", &seen, false, true)
+	;(2026-11-08: the shop's buttons by the game's memory first - read-only, as quick sell's: Fill All Potions and BUY by
+	;their names in the shop's window (PotionShopMemAt), not by reading the words on the screen - at UI size 0.856 those
+	;weren't read at all (16:26: no Fill All, nothing bought). The screen's words as before when the memory can't say)
+	w := PotionShopMemAt("fill", &seen, &msWhy)
+	if (IsObject(w))
+		DebugLog("Potions: Fill All Potions by the game's memory")
+	else
+		{
+		if (msWhy != "")
+			DebugLog("Potions: Fill All not by the game's memory (" msWhy ") - by the words on screen")
+		;(the right panel's Fill All - the rightmost: once picked, its name shows on the left too)
+		w := PotionFindWords("i)^fill$", "i)^all[.!]?$", &seen, false, true)
+		}
 	;(Crowns anywhere in the window: nothing clicked)
 	if (IsObject(w) && RegExMatch(seen, "i)cr[o0]wn"))
 		{
@@ -1376,15 +1458,33 @@ PotionBuyHere(s, since := 0)
 	ClickAt(w.x, w.y, 300)
 	Sleep(1000)
 	;(Fill All only picks what to buy: its BUY button - on the left, under the cost - buys it, with gold. Only with no
-	;Crown anywhere in the window nor round the button)
-	b := PotionFindWords("i)^buy[.!]?$", "", &seen, true)
-	;(not read - yellow on red reads badly at 1:1, 2026-10-23 08:43: "C)UY", or nothing - the box under COST read 3x)
-	if (!IsObject(b))
-		b := PotionFindBuy(&seen)
-	;(2026-11-08, UI size 0.856: neither BUY nor COST read at all - the box under COST never looked at, no potions bought: read
-	;where BUY sits from the Fill All just clicked - PotionFindBuyFrom)
-	if (!IsObject(b))
-		b := PotionFindBuyFrom(w, &seen)
+	;Crown anywhere in the window nor round the button. The game's memory first (PotionShopMemAt), as Fill All)
+	b := PotionShopMemAt("buy", &seen, &msWhy)
+	if (IsObject(b))
+		{
+		;(nothing to pay: the potions are full already - the drink that sent the bot here didn't work, it isn't out of
+		;potions. No BUY: the shop closed)
+		if (b.cost != "" && RegExReplace(b.cost, "\D") = "0")
+			{
+			DebugLog("Potions: the shop's cost is 0 after Fill All - your potions are full already (the drink before didn't work) - BUY not clicked")
+			PotionCloseShop(since, w)
+			return true
+			}
+		DebugLog("Potions: BUY by the game's memory")
+		}
+	else
+		{
+		if (msWhy != "")
+			DebugLog("Potions: BUY not by the game's memory (" msWhy ") - by the words on screen")
+		b := PotionFindWords("i)^buy[.!]?$", "", &seen, true)
+		;(not read - yellow on red reads badly at 1:1, 2026-10-23 08:43: "C)UY", or nothing - the box under COST read 3x)
+		if (!IsObject(b))
+			b := PotionFindBuy(&seen)
+		;(2026-11-08, UI size 0.856: neither BUY nor COST read at all - the box under COST never looked at, no potions
+		;bought: read where BUY sits from the Fill All just clicked - PotionFindBuyFrom)
+		if (!IsObject(b))
+			b := PotionFindBuyFrom(w, &seen)
+		}
 	if (!IsObject(b) || RegExMatch(seen, "i)cr[o0]wn") || !PotionNoCrowns(b.x, b.y) || !PotionOk(true, since))
 		{
 		DebugLog("Potions: " (!IsObject(b) ? "no BUY button after Fill All" : RegExMatch(seen, "i)cr[o0]wn") ? "`"Crown`" in the shop's window - BUY not clicked" : "BUY not clicked") " (read: " SubStr(RegExReplace(seen, "\s+", " "), 1, 160) ") - not bought")
@@ -1393,6 +1493,8 @@ PotionBuyHere(s, since := 0)
 		}
 	RegExMatch(seen, "i)cost\s*(\d[\d,]*)", &cost)
 	;(v1: no cost read - cost1 blank)
+	if (V1At(b, "cost") != "")
+		cost := V1Obj(1, b.cost)
 	DebugLog("Potions: BUY at " b.x - GameLeft "," b.y - GameTop (V1At(cost, 1) != "" ? " (cost " cost[1] " gold)" : "") " - clicking")
 	ClickAt(b.x, b.y, 300)
 	Sleep(1200)
