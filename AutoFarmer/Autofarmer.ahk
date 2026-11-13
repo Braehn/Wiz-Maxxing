@@ -2283,7 +2283,7 @@ UseHeal(title, &card, dir, tx := "", ty := "")
 HitTarget(title, dir, force := 0, dmg := "")
 	{
 	global
-	local key, i, e, pick, tx, ty, eff, best, why, one
+	local key, i, e, pick, tx, ty, eff, best, why, one, slot, tbox, others
 	key := dir "." title "target"
 	;(force: a learned hit in no slot that needs a target - its card says so, not PlayerStats.txt)
 	one := (dir = hitschool) ? HitHeads(title).one : ""
@@ -2295,16 +2295,17 @@ HitTarget(title, dir, force := 0, dmg := "")
 	;round in, and an enemy gone since leaves its place behind)
 	if (BossChoosen != 1 && V1Gt(V1Ago(EnemyPlatesAt), 8000))
 		ReadEnemyHealth()
+	slot := "", tbox := ""
 	if (BossChoosen == 1)
 		tx := BossX, ty := BossY, pick := "the boss"
 	else if (EnemyPlates.Length)
 		{
 		;(the enemy the hit does the most to - HitPick)
-		pick := HitPick(dmg), why := ""
+		slot := HitPick(dmg), why := ""
 		if (V1Gt(dmg, 0) && IsObject(EnemyHP) && EnemyHP.Length > 1 && EnemyHP.Length = EnemyPlates.Length)
-			why := ", " Min(dmg, EnemyHP[pick].cur) " of its " dmg " damage on it" (dmg >= EnemyHP[pick].cur ? " - kills it" : "")
-		tx := EnemyPlates[pick].x, ty := EnemyPlates[pick].y
-		pick := "enemy " pick " of " EnemyPlates.Length (IsObject(EnemyHP) ? " (" V1At(V1At(EnemyHP, pick), "cur") " health" why ")" : "")  ; (v1: an enemy with no health read - blank)
+			why := ", " Min(dmg, EnemyHP[slot].cur) " of its " dmg " damage on it" (dmg >= EnemyHP[slot].cur ? " - kills it" : "")
+		tx := EnemyPlates[slot].x, ty := EnemyPlates[slot].y, tbox := V1At(EnemyPlates[slot], "box")
+		pick := "enemy " slot " of " EnemyPlates.Length (IsObject(EnemyHP) ? " (" V1At(V1At(EnemyHP, slot), "cur") " health" why ")" : "")  ; (v1: an enemy with no health read - blank)
 		}
 	else
 		{
@@ -2313,15 +2314,39 @@ HitTarget(title, dir, force := 0, dmg := "")
 		}
 	;(the game asking for a target a moment after the card's clicked: then the plate hovered, then clicked)
 	AfterClick(600)
-	if (!TargetClick(tx, ty))
-		return
+	if (!TargetClick(tx, ty, tbox))
+		{
+		;(its plate not clickable - the Crown shop's corner, TargetClickSpot: another enemy's instead, the one the hit does the
+		;most to of the rest - not the card left picked till the round runs out, 2026-11-13 00:10-00:12, knocked out)
+		if (slot = "" || EnemyPlates.Length < 2)
+			{
+			DebugLog("  " title ": no other enemy to target - the card's left picked")
+			return
+			}
+		others := V1Obj()
+		Loop EnemyPlates.Length
+			if (A_Index != slot)
+				others[A_Index] := 1
+		i := HitPick(dmg, others)
+		;(health not read: HitPick's 1 - the leftmost of the rest)
+		slot := (i != slot) ? i : (slot = 1 ? 2 : 1)
+		tx := EnemyPlates[slot].x, ty := EnemyPlates[slot].y, tbox := V1At(EnemyPlates[slot], "box")
+		pick := "enemy " slot " of " EnemyPlates.Length " instead" (IsObject(EnemyHP) ? " (" V1At(V1At(EnemyHP, slot), "cur") " health)" : "")
+		if (!TargetClick(tx, ty, tbox))
+			return
+		}
 	DebugLog("  " title ": clicked " pick " as the target at " tx - GameLeft "," ty - GameTop)
 	;(a click on a nameplate doesn't always take: the round's still waiting - its Pass button there - 0.8 s later:
 	;once more, on the plate's health line just under the name)
+	;(its health line in the Crown shop's corner not let through - TargetClickSpot: the plate's own spot again, else said so)
 	if (TargetPending())
 		{
-		TargetClick(tx, ty + Px(20))
-		DebugLog("  " title ": the target click didn't take - clicked the plate again at " tx - GameLeft "," ty + Px(20) - GameTop)
+		if (TargetClick(tx, ty + Px(20), tbox))
+			DebugLog("  " title ": the target click didn't take - clicked the plate again at " tx - GameLeft "," ty + Px(20) - GameTop)
+		else if (TargetClick(tx, ty, tbox))
+			DebugLog("  " title ": the target click didn't take - its health line not clickable (the Crown shop's corner), clicked the plate again at " tx - GameLeft "," ty - GameTop)
+		else
+			DebugLog("  " title ": the target click didn't take - not clicked again (the Crown shop's corner) - the card may be left picked")
 		}
 	}
 
@@ -2346,20 +2371,106 @@ HitPick(dmg, among := "")
 	return (hpPick = "") ? 1 : hpPick
 	}
 
+;Where a target click may go (TargetClick) - never on a Crown button. The game's three at the top left (windowHUD, read
+;2026-11-13 from its memory and its HUDWindow.gui, GUI 1827x1027 at UI 0.856): CrownShopButtonsWindow (SHOP) 0,0-71,71,
+;btnSubscribe (UPGRADE NOW) 71,-5-142,80 and btnEarnCrowns (EARN CROWNS) 142,-5-213,80 - put in the 71-142 slot by the game
+;when UPGRADE NOW is hidden -, each shown or hidden on its own. Outside the corner always kept clear for them (Px(185) by
+;Px(110)) and the strip right of it where EARN CROWNS can reach (to Px(300) by Px(130)): x, y as they are - in the strip,
+;unless the game's memory has a shown one's box within Px(12) of them. In the corner: by the game's memory (NavGui, read-only)
+;- all three found and none shown, or x, y clear of every shown one's box (from 0,0 to the furthest right and down of them)
+;by Px(12): as they are; else (on one, or not all read) moved right along the plate's box (box {x1, y1, x2, y2}, screen
+;pixels: EnemyPlates' from the game's memory, memclicks) to just past the shown ones - the corner with them not all read -,
+;if the plate goes on that far. 2026-11-13 00:10-00:12: enemy 1's plate's middle at 157,60 on a 1920x1080 game (UI 0.856 -
+;the corner to 158): every hit at it left picked, the round run out, knocked out - 48 times in a night. True: x, y where to
+;click (why: how it was let through - "" outside the corner with nothing in the way); false: not clicked (why)
+TargetClickSpot(&x, &y, box, &why)
+	{
+	why := ""
+	tsCorner := (x < GameLeft + Px(185) && y < GameTop + Px(110))
+	if (!tsCorner && (x >= GameLeft + Px(300) || y >= GameTop + Px(130)))
+		return true
+	tsPaths := ["windowHUD/CrownShopButtonsWindow", "windowHUD/btnSubscribe", "windowHUD/btnEarnCrowns"]
+	tsG := (Stat("navmem") && VisionOn && dualmode != 1) ? NavGui(tsPaths[1] "," tsPaths[2] "," tsPaths[3], 600) : ""
+	tsFound := 0, tsUp := 0, tsOdd := 0, tsR := "", tsB := ""
+	if (IsObject(tsG))
+		for tsP in tsPaths
+			{
+			tsW := tsG.win[tsP]
+			if (!IsObject(tsW) || !tsW.found)
+				continue
+			tsFound += 1
+			if (!tsW.shown)
+				continue
+			tsUp += 1
+			if (tsW.l = "" || tsW.t = "" || tsW.r = "" || tsW.b = "" || tsW.r <= tsW.l || tsW.b <= tsW.t)
+				{
+				tsOdd += 1
+				continue
+				}
+			QsPx(tsW.r, tsW.b, tsW.r, tsW.b, tsG.rootW, tsG.rootH, &tsWR, &tsWB)
+			if (tsR = "" || tsWR > tsR)
+				tsR := tsWR
+			if (tsB = "" || tsWB > tsB)
+				tsB := tsWB
+			}
+	tsAll := (tsFound = tsPaths.Length && !tsOdd)
+	;(the strip right of the corner: as before - clicked - unless a shown one's read right there)
+	if (!tsCorner)
+		{
+		if (!tsAll || !tsUp || x > tsR + Px(12) || y > tsB + Px(12))
+			return true
+		}
+	else if (tsAll && !tsUp)
+		{
+		why := "the game's memory has no Crown button up (Shop, Upgrade Now, Earn Crowns)"
+		return true
+		}
+	tsClear := GameLeft + Px(185)
+	if (tsAll)
+		{
+		tsAt := "0,0 to " tsR - GameLeft "," tsB - GameTop
+		if (x > tsR + Px(12) || y > tsB + Px(12))
+			{
+			why := "clear of the Crown buttons up (" tsAt " - the game's memory)"
+			return true
+			}
+		tsClear := tsR + Px(12) + 1, tsOn := "on the Crown buttons up (" tsAt " - the game's memory)"
+		}
+	else
+		tsOn := "the Crown buttons not read (" (tsFound = tsPaths.Length ? "a place not read" : tsFound ? "not all found in the game's windows"
+			: IsObject(tsG) ? "not found in the game's windows" : NavGuiWhy != "" ? NavGuiWhy : "the game's memory not read") ")"
+	if (IsObject(box) && box.x1 != "" && box.x2 != "" && box.y1 != "" && box.y2 != "" && y >= box.y1 && y <= box.y2)
+		{
+		tsX := Max(tsClear, box.x1) + Px(10)
+		if (tsX <= box.x2 - Px(10))
+			{
+			why := tsOn " - moved right along its plate to " tsX - GameLeft "," y - GameTop
+			x := tsX
+			return true
+			}
+		}
+	why := tsOn
+	return false
+	}
+
 ;A target clicked: the mouse there, a moment on it (the game takes a nameplate click better hovered), the click;
-;the mouse back where it was afterwards (MouseGrab: mousereturn)
-TargetClick(x, y)
+;the mouse back where it was afterwards (MouseGrab: mousereturn). box: the plate's ({x1, y1, x2, y2}, "" not known) - where
+;a click in the Crown shop's corner may move to (TargetClickSpot). 0: not clicked
+TargetClick(x, y, box := "")
 	{
 	;(Wizard101 in the tray - Settings: traygame: nothing clicked - as ClickAt)
 	if (GameInTray)
 		return 0
-	;(never in the Crown shop's corner - SHOP and EARN CROWNS at its top left, to about Px(170): an enemy's plate read
-	;that far left isn't clicked)
-	if (x < GameLeft + Px(185) && y < GameTop + Px(110))
+	;(never on the Crown shop's button - SHOP and EARN CROWNS at its top left: in the corner kept clear for it, only where
+	;the game's memory has the button well away, or moved along its plate - box - out of the corner: TargetClickSpot)
+	tcX := x, tcY := y
+	if (!TargetClickSpot(&x, &y, box, &tcWhy))
 		{
-		DebugLog("  a target click at " x - GameLeft "," y - GameTop " is in the Crown shop's corner - not clicked")
+		DebugLog("  a target click at " tcX - GameLeft "," tcY - GameTop " is in the Crown shop's corner - not clicked" (tcWhy != "" ? " (" tcWhy ")" : ""))
 		return 0
 		}
+	if (tcWhy != "")
+		DebugLog("  a target click at " tcX - GameLeft "," tcY - GameTop " in the Crown shop's corner: " tcWhy)
 	ownGrab := MouseGrab()
 	;(your mouse locked meanwhile - Settings.ahk MouseLockOn)
 	MouseLockOn("click")

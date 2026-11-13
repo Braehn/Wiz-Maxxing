@@ -1647,6 +1647,15 @@ and each name plate's box (/battle), read from the memory the same way.
 	  game running); a spare blade only the memory found is discarded, at
 	  its card box; a hit the game says is for one enemy gets its target
 	  clicked without a hitNtarget:1 key.
+	- A target is never clicked on the Crown shop's button (top left).
+	  Before, nothing in that whole corner (to about 185 x 110 at UI size
+	  1) was clicked - and on a 1920x1080 game the leftmost enemy's plate
+	  sits in it, so a hit aimed at that enemy was never cast and the round
+	  ran out. Now the game's memory says where the Shop button really is
+	  (read-only): a click well clear of it goes ahead; otherwise the click
+	  moves right along the enemy's plate, out of the corner; failing that,
+	  another enemy is the target. debug.log: "a target click at 157,60 in
+	  the Crown shop's corner: clear of the Crown shop's button (...)".
 	- Each cast check logs the round's phase from the memory beside the
 	  Pass picture's verdict ("cast check (memory, log only)") - nothing
 	  acts on it yet. To watch it yourself in a battle:
