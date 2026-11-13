@@ -28,7 +28,8 @@ memory, and the bot stood there for hours) and /seller (where the potion sellers
 
 THE FILES (open(..., "rb") only - never written):
   <zone>.wad gamedata.bin  ObjectProperty records, each property u32 size in bits, u32 hash, its value. A placement:
-      af a9 c8 25  u64 template id            (28 bytes before the location's hash)
+      af a9 c8 25  u64 template id            (28 bytes before the location's hash - 44 since the 2026-11-12
+                                              patch, which put a new u64 property, fe d9 63 5f, in between: TID_BACK)
       1b dc 7e 85  x, y, z (floats)           the location (k)
       8e 7f b7 8b  pitch, roll, yaw (floats)  k + 20
       a5 45 fd 1d  scale (float)              k + 40
@@ -63,6 +64,12 @@ import navmem
 # the properties' hashes as the files hold them (little-endian u32)
 H_TID, H_LOC, H_ORI, H_SCALE, H_NAME, H_STATE = (bytes.fromhex(h) for h in (
     "afa9c825", "1bdc7e85", "8e7fb78b", "a545fd1d", "f303faca", "caf82781"))
+# (the template id's hash this far before the location's, nearest first - 4-byte steps, each a whole property: 28 before
+# the 2026-11-12 patch, 44 after it; right before the hash a u64 property's size - 128 bits: its size, hash and value -
+# so a property the game adds in between later is stepped over too, never another record's id: the record before ends
+# with its name and state)
+TID_BACK = tuple(range(28, 77, 4))
+U64_PROP = struct.pack("<I", 128)
 H_FILE, H_ID = bytes.fromhex("bc90ceb9"), bytes.fromhex("3a8f3589")          # TemplateManifest's TemplateLocation
 H_OBJNAME, H_TPLID, H_DISPLAY, H_TITLE = (bytes.fromhex(h) for h in ("f3c67180", "f632b24c", "92bcd891", "b7d43971"))
 INST = re.compile(r"^(.+?) instance(?: \((\d+)\))?$")
@@ -327,22 +334,35 @@ def _string(b, p):
     return (t if all(31 < ord(c) or c == "\t" for c in t) else None), p + 2 + n
 
 
+def tid_at(b, k):
+    """Where the template id's hash is before the location's at k (TID_BACK: 28 bytes before it in the files before
+    the 2026-11-12 patch, 44 after), its u64 right after it - -1 none"""
+    for back in TID_BACK:
+        j = k - back
+        if j < 4:
+            break
+        if b[j:j + 4] == H_TID and b[j - 4:j] == U64_PROP:
+            return j
+    return -1
+
+
 def parse_placements(b):
-    """[{name, tid, pos, yaw, state, at}] of every record in a gamedata.bin with a location, a template id 28 bytes
-    before it and a name property 52 bytes after it (the layout at the top)"""
+    """[{name, tid, pos, yaw, state, at}] of every record in a gamedata.bin with a location, a template id a little before
+    it (tid_at) and a name property 52 bytes after it (the layout at the top)"""
     out, n = [], 0
     k = b.find(H_LOC)
     while k >= 0:
         n += 1
         if not n & 127:
             _gate()
-        if (k >= 32 and k + 58 <= len(b) and b[k - 28:k - 24] == H_TID and b[k + 20:k + 24] == H_ORI
+        t = tid_at(b, k)
+        if (t >= 0 and k + 58 <= len(b) and b[k + 20:k + 24] == H_ORI
                 and b[k + 52:k + 56] == H_NAME):
             x, y, z = struct.unpack_from("<3f", b, k + 4)
             _p, _r, yaw = struct.unpack_from("<3f", b, k + 24)
             name, end = _string(b, k + 56)
             if name is not None and _finite(x, y, z):
-                tid = struct.unpack_from("<Q", b, k - 24)[0]
+                tid = struct.unpack_from("<Q", b, t + 4)[0]
                 state = None
                 if b[end + 4:end + 8] == H_STATE:
                     state, _ = _string(b, end + 8)
