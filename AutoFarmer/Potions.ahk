@@ -1107,6 +1107,34 @@ PotionFindBuy(&seen)
 	return ""
 	}
 
+;The shop's BUY button when neither the whole window's read nor COST found it (small UI sizes: yellow on red, 2026-11-08 at
+;0.856 - COST not read either): where it sits from the Fill All button just clicked (fill - its words' middle: the right
+;panel's; the shop grows with the UI size - BUY's middle 412 left of it and 282 below at UI size 1, from 1130,507 -> 777,748
+;at 0.856 on a 1920x1080 game), a box round there read at 3x - plain, then the yellow ink only - for a word ending in UY
+;("BUY", "C)UY"). {x, y} of the word's middle, or ""; seen: what was read added to it
+PotionFindBuyFrom(fill, &seen)
+	{
+	if (!IsObject(fill) || !V1IsNum(fill.x) || !V1IsNum(fill.y) || !V1IsNum(UiScale) || UiScale <= 0)
+		return ""
+	bx := Round(fill.x - 412 * UiScale), by := Round(fill.y + 282 * UiScale)
+	bw := Round(240 * UiScale), bh := Round(76 * UiScale)
+	for i, mode in [0, 4]
+		{
+		bt := OcrRect(bx - bw // 2, by - bh // 2, bw, bh, "en", 3, &bLines, mode)
+		seen .= " | by Fill All" (mode ? " (yellow)" : "") ": " bt
+		if (ErrorLevel || !IsObject(bLines))
+			continue
+		for j, line in bLines
+			for k, wd in line.words
+				if (RegExMatch(Trim(wd.text), "i)^.{0,3}uy[.!]?$"))
+					{
+					DebugLog("Potions: BUY read where it sits from Fill All (as `"" Trim(wd.text) "`"" (mode ? ", the yellow ink" : "") ")")
+					return V1Obj({x: Round(wd.x + wd.w / 2), y: Round(wd.y + wd.h / 2)})
+					}
+		}
+	return ""
+	}
+
 ;The words firstRe (and nextRe right after it, if given) in the middle of the game window, by OCR: {x, y} (screen)
 ;of their middle, or "" - the first found, or with rightmost the one furthest right. text: what was read there
 PotionFindWords(firstRe, nextRe := "", &text := "", lone := false, rightmost := false)
@@ -1353,6 +1381,10 @@ PotionBuyHere(s, since := 0)
 	;(not read - yellow on red reads badly at 1:1, 2026-10-23 08:43: "C)UY", or nothing - the box under COST read 3x)
 	if (!IsObject(b))
 		b := PotionFindBuy(&seen)
+	;(2026-11-08, UI size 0.856: neither BUY nor COST read at all - the box under COST never looked at, no potions bought: read
+	;where BUY sits from the Fill All just clicked - PotionFindBuyFrom)
+	if (!IsObject(b))
+		b := PotionFindBuyFrom(w, &seen)
 	if (!IsObject(b) || RegExMatch(seen, "i)cr[o0]wn") || !PotionNoCrowns(b.x, b.y) || !PotionOk(true, since))
 		{
 		DebugLog("Potions: " (!IsObject(b) ? "no BUY button after Fill All" : RegExMatch(seen, "i)cr[o0]wn") ? "`"Crown`" in the shop's window - BUY not clicked" : "BUY not clicked") " (read: " SubStr(RegExReplace(seen, "\s+", " "), 1, 160) ") - not bought")

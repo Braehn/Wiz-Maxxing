@@ -3524,6 +3524,10 @@ DiscardSpare()
 		}
 	if (sharpen == 1) && dsSharpUsed && !dsNeed
 		did += DiscardCard("sharpen", "resources")
+	;(2026-11-08: a second copy of a blade or trap that boosts none of this round's schools - an Elemental Blade with no Hydra
+	;in hand - goes, one a look, when nothing else did: KillCalc.ahk BoostOffSchoolDiscard)
+	if (!did)
+		did += BoostOffSchoolDiscard()
 	return did
 	}
 

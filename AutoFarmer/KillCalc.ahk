@@ -2644,6 +2644,110 @@ BoostMisfitDiscard()
 	return bmdDid
 	}
 
+;Your own hits' round (not a party support's - BoostMisfitDiscard's): a blade or trap - the game's, the deck's copy - that
+;boosts none of this round's schools (yours, Alt+2's pick's, each hit's in the game's hand: a Balance wizard's Hydra's fire,
+;ice and storm) keeps ONE copy in hand, for the hit it fits when one's drawn; another copy of it is right-clicked away by
+;its box (the hand's boxes laid on the game's cards, lining up for sure - HandBoxes, BoxesLineUp, as BoostMemDiscard), one a
+;look (the discard step looks again after it: at most 3 looks a round). 2026-11-08 14:27-14:34: 4 Elemental Blades and 2
+;Elemental Traps (fire, ice, storm only - kept for a Hydra that never came) filled the hand with Balanceblade, nothing could
+;be cast or drawn for 12 rounds, and the wizard was knocked out at 4% health with the last enemy on 82. Never a treasure or
+;item card (discarding one uses it up), never one you said never to discard (Spells tab), a blade or trap switched off
+;(useblades / usetraps 0) only by DiscardSwitchedOff, nothing while you play. Returns how many (0 or 1)
+BoostOffSchoolDiscard()
+	{
+	global
+	local bosAll, bosOff, bosWant, bosI, bosN, bosB, bosC, bosLc, bosX, bosY
+	if (!BoostMemOk || !Stat("discardunused") || LearnAll || hitschool = "" || PartySupport())
+		return 0
+	if (V1IsFunc("PlayerActing") && PlayerActing.Call())
+		return 0
+	bosAll := HandBoxes(300)
+	if (!IsObject(bosAll) || !BoxesLineUp(bosAll, &bosOff))
+		return 0
+	bosWant := BoostOffSchoolWant(bosAll.hand.cards, hitschool, (Manual = 1) ? HammerSchool : "")
+	for bosI, bosN in BoostOffSchoolSpare(bosAll.boxes, bosWant, Stat("useblades"), Stat("usetraps"))
+		{
+		bosB := bosAll.boxes[bosN], bosC := bosB.m, bosLc := ""
+		;(never one you said never to discard - its box known by a learned card's picture, or a slot's with a learned card in it)
+		if (InStr(bosB.known, "learned/") = 1 && V1IsFunc("LearnCardOf"))
+			bosLc := LearnCardOf.Call(SubStr(bosB.known, 9))
+		else if (bosB.known != "" && V1IsFunc("LearnCardInSlot"))
+			bosLc := LearnCardInSlot.Call(StrReplace(bosB.known, "/", "\"))
+		if (IsObject(bosLc) && V1IsFunc("LearnHasFlag") && (LearnHasFlag.Call(bosLc, "hold") || LearnHasFlag.Call(bosLc, "tc")))
+			continue
+		;(nor one the screen shows as a treasure card - lavender)
+		if (V1IsFunc("DiscardIsTc") && DiscardIsTc(Round(bosB.l + bosB.w / 2)))
+			continue
+		bosX := Round(bosB.l + bosB.w / 2), bosY := Round(bosB.t + bosB.h * 0.6)
+		MoveToCard(bosX, bosY)
+		s(Stats.Has("clickwait") ? Stats["clickwait"] : 40)
+		;(Wizard101 gone to the tray - Settings: traygame: not clicked - it would land on the window behind it)
+		if (GameInTray)
+			return 0
+		Click("right")
+		DebugLog("  Discarded " BoostMemName(bosC) " - it boosts " BoostsParse(bosC.boosts).sch " only, none of this round's schools ("
+			. Trim(bosWant, ",") "): one copy kept for a hit it fits (card " bosN " of " bosAll.boxes.Length ", right-click at "
+			. bosX - GameLeft "," bosY - GameTop ")")
+		CenterMouse(), VisionForget()
+		s(Stat("discardafter"))
+		return 1
+		}
+	return 0
+	}
+
+;This round's schools for BoostOffSchoolDiscard (pure): ",<yours>,<Alt+2's pick's>,<each hit's in the game's hand - its
+;heads>," - cards: the game's hand (VisionCards' cards), school: yours (hitschool), pick: Alt+2's pick's school ("" none)
+BoostOffSchoolWant(cards, school, pick := "")
+	{
+	bowOut := "," school ","
+	if (pick != "" && !InStr(bowOut, "," pick ","))
+		bowOut .= pick ","
+	for bowI, bowC in (IsObject(cards) ? cards : [])
+		{
+		bowHh := V1Obj()
+		if ((bowC.kind = "damage" || bowC.kind = "aoe") && HeadsParse(bowC.heads, bowHh))
+			for bowS in bowHh.heads
+				if (!InStr(bowOut, "," bowS ","))
+					bowOut .= bowS ","
+		}
+	return bowOut
+	}
+
+;The spare copies for BoostOffSchoolDiscard (pure): the boxes ({m: the game's card}) of the blades and traps whose schools
+;are known (its boosts) and are none of want's (BoostOffSchoolWant), past the first copy of each (by its name - a treasure or
+;item card counts as that copy and is never one of them), in the hand's order; not a kind switched off (blades / traps 0).
+;[box index, ...]
+BoostOffSchoolSpare(boxes, want, blades := 1, traps := 1)
+	{
+	bosOut := [], bosKept := V1Obj()
+	for bosI, bosB in (IsObject(boxes) ? boxes : [])
+		{
+		bosC := bosB.m
+		if (!IsObject(bosC) || (bosC.kind != "blade" && bosC.kind != "trap"))
+			continue
+		if ((bosC.kind = "blade" && !blades) || (bosC.kind = "trap" && !traps))
+			continue
+		;(its schools not read for sure, or every school's: it fits)
+		bosP := BoostsParse(bosC.boosts)
+		if (!IsObject(bosP) || bosP.sch = "all")
+			continue
+		bosFits := false
+		Loop Parse, bosP.sch, ","
+			if (InStr(want, "," A_LoopField ","))
+				bosFits := true
+		if (bosFits)
+			continue
+		bosNm := BoostMemName(bosC)
+		if (bosC.tc || bosC.item || !bosKept.Has(bosNm))
+			{
+			bosKept[bosNm] := 1
+			continue
+			}
+		bosOut.Push(bosI)
+		}
+	return bosOut
+	}
+
 ;Blades only count toward our hits when they went on our own wizard: the hammer is our school icon
 ;(Bladestorm buffs the whole team). An ally hammer, a manual Alt+2 hammer or no player found -> not counted
 BladeOnUs(card)

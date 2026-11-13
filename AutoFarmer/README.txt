@@ -1809,6 +1809,16 @@ picture. debug.log: "Discarded learned card ... - a kind the bot doesn't play:
 stun", "Discarded Stormblade - storm/blade: 3 of the deck's copies in hand, 1
 cast left this battle ..." and once a battle "spent copies: the worn deck
 holds 2 Sharpen and 0 Potent card(s) ...".
+Blades and traps for another school (2026-11-08): a blade or trap that boosts
+none of the round's schools - yours, Alt+2's pick's, each hit's in hand (a
+Balance wizard's Hydra: fire, ice, storm) - keeps one copy in hand for the
+hit it fits; another copy is discarded, one a look (at most 3 a round), when
+no other card was. Four Elemental Blades and two Elemental Traps with no
+Hydra had filled the hand: nothing could be cast or drawn for 12 rounds and
+the wizard was knocked out. Never a treasure or item card, nor one set to
+Never discard; discardunused:0 switches it off. debug.log: "Discarded
+Elemental Blade - it boosts fire,ice,storm only, none of this round's
+schools (balance): one copy kept for a hit it fits ...".
 Learn every card (the dashboard's Cards tab, or the tray menu): for a deck you made
 to be learned - one of every card. Switch it on and start a battle (an easy
 one). Each round the bot learns what's in hand, right-clicks away every card
@@ -1853,6 +1863,10 @@ it goes to buy more WITH GOLD (never Crowns):
 	  City) and to the Commons (End), walks to her by the zone's map (the same
 	  route planner as the quest walking), presses X at her prompt, clicks
 	  Fill All (found by the words on it - never with "Crown" round it),
+	  then its BUY (read in the whole window, else under COST, else - small
+	  UI sizes, where neither is read: 2026-11-08 at 0.856 - where BUY sits
+	  from the Fill All button, read at 3x: "Potions: BUY read where it sits
+	  from Fill All"; never with "Crown" round it),
 	  drinks one, Fills All again, and Recalls (Page Up) back to the Mark to
 	  carry on. In the Commons already: no Mark, no Recall. Your house must be
 	  in Wizard City (the Dorm is) - else it goes back and tells you. End
