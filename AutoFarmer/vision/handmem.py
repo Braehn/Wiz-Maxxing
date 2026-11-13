@@ -218,9 +218,16 @@ def _off_before(code, end, want_reg):
     for mt in LEA_OFF.finditer(code, max(0, end - 0x30), end):
         modrm = mt.group(1)[0]
         mod, reg, rm = modrm >> 6, (modrm >> 3) & 7, modrm & 7
-        if reg != want_reg or rm == 4 or (mod == 0 and rm == 5) or not (code[mt.start()] & 4):
-            continue
+        rex = code[mt.start()]
         p = mt.end()
+        if rm == 4:
+            # [r12 + disp]: a SIB byte of base r12 alone (24h, no index; REX.B set) - the zero register in build
+            # 6AF1C8A0-3B69000's ClientWizEquipmentBehavior registration (2026-11-12). [rsp + disp] is the stack: never
+            if p >= end or code[p] != 0x24 or not (rex & 1):
+                continue
+            p += 1
+        if reg != want_reg or (mod == 0 and rm == 5) or not (rex & 4):
+            continue
         if mod == 1:
             disp, ln = struct.unpack_from("<b", code, p)[0], p + 1
         else:
@@ -282,7 +289,7 @@ def read_enum(img, first, prop, cls, log=None):
     """{value: 'kName'} of a reflected enum property's options: the option names run in .rdata after the first one, each
     followed by the property's name (the linker pools some elsewhere); in cls's registration code each name is loaded
     (RIP-relative) and its value stored just after - mov dword [rsp+30h], imm32 (or a register kept at 0: mov
-    [rsp+30h], esi). {} when it can't be read"""
+    [rsp+30h], esi - ebx in build 6AF1C8A0-3B69000, 2026-11-12: any 32-bit register taken). {} when it can't be read"""
     import numpy as np
     try:
         at0 = img.strings(first)
@@ -308,7 +315,8 @@ def read_enum(img, first, prop, cls, log=None):
         d = np.where(d >= 1 << 31, d - (1 << 32), d)
         tgt = np.arange(len(d)) + t0 + lo + 4 + d
         out, at = {}, []
-        store = re.compile(rb"\xC7\x44\x24\x30(....)|\x89\x74\x24\x30", re.DOTALL)
+        # (mov [rsp+30h], r32: 89 /r, modrm 01 reg 100 - eax..edi; with REX 44 r8d..r15d)
+        store = re.compile(rb"\xC7\x44\x24\x30(....)|\x44?\x89[\x44\x4C\x54\x5C\x64\x6C\x74\x7C]\x24\x30", re.DOTALL)
         for addr, s in names:
             hit = np.flatnonzero(tgt == addr)
             if not len(hit):

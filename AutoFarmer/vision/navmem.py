@@ -719,10 +719,18 @@ class _Attached:
         if (KNOWN["guimgr_rva"], KNOWN["gm_hud"]) not in o["gm_candidates"]:
             o["gm_candidates"].append((KNOWN["guimgr_rva"], KNOWN["gm_hud"]))
         o["gm"] = None                                              # (rva, hud offset) once a HUD is named
+        # (either signature not in this build - neither is in 6AF1C8A0-3B69000, 2026-11-12: the known slot instead, which
+        # quest() never trusts - checked by the window / thread name it must carry, and in another build looked for by
+        # that name when the check fails - so one changed instruction doesn't cost the quest helper)
+        by_name = []
         c = self._first("HUD_QHH")
-        o["hud_qhh"] = c[0] if c else None
+        o["hud_qhh"] = c[0] if c else KNOWN["hud_qhh"]
+        if not c:
+            by_name.append("hud_qhh")
         c = self._first("QHH_THREAD")
-        o["qhh_thread"] = c[0] if c else None
+        o["qhh_thread"] = c[0] if c else KNOWN["qhh_thread"]
+        if not c:
+            by_name.append("qhh_thread")
         c = self._first("GOAL", lambda c: c[1] == c[0] + 4 and c[2] == c[0] + 8)
         o["th_goal"] = c[0] if c else None
         c = self._first("HOPS", lambda c: c[0] == c[1])
@@ -741,7 +749,8 @@ class _Attached:
         o["hud_hops"], o["hud_cost"], o["hud_dist"], o["hud_arrow"] = c if c else (None,) * 4
         missing = [k for k in ("hud_qhh", "qhh_thread", "th_goal", "th_hops", "th_zone", "th_enabled", "th_path",
                                "th_quest", "th_goalid", "hud_arrow") if o[k] is None]
-        how["quest"] = "all signatures found" if not missing else "missing: " + ", ".join(missing)
+        how["quest"] = ("all signatures found" if not missing else "missing: " + ", ".join(missing)) + (
+            "; no signature, found by name: " + ", ".join(by_name) if by_name else "")
 
     def describe(self):
         o = self.o

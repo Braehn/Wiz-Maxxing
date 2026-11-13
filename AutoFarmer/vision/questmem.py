@@ -182,7 +182,10 @@ def read_enum_run(img, gt, first, prop):
     d = seg[:-3] | (seg[1:-2] << 8) | (seg[2:-1] << 16) | (seg[3:] << 24)
     d = np.where(d >= 1 << 31, d - (1 << 32), d)
     tgt = np.arange(len(d)) + t0 + lo + 4 + d
-    store = re.compile(rb"\xC7\x44\x24(.)(....)|\xC7\x45(.)(....)|\x89\x74\x24(.)|\x89\x75(.)", re.DOTALL)
+    # (the register kept at 0: any 32-bit one - esi before; r15d in build 6AF1C8A0-3B69000, 2026-11-12, where the value slot
+    # missed its 0 store lost the count to the bit slot: mov [rsp+d8] / [rbp+d8], r32 - 89 /r, REX 44 for r8d..r15d)
+    store = re.compile(rb"\xC7\x44\x24(.)(....)|\xC7\x45(.)(....)|\x44?\x89[\x44\x4C\x54\x5C\x64\x6C\x74\x7C]\x24(.)"
+                       rb"|\x44?\x89[\x45\x4D\x55\x5D\x65\x6D\x75\x7D](.)", re.DOTALL)
     seen = []
     for addr, s in names:
         hit = np.flatnonzero(tgt == addr)
