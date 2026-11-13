@@ -59,6 +59,11 @@ What it does
 	  count (the arrow is further off then). If the map doesn't open it
 	  presses X once more, then walks on; if Go To World doesn't take after 3
 	  clicks it stops (the tray tip says so) - pick the world yourself.
+	  In AutoFarmer the Spiral Map is also found from the game's memory
+	  (read-only): when X at a prompt read as an ordinary one opens it, or
+	  the map is open with no arrow showing (left open, or the bot started
+	  with it up), it clicks Go To World the same way - before, it pressed
+	  Space at the map and then waited for an arrow that never came.
 	- Sigil (a dungeon entrance: "Press X to Enter", with Team Up): once its
 	  prompt shows up with the arrow last 60 or less away (or on arriving at
 	  the goal with the prompt showing, or standing on the sigil with its

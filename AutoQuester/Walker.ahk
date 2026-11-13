@@ -734,6 +734,13 @@ WalkStep()
 			StartGate("World Gate prompt showing, the arrow led here (distance " (WkBestDist = "" ? dist : WkBestDist) ")")
 			return true
 			}
+		;(or the game's memory: the goal zones away and its way on - this gate - within TalkReach, as WalkPromptWanted takes a
+		;door's prompt; v1: hops blank - an older helper's - > 0 compared as text, false)
+		if (prompt = "gate" && WkNavOk && V1Gt(WkNavHops, 0) && IsObject(WkNavObj) && WkNavObj.dist != "" && WkNavObj.dist <= TalkReach)
+			{
+			StartGate("World Gate prompt showing, the game's memory's way on " Round(WkNavObj.dist) " away (the goal " WkNavHops " zone changes on)")
+			return true
+			}
 		;(the quest's own NPC by the game's memory - its name on the prompt, within TalkReach: X, even just out of a dialogue -
 		;3 s after the last X, 3 tries in 2 minutes. 2026-10-25 11:30:07-22: a dialogue left Thornton Lewis' goal as it was,
 		;and his prompt was kept from X for 15 s while the wizard went round him)
@@ -796,6 +803,10 @@ WalkStep()
 	;through it; once the arrow is back (or nothing opened within a second), walk on
 	if (WkArrived = 6)
 		{
+		;(X opened the Spiral Map - a World Gate's prompt read as a plain one, 'WORLDGATE' (2026-11-13 00:16): Go To World, not
+		;Space - by the game's memory, WalkSpiralMapUp)
+		if (A_TickCount - WkPressAt > 700 && WalkSpiralMapUp("pressed X"))
+			return true
 		;What X opened: an OK box or a window - a shop, a vendor's list - is closed first (WalkCloseAfterX: OK, or
 		;Escape - nothing in it is ever clicked); looked at once, a moment after X
 		if (!WkDialog && !WkAfterXLooked && A_TickCount - WkPressAt > 700 && !WalkDialogOpen())
@@ -921,6 +932,9 @@ WalkStep()
 				WkArrived := 4, WkGateAt := A_TickCount, WkGateClicks := 0, WkGateX := 1
 				return true
 				}
+			;(slower to open than 2 Space presses: the game's memory looks on - WalkSpiralMapUp)
+			if (WkTalk >= 3 && WalkSpiralMapUp("talk"))
+				return true
 			if (!WkDialog)
 				WalkLog("talk: dialogue open (arrow covered) - pressing Space")
 			WkDialog := 1
@@ -1003,6 +1017,14 @@ WalkStep()
 	;No arrow (and the game's memory not standing in for it, above)
 	if (!seen)
 		{
+		;(the Spiral Map open over it - left open, or the bot started under it: a World Gate, Go To World - by the game's memory,
+		;WalkSpiralMapUp; 2 s after the arrow went, so a battle's start isn't asked about. Only a map the walker's own X may have
+		;opened - that X in the last 2 minutes, nothing of yours since - or one left up with nobody at the PC for a minute: never
+		;one you opened and ticked a world on, then left alone for the few seconds 'Wait while I play' waits)
+		if (!inbattle && (!WkSeenAt || A_TickCount - WkSeenAt > 2000)
+			&& ((WkLastX && A_TickCount - WkLastX < 120000 && A_TickCount - UserIdle() < WkLastX) || UserIdle() > 60000)
+			&& WalkSpiralMapUp("no arrow"))
+			return true
 		;Pushing into a doorway and the arrow went: the door frame between the camera and the wizard,
 		;or the loading screen starting. Stopping would leave a door frame hiding it for good, so walk
 		;straight on for a moment either way
@@ -2478,7 +2500,12 @@ InteractPrompt()
 		return ""
 	;(all of it, for a look for Crowns before an X - Collect.ahk UseStep)
 	WkPromptText := t
+	;(its title and "... to Interact" - or its title line alone in capitals, WORLD GATE, with "Press" / "click" by it: "Interact"
+	;garbled at a small UI - 2026-11-13 00:16:27, UI 0.856, a World Gate's read as a plain 'WORLDGATE' prompt - X'd, its Spiral
+	;Map Spaced at, left open 4 hours. Not the quest line under an NPC's prompt naming one: not a title)
 	if (RegExMatch(t, "i)w[o0]rld\s*gate") && RegExMatch(t, "i)interact"))
+		return "gate"
+	if (RegExMatch(t, "m`n)^\s*W[O0]RLD\s*GATE\s*$") && RegExMatch(t, "i)\bpress\b|\bclick\b"))
 		return "gate"
 	if (RegExMatch(t, "i)to\s*enter"))
 		{
@@ -2502,6 +2529,9 @@ InteractPrompt()
 		t2 := OcrRect(Round(GameLeft + GameW / 2 - 330 * s), Round(GameTop + GameH - 300 * s), Round(660 * s), Round(240 * s), "en", 2)
 		if (!ErrorLevel && RegExMatch(t2, "i)\bpress\b") && RegExMatch(t2, "i)\bto\s+[a-z]{3,}"))
 			t := t2, WkPromptText := t2
+		;(a World Gate's title only read right at 2: its prompt all the same - its title line, as above)
+		if (RegExMatch(t, "m`n)^\s*W[O0]RLD\s*GATE\s*$"))
+			return "gate"
 		WkPromptDest := RegExMatch(t, "m`n)^\s*([A-Z][A-Z'.\- ]{3,}?)\s*$", &cap) ? WalkLetters(cap[1]) : SubStr(WalkLetters(t), 1, 60)
 		WkPromptVerb := RegExMatch(t, "i)\bpress\b.*?\bto\s+([a-z]{3,})", &verb) ? verb[1] : ""
 		return "press"
@@ -3440,10 +3470,14 @@ WalkAfterXText(&lines)
 	return ErrorLevel ? "" : t
 	}
 
-;Screen {x, y} of the middle of the Spiral Map's Go To World button, or "" if the map isn't open.
-;Read by OCR in the lower right part of the map (it sits in the middle of the game, sized with the UI)
-SpiralMapButton()
+;Screen {x, y} of the middle of the Spiral Map's Go To World button, or "" if the map isn't open. By the game's memory first
+;(SpiralMapMem); not told by it (no helper - AutoQuester on its own -, navmem off, its windows not found): read by OCR in the
+;lower right part of the map (it sits in the middle of the game, sized with the UI) - memOnly: not
+SpiralMapButton(memOnly := false)
 	{
+	smm := SpiralMapMem(&smKnown)
+	if (IsObject(smm) || smKnown || memOnly)
+		return smm
 	s := ArrowScale().scale
 	x := Round(GameLeft + GameW / 2 + 60 * s), y := Round(GameTop + GameH / 2 + 200 * s)
 	w := Round(500 * s), h := Round(240 * s)
@@ -3457,6 +3491,62 @@ SpiralMapButton()
 		if (RegExMatch(line.text, "i)go\s*to\s*w[o0]rld"))
 			return V1Obj({x: Round(line.x + line.w / 2), y: Round(line.y + line.h / 2)})
 	return ""
+	}
+
+;The Spiral Map's Go To World button by the game's memory (AutoFarmer's NavGui - read-only): {x, y (screen), world (the one
+;ticked - the quest's, as the game opens it; "" not read), mem: 1} with the map up - its button shown once, not greyed, its
+;words "Go To World" or the map's title "Spiral Map", no message box over it; "" not. known: 1 when the memory told (its
+;button found: up, or hidden - closed), 0 when it can't say (no helper - AutoQuester on its own -, navmem off, not found).
+;Its windows read 2026-11-13 04:45 with the map up (UI 0.856, the GUI 1827x1027): an unnamed UniverseMapWindow, messageBoxBG
+;514,214-1314,814 - title "Spiral Map", teleportButton "Go To World" 1079,772-1206,805, cancelButton "Exit", optionWindow
+;opt0..opt3 (check boxes, the worlds on the page shown: Grizzleheim's checked). 2026-11-13 00:16: the prompt read as a plain
+;'WORLDGATE' one, its X then Spaced 45 times, the map left open over 4 hours (an inactivity kick every 16 minutes)
+SpiralMapMem(&known)
+	{
+	known := 0
+	if (!V1IsFunc("NavGui"))
+		return ""
+	smPaths := "messageBoxBG/title,messageBoxBG/teleportButton,optionWindow/opt0,optionWindow/opt1,optionWindow/opt2,optionWindow/opt3"
+	g := %"NavGui"%.Call(smPaths, 600)
+	if (!IsObject(g) || !g.rootW || !g.rootH)
+		return ""
+	smB := g.win["messageBoxBG/teleportButton"], smT := g.win["messageBoxBG/title"]
+	if (!IsObject(smB) || !smB.found)
+		return ""
+	known := 1
+	if (!smB.shown || smB.dups != 1 || smB.greyed = 1 || g.box.shown || smB.l = "" || smB.t = "" || smB.r = "" || smB.b = ""
+		|| smB.r <= smB.l || smB.b <= smB.t)
+		return ""
+	if (!RegExMatch(smB.text, "i)go\s*to\s*w[o0]rld") && !(IsObject(smT) && smT.shown && RegExMatch(smT.text, "i)spiral\s*map")))
+		return ""
+	smWorld := ""
+	Loop 4
+		{
+		smO := g.win["optionWindow/opt" (A_Index - 1)]
+		if (IsObject(smO) && smO.shown && smO.checked = 1)
+			smWorld := smO.text
+		}
+	return V1Obj({x: Round(GameLeft + (smB.l + smB.r) / 2 * GameW / g.rootW), y: Round(GameTop + (smB.t + smB.b) / 2 * GameH / g.rootH)
+		, world: smWorld, mem: 1})
+	}
+
+;The Spiral Map up by the game's memory - looked at once in 1.5 s at most - while the walker waits on something else (WalkStep:
+;X at a prompt read as a plain one, no arrow - the map left open, a restart under it): true - on to the World Gate's step
+;(WkArrived 4: GateStep clicks Go To World). why: what it was waiting on, for the log
+WalkSpiralMapUp(why)
+	{
+	global WkMapLook, WkArrived, WkGateAt, WkGateClicks, WkGateX ; (v1 globals it sets)
+	if (WkMapLook && A_TickCount - WkMapLook < 1500)
+		return false
+	WkMapLook := A_TickCount
+	smu := SpiralMapButton(true)
+	if (!IsObject(smu))
+		return false
+	if (KeysDown || HeldW || SpeedNow > 1)
+		ReleaseKeys()
+	WalkLog(why ": the Spiral Map is open (the game's memory" (smu.world != "" ? " - " smu.world " picked" : "") ") - a World Gate: Go To World")
+	WkArrived := 4, WkGateAt := A_TickCount, WkGateClicks := 0, WkGateX := 1
+	return true
 	}
 
 ;Moves the mouse there and clicks (screen coordinates), only while walking is on and Wizard101 has focus
@@ -6788,6 +6878,7 @@ WalkerBlank()
 	global WkHiddenAt := "", WkBias := "", WkBiasUntil := "", WkPrevMovedH := "", WkLastBoxOff := "", WkLastMode := "", WkBackups := ""
 	global WkBackupsFrom := "", WkDialog := "", WkPushes := "", WkPushStart := "", WkStraight := "", WkStraightAt := "", WkTalkDist := ""
 	global WkArrDist := "", WkLoadAt := "", WkSpaceAt := "", WkGoneSpaces := "", WkGateAt := "", WkGateClicks := "", WkGateX := "", WkGateLook := ""
+	global WkMapLook := ""
 	global WkSigilUntil := "", WkFarAt := "", WkSigilSeen := "", WkSigilZones := "", WkSigilAt := "", WkSigilKey := "", WkSigilFromZone := ""
 	global WkSigilTries := "", WkSnapPrev := "", WkSnapAt := "", WkTurnAt := "", WkWalkFrom := "", WkStill := "", WkMotion := "", WkMem := ""
 	global WkMemFile := "", WkEsc := "", MovingStuckTime := "", MoveFrac := "", WkMoveLog := "", WkMoveZone := "", WkMovedAt := "", WkMoveNow := ""
