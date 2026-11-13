@@ -2098,14 +2098,14 @@ of Wizard101.
 Carry mode (two clients - new, not tried in the game yet):
 For levelling one wizard with a strong one doing the fighting, both on this
 PC. Log both accounts in, put the strong wizard (the "carry") on the main
-wizard's mount, click the MAIN wizard's window, then press Alt+T. From then
+wizard's mount, click the MAIN wizard's window, then press Alt+K. From then
 on the main quests, walks, drinks and shops as ever; in each battle round it
 passes at once, the bot brings the carry's window up, plays its round the
 usual way and brings the main's window back. After a battle the carry's
 window comes up for a few seconds to press X at its mount's prompt. Out of
 battle nothing else touches the carry. Each wizard's hand, health and place
 are read from its own client's memory (the vision helper keeps a reader for
-each). Alt+T again switches it off; it's taken up again when the bot starts
+each). Alt+K again switches it off; it's taken up again when the bot starts
 while both clients are still open. A client closing switches it off (said in
 debug.log, and a Discord alert if those are on). Not with Dual mode, and not
 with a third client open. Not handled yet: the carry being disconnected (its

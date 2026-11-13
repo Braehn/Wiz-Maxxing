@@ -5,11 +5,11 @@
 ; seconds for its mount's prompt (X - Party.ahk PartyRidePrompt's words; untried in the game: its words logged), then the
 ; main's again. Out of battle nothing else touches the carry.
 ; The windows are told apart by their process: the main is the Wizard101 window in front when carry mode is switched on
-; (its key, Alt+T - the dashboard's Keys tab), the carry the other one. The vision helper reads the game's memory of the
-; client in front (/client - one reader each, vision.py nav_reader), so the walker, the hand and the health read stay that
-; wizard's. Not with dual mode (Alt+D - its Alt+Tab after each round) or a third client. Kept in dashboard.ini [carry]
-; (main, carry: their pids) - taken up again at the next start while both still run. A client gone (closed, restarted by
-; a reconnect): carry mode off, said, and an alert.
+; (its key, Alt+K - the dashboard's Keys tab; not Alt+T, the dashboard's Settings menu), the carry the other one. The
+; vision helper reads the game's memory of the client in front (/client - one reader each, vision.py nav_reader), so the
+; walker, the hand and the health read stay that wizard's. Not with dual mode (Alt+D - its Alt+Tab after each round) or a
+; third client. Kept in dashboard.ini [carry] (main, carry: their pids) - taken up again at the next start while both
+; still run. A client gone (closed, restarted by a reconnect): carry mode off, said, and an alert.
 ; AutoHotkey v2 (the v1 port's conventions - CONVENTIONS.md), #Included by Autofarmer.ahk.
 
 ;On, the two windows and their processes; whose window is in front now (0 the main's, 1 the carry's) and since when;
@@ -50,7 +50,7 @@ CarryWinOf(pid)
 	return 0
 	}
 
-;Alt+T (Hotkeys.ahk "carry"): carry mode on or off
+;Alt+K (Hotkeys.ahk "carry"): carry mode on or off
 HkCarry(*)
 	{
 	if (CarryOn)
