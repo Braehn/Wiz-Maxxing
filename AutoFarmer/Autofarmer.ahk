@@ -11,6 +11,7 @@ GearBlank() ; (v2-only: Gear.ahk's globals blank at start too - CONVENTIONS.md "
 TrainingBlank() ; (Training.ahk - v2-only globals, blank at start too)
 UsedBlank() ; (v2 port: the battle flags made by name - used0..used52, bladetype, traptype - blank at start too)
 OverlayBlank() ; (Overlay.ahk - v2-only globals, blank at start too)
+CarryBlank() ; (Carry.ahk - two clients: v2-only globals, blank at start too)
 InstallMouseHook()
 InstallKeybdHook()
 ;(v1: Settings.ahk's #MaxHotkeysPerInterval 1000 - a directive, in force from the start; v2's default is 70 in 2 s.
@@ -4073,6 +4074,7 @@ LogMirrorGameShown()
 #Include "%A_ScriptDir%\Hotkeys.ahk"
 #Include "%A_ScriptDir%\Spells.ahk"
 #Include "%A_ScriptDir%\Overlay.ahk"
+#Include "%A_ScriptDir%\Carry.ahk"
 #Include "%A_ScriptDir%\..\AutoQuester\Walker.ahk"
 #Include "%A_ScriptDir%\..\AutoQuester\ArrowReader.ahk"
 #Include "%A_ScriptDir%\..\Watch.ahk"
@@ -4815,6 +4817,8 @@ Loop
 		Sleep(300)
 		continue
 		}
+	;(carry mode - two clients: taken up again from the last run, both clients still there - Carry.ahk)
+	CarryTick()
 	UpdateGameRect()
 	if (A_TickCount - LastBeat > 10000)
 		{
@@ -4881,6 +4885,10 @@ Loop
 		if (!PicTooThin(PicPath("resources\roundfinish.png")))
 			PicSetOkAt := A_TickCount, PicSetOkSize := GameW "x" GameH, PicCutOk(PicPath("resources\roundfinish.png"))
 		}
+	;(carry mode: the carry's window in front with no round of its own to play - back to the main's, and nothing out of
+	;battle done on the carry - Carry.ahk)
+	if (CarryNoRound(bookSeen))
+		continue
 	if (bookSeen)
 		{
 		if (!SeenOut)
@@ -4893,6 +4901,8 @@ Loop
 			battles++
 			;(the backpack looked at after the bot's battle - QuickSell.ahk: noted before ResetVariables clears inbattle)
 			QsBattleEnd()
+			;(carry mode: the carry back on the main's mount - Carry.ahk)
+			CarryBattleOver()
 			}
 		;(the mouse, if any of this takes it - potions, stats - goes back where it was at the end: mousereturn)
 		MouseGrab()
@@ -5015,7 +5025,9 @@ Loop
 			roundnumber := ""
 			} else
 				{
-				roundnumber := V1N(roundnumber) + 1
+				;(carry mode: the main's own pass isn't a round of the carry's battle - Carry.ahk)
+				if (!CarryMainTurn())
+					roundnumber := V1N(roundnumber) + 1
 				}
 		Goto("RoundStart")
 		}
@@ -5134,6 +5146,10 @@ if (BossChoosen == 1)
 
 global inbattle := 1
 LearnedThisRound := 0, LastHandAnswer := "", DiscardedUnused := 0, DiscardOffCount := 0, BoostMisfitDone := 0, HandStale := 0, SpentLook := V1Obj()
+
+;(carry mode, the main's turn: it passes - the carry plays the round, its window up at EndRound: Carry.ahk)
+if (CarryRoundMain())
+	Goto("EndRound")
 
 ;Both windows share one record of blades/traps in dual mode, so the kill check is off for that whole battle
 if (dualmode == 1)
@@ -5760,6 +5776,8 @@ if (MouseLetGo() = 0)
 	CenterMouse()
 ;(your mouse unlocked - Settings.ahk MouseLockOff)
 MouseLockOff("round")
+;(carry mode: the main just passed - the carry's window up for its round; the carry's done - the main's back: Carry.ahk)
+CarryRoundEnd()
 
 SwitchWindow()
 	

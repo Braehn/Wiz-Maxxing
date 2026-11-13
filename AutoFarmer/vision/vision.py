@@ -2157,10 +2157,54 @@ def party_stop():
 def nav_reader():
     global NAV
     with NAV_LOCK:
+        # (carry mode - the bot's /client: the client it plays now read alone, each with its own reader - its own attach,
+        # classes and caches - so switching back and forth costs nothing after each one's first look)
+        if CLIENT:
+            r = NAVS.get(CLIENT)
+            if r is None:
+                import navmem
+                r = NAVS[CLIENT] = navmem.NavMem(log=lambda m, p=CLIENT: log('client %d: %s' % (p, m)), pin=CLIENT)
+            return r
         if NAV is None:
             import navmem
             NAV = navmem.NavMem(log=log)
         return NAV
+
+
+# The client the bot plays now (carry mode, two clients - /client?pid=N; 0: as ever - the foreground's, else the first)
+# and the readers made for each one
+CLIENT = 0
+NAVS = {}
+
+
+def client_answer(q):
+    """/client?pid=N: the game client read from now on - every read of the game's memory (0: as ever). Its reader made
+    now and attaching starts in the background (the first one looks through the game's code - seconds). pids=a,b also
+    starts those clients' readers attaching without switching. Says the client and whether its reader is attached"""
+    global CLIENT
+    def num(s):
+        try:
+            return max(0, int(s))
+        except (TypeError, ValueError):
+            return -1
+    for p in (q.get('pids') or '').split(','):
+        n = num(p)
+        if n > 0:
+            with NAV_LOCK:
+                if n not in NAVS:
+                    import navmem
+                    NAVS[n] = navmem.NavMem(log=lambda m, p=n: log('client %d: %s' % (p, m)), pin=n)
+            NAVS[n].read(False, 0.0)
+    if 'pid' in q:
+        n = num(q.get('pid'))
+        if n < 0:
+            return 'ERR pid'
+        if n != CLIENT:
+            log('client: the game\'s memory read from %s now' % (('pid %d' % n) if n else 'the foreground client'))
+        CLIENT = n
+    r = nav_reader()
+    st, why = r._ensure(0.0)
+    return 'OK client %d %s' % (CLIENT, 'attached' if st is not None else ('- ' + why))
 
 
 CARDS_LOGGED = {'text': None}
@@ -4746,6 +4790,8 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if u.path == '/ping':
                 return self.reply('OK ' + VERSION)
+            if u.path == '/client':
+                return self.reply(client_answer(q))
             if u.path == '/forget':
                 global LIB
                 LIB = Library()

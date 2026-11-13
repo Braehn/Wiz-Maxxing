@@ -1113,8 +1113,10 @@ class NavMem:
     # starting up, or run as administrator) / a signature isn't in its code (that won't change while it runs)
     RETRY_READ, RETRY_SIG = 5.0, 300.0
 
-    def __init__(self, log=None):
+    def __init__(self, log=None, pin=None):
         self.log = log or (lambda msg: None)
+        # (pin: this client's pid alone - the bot's carry mode, two clients: one reader each - vision.py nav_reader)
+        self.pin = pin or None
         self.lock = threading.Lock()
         self.st = None
         self.game_dir = ""
@@ -1237,8 +1239,13 @@ class NavMem:
                 pids = find_pids()
                 if not pids:
                     return None, "the game is not running"
-                fg = foreground_pid()
-                pid = fg if fg in pids else pids[0]
+                if self.pin:
+                    if self.pin not in pids:
+                        return None, "that game client (pid %d) isn't running" % self.pin
+                    pid = self.pin
+                else:
+                    fg = foreground_pid()
+                    pid = fg if fg in pids else pids[0]
                 fpid, again, fwhy = self._failed
                 if fpid == pid and time.monotonic() < again:
                     return None, fwhy

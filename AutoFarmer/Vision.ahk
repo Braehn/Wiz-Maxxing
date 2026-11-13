@@ -430,6 +430,9 @@ VisionCards(waitMs := 1500, maxAgeMs := 0)
 ;How many game windows there are (VisionCards: not one - the game's memory may be another client's), 0 none found
 VisionGameClients()
 	{
+	;(carry mode - two clients: the helper reads the one in front alone, so it's one as far as the memory goes - Carry.ahk)
+	if (CarryPinnedFront())
+		return 1
 	try
 		return WinGetCount("ahk_class " GameClass " ahk_exe " GameExe)
 	catch
