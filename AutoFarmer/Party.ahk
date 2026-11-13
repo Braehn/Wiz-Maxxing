@@ -70,6 +70,11 @@ global PartyHitAt, PartyHitAtDuel
 ;across battles} - two / six stop the wait); the notes said once a battle (a Map: duel|why). Each starts "" (PartyBlank):
 ;IsObject first
 global PartyOrderAsked, PartyOrderMiss, PartyOrderSaid
+;The lost follower's teleport by the game's Group button (Settings: partytp - PartyGroupPort): when it last tried, why it
+;didn't (said once till it changes), till when it's left after a try that didn't work and for which of the leader's zones;
+;riding the leader's mount (Settings: partyride - PartyRideCheck): when X was last pressed at its prompt, when the prompt
+;was last read, the other prompts by the leader logged ({key: 1} - once each)
+global PartyPortAt, PartyPortNot, PartyPortOffUntil, PartyPortOffZone, PartyRideAt, PartyRideLook, PartyRideSaid
 
 ;The role set in Settings: "off", "leader" or "follower"
 PartyRoleSet()
@@ -1030,6 +1035,8 @@ PartyFollowStep()
 				ReleaseKeys()
 			PartyTries := 0, PartyStillAt := 0, PartyStuckAt := 0
 			PartyFollowOk(L)
+			;(the leader's mount: X at its prompt to ride - Settings: partyride)
+			PartyRideCheck(L)
 			SetStatus("party: by " (L.name != "" ? L.name : "the leader") " (" L.dist " away)")
 			Sleep(200)
 			return
@@ -1213,28 +1220,441 @@ PartyCantFollow(L, why, tp := "wait")
 		PartyCantSaid := why
 		DebugLog("Party: " (tp = "stuck" ? why " five times - waiting 30 s, then trying again" : "can't follow " pcfWho " - " why " - waiting here") " (" pcfWho " is told)")
 		}
-	;TODO (TODO goal 1 - teleport to a friend, once the Friends list's window names are known from the game: the window
-	;tree dumps): FriendPort.ahk's PartyTeleport(L.wiz) plugs in here - only with a setting for it on (partytp, off by
-	;default), tp "wait", L.port = 1 or the door given up (PartyDoorGave != ""), L.loading != 1, L.zage 3000 or more, the
-	;game in front, you not playing, not quick selling, a try at most once a minute and none refused for L.zone in the last
-	;5 minutes; PartyTp "porting" while it runs, "refused" when the game says no (the leader stops waiting). Never a click
-	;on anything that could spend Crowns
 	if (tp = "wait" && L.port = 1 && PartyPortSaid != L.zone)
 		{
 		PartyPortSaid := L.zone
-		DebugLog("Party: teleporting to " (L.wiz != "" ? L.wiz : pcfWho) " would be the way now (" L.portwhy ") - not in the bot yet: the Friends list's clicks need its window names from the game")
+		DebugLog("Party: teleporting to " (L.wiz != "" ? L.wiz : pcfWho) " would be the way now (" L.portwhy ")" (StatOr("partytp", 1) ? "" : " - Settings: partytp is off"))
 		}
+	;(lost: teleported to the leader by the game's Group button - Settings: partytp, on; PartyGroupPort says why not, once a
+	;reason. True: it's teleporting - followed from where it lands)
+	if (PartyGroupPort(L, why, tp))
+		return
 	if (tp = "wait" && !PartyCantAlerted && A_TickCount - PartyCantAt > 300000)
 		{
 		PartyCantAlerted := 1
 		if (V1IsFunc("AlertSend"))
-			AlertSend.Call("party", "a party follower can't follow", "Waiting 5 minutes: " why ". Bring it to " pcfWho " yourself - teleport to a friend isn't in the bot yet.")
+			AlertSend.Call("party", "a party follower can't follow", "Waiting 5 minutes: " why ". Bring it to " pcfWho " yourself"
+				. (StatOr("partytp", 1) ? " - its teleport by the game's Group button didn't work (debug.log: `"Party: ... teleport`" says why; is it in the leader's group in the game?)." : " - Settings: partytp (teleport to the leader) is off."))
 		}
 	if (tp = "stuck")
 		SetStatus("party: stuck on the way - waiting " Max(0, 30 - (A_TickCount - PartyStuckAt) // 1000) " s, then trying again")
 	else
 		SetStatus("party: can't follow - " why " - waiting here (" (A_TickCount - PartyCantAt) // 1000 " s)")
 	Sleep(500)
+	}
+
+;---- A lost follower's teleport to the leader by the game's Group button; riding the leader's mount (untried in the game) ----
+
+;Lost (PartyCantFollow: no door it walked through leads to the leader - tp "wait", with the helper's advice L.port 1 or the
+;leader's door given up - or five stuck tries on the way - tp "stuck") and in a group in the game with the leader: teleported
+;to it by the HUD's Group button (Settings: partytp, on). The button (windowHUD/GroupSystemButton, Button_Group.dds - the game
+;shows it only while you're in a group) opens its row (GroupButtonLayout: Teleport, Roster, Follow - Button_Teleport_To_Friend,
+;Button_Group, Button_Follow_Group_Leader) and its Teleport (GroupButtonLayout/GroupTeleportButton) is clicked - each click
+;target from the game's memory (NavGui, read-only) as Quick Sell's are (PartyPortClick). Then up to 12 s (PartyPortWatch): a
+;loading screen, a new zone or a jump of 400 units - teleported; a message box - answered (PartyPortBox); nothing - the
+;windows that came up logged (what the bot doesn't know yet) and left for 5 minutes. A try at most once a minute; none in
+;battle, loading, quick selling, with Wizard101 behind another window or you playing (PartyPortWhyNot). PartyTp "porting"
+;meanwhile (the leader waits for it). True: it teleported, or is loading on the way - followed from where it lands
+PartyGroupPort(L, why, tp)
+	{
+	global PartyTp, PartyTpWhy, PartyPortAt, PartyPortNot, PartyStuckAt, PartyTries, PartyPortOffUntil ; (globals it sets)
+	ppWho := L.wiz != "" ? L.wiz : L.name != "" ? L.name : "the leader"
+	ppNot := PartyPortWhyNot(L, tp)
+	if (ppNot != "")
+		{
+		;(a reason said once till it changes - those that come and go by the second ("~...") never)
+		if (SubStr(ppNot, 1, 1) != "~" && PartyPortNot != ppNot)
+			DebugLog("Party: not teleporting to " ppWho " by the game's Group button - " ppNot)
+		PartyPortNot := ppNot
+		return false
+		}
+	PartyPortNot := "", PartyPortAt := A_TickCount
+	ppZone := V1At(PartyMe, "zone"), ppX := V1At(PartyMe, "x"), ppY := V1At(PartyMe, "y")
+	ppWas := PartyTp, ppWasWhy := PartyTpWhy
+	PartyTp := "porting", PartyTpWhy := "teleporting by the game's Group button"
+	SetStatus("party: lost - teleporting to " ppWho " by the game's Group button")
+	DebugLog("Party: lost (" why ") - teleporting to " ppWho " by the game's Group button (Settings: partytp)")
+	;(the windows shown before - to tell what the clicks brought up, when it's nothing the bot knows)
+	ppBefore := PartyPortShown()
+	g := NavGui(PartyPortPaths(), 600)
+	if (!IsObject(g))
+		return PartyPortFail(L, ppWas, ppWasWhy, "the game's windows can't be read (" NavGuiWhy ")", 60000)
+	if (g.box.shown)
+		return PartyPortFail(L, ppWas, ppWasWhy, "a game message is up (`"" g.box.caption "`")", 60000)
+	if (!V1At(g.win["windowHUD/GroupSystemButton"], "shown"))
+		return PartyPortFail(L, ppWas, ppWasWhy, "this wizard isn't in a group in the game (no Group button on the HUD) - invite it to " ppWho "'s group", 120000)
+	;(the row open already - Teleport shown: clicked straight away)
+	if (!V1At(g.win["GroupButtonLayout/GroupTeleportButton"], "shown"))
+		{
+		if (!PartyPortClick("windowHUD/GroupSystemButton", &ppWhy))
+			return PartyPortFail(L, ppWas, ppWasWhy, "the Group button not clicked: " ppWhy, 60000)
+		if (!PartyPortWaitShown("GroupButtonLayout/GroupTeleportButton", 2500))
+			return PartyPortFail(L, ppWas, ppWasWhy, "the Group button's row didn't open (no Teleport button 2.5 s after it)" PartyPortNew(ppBefore), 300000)
+		}
+	if (!PartyPortClick("GroupButtonLayout/GroupTeleportButton", &ppWhy))
+		{
+		PartyPortCloseRow()
+		return PartyPortFail(L, ppWas, ppWasWhy, "the Teleport button not clicked: " ppWhy (ppWhy = "greyed out" ? " - the game won't teleport to the leader from here" : ""), ppWhy = "greyed out" ? 300000 : 60000)
+		}
+	ppHow := PartyPortWatch(ppZone, ppX, ppY)
+	if (ppHow = "")
+		return PartyPortFail(L, ppWas, ppWasWhy, "nothing the bot knows happened in 12 s after Teleport" PartyPortNew(ppBefore) " - the windows are left to you", 300000)
+	if (SubStr(ppHow, 1, 1) = "!")
+		return PartyPortFail(L, ppWas, ppWasWhy, SubStr(ppHow, 2), 300000)
+	DebugLog("Party: teleported to " ppWho " by the Group button (" ppHow ") - following again")
+	PartyTp := "", PartyTpWhy := "", PartyStuckAt := 0, PartyTries := 0, PartyPortOffUntil := 0
+	SetStatus("party: teleported to " ppWho " - following again")
+	return true
+	}
+
+;Why a lost follower doesn't teleport now ("" it may - PartyGroupPort); a "~" first: one that comes and goes by the second,
+;never logged
+PartyPortWhyNot(L, tp)
+	{
+	if (!StatOr("partytp", 1))
+		return "Settings: partytp is off"
+	if (tp = "wait" && L.port != 1 && PartyDoorGave = "")
+		return "~the helper doesn't say a teleport is the way yet (" L.portwhy ")"
+	if (L.loading = 1 || L.zone = "")
+		return "~the leader is loading"
+	if (V1At(PartyMe, "zone") = "")
+		return "~this wizard is loading"
+	if (dualmode == 1)
+		return "dual mode is on (the game's memory is one client's)"
+	if (!Stat("navmem"))
+		return "navmem:0 in PlayerStats.txt (the Group button is found in the game's memory)"
+	if (!VisionOn)
+		return "the vision helper isn't running"
+	if (inbattle = 1 || !BotNoBattle())
+		return "~in a battle (or the spellbook isn't on screen)"
+	if (!GameActive())
+		return "~Wizard101 isn't the window in front"
+	if (PlayerActing())
+		return "~you're playing"
+	if (QsBusy)
+		return "~quick selling"
+	if (PartyPortAt && A_TickCount - PartyPortAt < 60000)
+		return "~tried under a minute ago"
+	if (PartyPortOffUntil && A_TickCount < PartyPortOffUntil && PartyPortOffZone = L.zone)
+		return "~the last try didn't work - tried again in " (PartyPortOffUntil - A_TickCount) // 1000 " s (or once the leader's in another zone)"
+	return ""
+	}
+
+;The Group button's windows by the game's memory (paths for NavGui)
+PartyPortPaths()
+	{
+	return "windowHUD/GroupSystemButton,GroupSystemButton/GroupButtonLayout,GroupButtonLayout/GroupTeleportButton"
+	}
+
+;A try that didn't work: said (once till it changes), the leader's view put back as it was (it's told it can't follow
+;again), not tried again for ms - or till the leader's in another zone. False (PartyGroupPort's answer)
+PartyPortFail(L, was, wasWhy, why, ms)
+	{
+	global PartyTp, PartyTpWhy, PartyPortOffUntil, PartyPortOffZone, PartyPortNot ; (globals it sets)
+	PartyTp := was, PartyTpWhy := wasWhy
+	PartyPortOffUntil := A_TickCount + ms, PartyPortOffZone := L.zone
+	if (PartyPortNot != why)
+		DebugLog("Party: the teleport by the game's Group button didn't work - " why " (tried again in " ms // 60000 " min, or once the leader's in another zone)")
+	PartyPortNot := why
+	return false
+	}
+
+;A window the Group button's clicks may click, and its size in the game's .gui files (GUI units - the HUD's as read
+;2026-11-08 at UI size 0.856, root 1827x1027), or ""
+PartyPortTargetSize(path)
+	{
+	return path = "windowHUD/GroupSystemButton" ? [39, 39] : path = "GroupButtonLayout/GroupTeleportButton" ? [31, 31] : ""
+	}
+
+;A window fine to click (pure): one of the two, found and shown once, inside the root, its .gui size (3 units either way),
+;not greyed. why: what's wrong
+PartyPortTargetOk(path, w, rootW, rootH, &why)
+	{
+	why := ""
+	ptSize := PartyPortTargetSize(path)
+	if (!IsObject(ptSize))
+		why := "not one the party's teleport clicks"
+	else if (!IsObject(w) || !w.found)
+		why := "not found in the game's windows"
+	else if (!w.shown)
+		why := "not shown"
+	else if (w.dups != 1)
+		why := "shown " w.dups " times - which one?"
+	else if (w.l = "" || w.r = "" || w.t = "" || w.b = "" || w.r <= w.l || w.b <= w.t)
+		why := "its rect is odd (" w.l "," w.t "," w.r "," w.b ")"
+	else if (w.l < 0 || w.t < 0 || w.r > rootW || w.b > rootH)
+		why := "off the game (" w.l "," w.t "," w.r "," w.b " in " rootW "x" rootH ")"
+	else if (Abs(w.r - w.l - ptSize[1]) > 3 || Abs(w.b - w.t - ptSize[2]) > 3)
+		why := "its size " w.r - w.l "x" w.b - w.t " isn't the game file's " ptSize[1] "x" ptSize[2]
+	else if (w.greyed = 1)
+		why := "greyed out"
+	return why = ""
+	}
+
+;A click on one of the Group button's windows by the game's memory: read now, fine to click (PartyPortTargetOk), turned into
+;pixels (QuickSell.ahk QsPx, QsJitter, QsPxOk - not the Crown shop's corner, not the right-hand column), no "Crown" read
+;round it, you not playing - then the mouse onto it, a moment, and the click AT it while it's still there (PartyPortClickAt).
+;why: what stopped it
+PartyPortClick(path, &why)
+	{
+	why := ""
+	g := NavGui(path, 600)
+	if (!IsObject(g))
+		{
+		why := "the game's windows can't be read (" NavGuiWhy ")"
+		return false
+		}
+	if (g.box.shown)
+		{
+		why := "a game message is up (`"" g.box.caption "`")"
+		return false
+		}
+	w := g.win[path]
+	if (!PartyPortTargetOk(path, w, g.rootW, g.rootH, &why))
+		return false
+	QsPx(w.l, w.t, w.r, w.b, g.rootW, g.rootH, &pcX, &pcY)
+	QsJitter(w.l, w.t, w.r, w.b, g.rootW, g.rootH, &pcX, &pcY)
+	if (!QsPxOk(pcX, pcY, &why))
+		return false
+	pcR := Round(Max(w.r - w.l, w.b - w.t) * GameW / g.rootW / 2) + 40
+	if (!NoCrownsNear(pcX, pcY, pcR, "Party", "The party's teleport", "by the Group button", "it only teleports to the leader", "party teleport stopped"))
+		{
+		why := "`"Crown`" read round it (or the screen there couldn't be read)"
+		return false
+		}
+	if (PlayerActing())
+		{
+		why := "you're playing"
+		return false
+		}
+	if (!PartyPortClickAt(pcX, pcY, &why))
+		return false
+	DebugLog("Party: clicked " path " at " pcX - GameLeft "," pcY - GameTop)
+	return true
+	}
+
+;The mouse onto x, y and a moment on it, then - no key or mouse of yours meanwhile, the mouse still on it - the click AT x, y,
+;your mouse locked for it. why: what stopped it
+PartyPortClickAt(x, y, &why)
+	{
+	why := ""
+	pcaFrom := A_TickCount
+	MouseLockOn("teleporting to the party's leader")
+	MouseMove(x, y, MouseSpeedNow())
+	MouseLockMoved()
+	Sleep(V1N(V1Max(150, Stats.Has("clickwait") ? Stats["clickwait"] : 40)))
+	MouseGetPos(&pcaX, &pcaY)
+	if (A_TickCount - UserIdle() > pcaFrom)
+		why := "you touched the mouse or keyboard"
+	else if (Abs(pcaX - x) > 2 || Abs(pcaY - y) > 2)
+		why := "the mouse moved off it before the click"
+	if (why = "")
+		Click(x, y)
+	MouseLockOff("teleporting to the party's leader")
+	return why = ""
+	}
+
+;Waits up to ms for the window at path to be shown (the game's memory, every 150 ms)
+PartyPortWaitShown(path, ms)
+	{
+	pwT := A_TickCount
+	Loop
+		{
+		g := NavGui(path, 600)
+		if (IsObject(g) && V1At(g.win[path], "shown"))
+			return true
+		if (A_TickCount - pwT > ms)
+			return false
+		Sleep(150)
+		}
+	}
+
+;The Group button's row closed again (its button clicked once more) when it's still open - nothing else
+PartyPortCloseRow()
+	{
+	g := NavGui(PartyPortPaths(), 600)
+	if (IsObject(g) && !g.box.shown && V1At(g.win["GroupButtonLayout/GroupTeleportButton"], "shown"))
+		PartyPortClick("windowHUD/GroupSystemButton", &pcrWhy)
+	}
+
+;After Teleport, up to 12 s: how it went - "loading" (this wizard's zone not read: a loading screen), "to <zone>", "moved
+;<n> units" (400 or more: a teleport in the same zone); a message box answered (PartyPortBox): a yes waits on (12 s more,
+;once), any other answer "!<why>"; "" nothing the bot knows came of it
+PartyPortWatch(zone, x, y)
+	{
+	pwEnd := A_TickCount + 12000, pwYes := 0
+	Loop
+		{
+		Sleep(250)
+		pwZ := V1At(PartyMe, "zone")
+		if (pwZ = "")
+			return "loading"
+		if (pwZ != zone)
+			return "to " pwZ
+		pwX := V1At(PartyMe, "x"), pwY := V1At(PartyMe, "y")
+		if (V1IsNum(pwX) && V1IsNum(pwY) && V1IsNum(x) && V1IsNum(y) && Sqrt((pwX - x) ** 2 + (pwY - y) ** 2) >= 400)
+			return "moved " Round(Sqrt((pwX - x) ** 2 + (pwY - y) ** 2)) " units"
+		g := NavGui("GroupButtonLayout/GroupTeleportButton", 600)
+		if (IsObject(g) && g.box.shown)
+			{
+			pwA := PartyPortBox(g)
+			if (pwA != "yes")
+				return "!" pwA
+			if (!pwYes)
+				pwYes := 1, pwEnd := A_TickCount + 12000
+			}
+		if (A_TickCount > pwEnd)
+			return ""
+		}
+	}
+
+;A message box after Teleport (one up, its words logged): a question about teleporting (Yes and No, the word teleport, no
+;Crown) - Yes ("yes"); any other question - No; a box with only an OK - OK (the game said no: its words); a Crown in it -
+;nothing clicked. Each button by its label (Yes / No / OK, its word read off the screen too - QuickSell.ahk QsReadWord), the
+;game file's size, no "Crown" read round it. The answer: "yes", else why it stopped
+PartyPortBox(g)
+	{
+	pbText := Trim(g.box.title " " g.box.caption)
+	DebugLog("Party: a game message after Teleport: `"" SubStr(RegExReplace(pbText, "\s+", " "), 1, 160) "`"")
+	if (RegExMatch(pbText, "i)cr[o0]wn"))
+		{
+		if (V1IsFunc("AlertSend"))
+			AlertSend.Call("crowns", "party teleport stopped", "A message about Crowns came up after the Group button's Teleport - nothing clicked: `"" SubStr(pbText, 1, 120) "`"")
+		return "a message about Crowns came up (`"" SubStr(pbText, 1, 80) "`") - nothing clicked, it's left to you"
+		}
+	if (g.box["count"] != 1)
+		return (g.box["count"] = "" ? "how many message boxes are up couldn't be read" : g.box["count"] " message boxes are up") " - none clicked"
+	pbYes := PartyPortBtn(g.btns, "Yes"), pbNo := PartyPortBtn(g.btns, "No"), pbOk := PartyPortBtn(g.btns, "OK")
+	if (IsObject(pbYes) && IsObject(pbNo))
+		{
+		if (RegExMatch(pbText, "i)teleport|port to|travel"))
+			return PartyPortBoxClick(g, pbYes, "Yes", &pbWhy) ? "yes" : "its Yes not clicked: " pbWhy
+		return PartyPortBoxClick(g, pbNo, "No", &pbWhy) ? "a question it doesn't know (`"" SubStr(pbText, 1, 80) "`") - answered No" : "a question it doesn't know - its No not clicked: " pbWhy
+		}
+	if (IsObject(pbOk) && g.btns.Length = 1)
+		return "the game said no: `"" SubStr(pbText, 1, 100) "`"" (PartyPortBoxClick(g, pbOk, "OK", &pbWhy) ? " (OK clicked)" : " - its OK not clicked: " pbWhy)
+	return "a message with buttons it doesn't know (`"" SubStr(pbText, 1, 80) "`") - nothing clicked"
+	}
+
+;The one button labelled label in a box's buttons, or "" (none, or more than one)
+PartyPortBtn(btns, label)
+	{
+	pbB := "", pbN := 0
+	for pbI, pbX in btns
+		if (Trim(pbX.label) = label)
+			pbB := pbX, pbN += 1
+	return pbN = 1 ? pbB : ""
+	}
+
+;A box's button clicked: the game file's size (128x32, 2 either way), not greyed, on the game, its word read off the screen,
+;no "Crown" read round it, you not playing. why: what stopped it
+PartyPortBoxClick(g, b, say, &why)
+	{
+	why := ""
+	if (V1Gt(V1Abs(V1Sub(V1Sub(b.r, b.l), 128)), 2) || V1Gt(V1Abs(V1Sub(V1Sub(b.b, b.t), 32)), 2) || b.greyed = 1)
+		why := "it isn't as the game's file has it (" V1Sub(b.r, b.l) "x" V1Sub(b.b, b.t) (b.greyed = 1 ? ", greyed" : "") ")"
+	else if (V1Lt(b.l, 0) || V1Lt(b.t, 0) || V1Gt(b.r, g.rootW) || V1Gt(b.b, g.rootH))
+		why := "it's off the game"
+	if (why != "")
+		return false
+	QsPx(b.l, b.t, b.r, b.b, g.rootW, g.rootH, &pbX, &pbY)
+	if (!QsPxOk(pbX, pbY, &why))
+		return false
+	if (!QsReadWord(b.l, b.t, b.r, b.b, g, say))
+		{
+		why := "it doesn't read `"" say "`" on screen"
+		return false
+		}
+	pbR := V1Round(V1Div(V1Div(V1Mul(V1Max(V1Sub(b.r, b.l), V1Sub(b.b, b.t)), GameW), g.rootW), 2)) + 40
+	if (!NoCrownsNear(pbX, pbY, pbR, "Party", "The party's teleport", "by the game's message", "it only teleports to the leader", "party teleport stopped"))
+		{
+		why := "`"Crown`" read round it (or the screen there couldn't be read)"
+		return false
+		}
+	if (PlayerActing())
+		{
+		why := "you're playing"
+		return false
+		}
+	if (!PartyPortClickAt(pbX, pbY, &why))
+		return false
+	DebugLog("Party: clicked the message's " say " at " pbX - GameLeft "," pbY - GameTop)
+	return true
+	}
+
+;The windows shown now, two levels down from the game's GUI root ({name: 1}), or "" when they can't be read (NavGuiTree)
+PartyPortShown()
+	{
+	t := NavGuiTree("", false, 2, 1500)
+	if (!IsObject(t))
+		return ""
+	psOut := V1Obj()
+	for psI, psR in t.rows
+		if (psR.name != "" && psR.shown)
+			psOut[psR.name] := 1
+	return psOut
+	}
+
+;" - new windows: A, B" (shown now, not before - before: PartyPortShown's), " - no new windows", or "" when it can't be told
+PartyPortNew(before)
+	{
+	if (!IsObject(before))
+		return ""
+	now := PartyPortShown()
+	if (!IsObject(now))
+		return ""
+	pnList := ""
+	for pnK in now
+		if (!before.Has(pnK))
+			pnList .= (pnList = "" ? "" : ", ") pnK
+	return pnList = "" ? " - no new windows" : " - new windows: " SubStr(pnList, 1, 200)
+	}
+
+;Standing by the leader (PartyFollowStep - Settings: partyride, on; untried in the game): the prompt at the bottom of the
+;game read every 1.5 s (the walker's InteractPrompt), and one to ride the leader's mount (PartyRidePrompt) gets an X - at
+;most once in 5 s: the mount takes its passenger again after a zone change, a battle, a dismount. Any other prompt by the
+;leader is logged once (its words - what a ride prompt really says, should it be none of those) and left alone
+PartyRideCheck(L)
+	{
+	global PartyRideAt, PartyRideLook, PartyRideSaid ; (globals it sets)
+	global WkPromptText, WkPromptVerb, WkPromptDest ; (InteractPrompt's)
+	if (!StatOr("partyride", 1) || !GameActive() || PlayerActing() || inbattle = 1)
+		return
+	if (PartyRideLook && A_TickCount - PartyRideLook < 1500)
+		return
+	PartyRideLook := A_TickCount
+	if (InteractPrompt() != "press")
+		return
+	prWho := L.wiz != "" ? L.wiz : L.name != "" ? L.name : "the leader"
+	prText := SubStr(RegExReplace(WkPromptText, "\s+", " "), 1, 100)
+	if (PartyRidePrompt(WkPromptText, WkPromptVerb, L.wiz))
+		{
+		if (PartyRideAt && A_TickCount - PartyRideAt < 5000)
+			return
+		PartyRideAt := A_TickCount
+		DebugLog("Party: pressed X to ride " prWho "'s mount - the prompt: `"" prText "`" (Settings: partyride)")
+		PressKey("x")
+		return
+		}
+	if (!IsObject(PartyRideSaid))
+		PartyRideSaid := V1Obj()
+	if (!PartyRideSaid.Has(WkPromptDest))
+		{
+		PartyRideSaid[WkPromptDest] := 1
+		DebugLog("Party: a prompt by " prWho ": `"" prText "`" (Press X to " WkPromptVerb ") - not one to ride its mount: no X")
+		}
+	}
+
+;A prompt's words one to ride the leader's mount (pure): its verb ride, mount, board, join or hop ("Press X to Ride"); the
+;words mount, ride, riding or passenger; or the leader's wizard's name in it (its letters, 4 or more)
+PartyRidePrompt(text, verb, wiz)
+	{
+	if (RegExMatch(verb, "i)^(ride|mount|board|join|hop)"))
+		return true
+	if (RegExMatch(text, "i)\b(mount|ride|riding|passenger)\b"))
+		return true
+	prK := PartyKey(wiz)
+	return StrLen(prK) >= 4 && InStr(PartyKey(text), prK) > 0
 	}
 
 ;The way to p ({x, y, z}) by the helper's route (/navto: round walls - and mobs, avoid); {x, y, z, yaw, ax, ay, left, why,
@@ -1567,4 +1987,6 @@ PartyBlank()
 	global PartyDoorKey := "", PartyDoorTries := "", PartyDoorGave := "", PartyMyZone := "", PartyLdZone := "", PartyStuckAt := ""
 	global PartyDoorGaveAt := "", PartyDoorBattles := "", PartyDwalkSaid := "", PartyHitAt := "", PartyHitAtDuel := ""
 	global PartyOrderAsked := "", PartyOrderMiss := "", PartyOrderSaid := ""
+	global PartyPortAt := "", PartyPortNot := "", PartyPortOffUntil := "", PartyPortOffZone := "", PartyRideAt := "", PartyRideLook := ""
+	global PartyRideSaid := ""
 	}

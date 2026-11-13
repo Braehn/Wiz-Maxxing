@@ -796,9 +796,9 @@ allow it on Private networks (the home network has to be set to Private). The
 bots share where each wizard is and what it's doing, and each one's battle part,
 its wizard's name, school and hits. Nothing one sends makes another press
 anything: a blader's boosts go to the hitter's plate as its own screen shows it,
-found by the name the game's own log gives for its side. Still to come: teleport
-to friend when the leader is somewhere a door doesn't lead (the follower waits
-and says so - below).
+found by the name the game's own log gives for its side. A lost follower
+teleports to the leader with the game's Group button, and rides the leader's
+mount (below - both new, not tried in the game yet).
 	- Doors and teleports (v1.0.0): the leader's helper tells a door the leader
 	  walked through from a teleport (End, Home, a sigil, a potion run, a
 	  friend's teleport - it stood still before its zone changed) and keeps its
@@ -823,10 +823,36 @@ and says so - below).
 	  before). The helper's log has a line at each zone change ("party: A -> B:
 	  walked through a door - moved 1234 in the last 1.2 s", or "a teleport (it
 	  stood still)"), and debug.log says when teleporting to the leader would
-	  be the way ("Party: teleporting to <wizard> would be the way now ...") -
-	  the teleport itself isn't in yet: the Friends list's clicks need its
-	  window names from the game. partywaitmax 0: the leader never waits (it
-	  waited for good, though the setting said 0 = no waiting).
+	  be the way ("Party: teleporting to <wizard> would be the way now ...").
+	  partywaitmax 0: the leader never waits (it waited for good, though the
+	  setting said 0 = no waiting).
+	- Teleport to the leader (partytp, on - new, not tried in the game yet):
+	  a lost follower - it can't follow (above), or it's stuck five times on
+	  the way - teleports to the leader with the game's Group button (bottom
+	  left; the game shows it only while you're in a group: invite each
+	  follower to the leader's group in the game) and the Teleport button in
+	  its row. Every click target comes from the game's memory (read-only,
+	  as quick sell's): shown once, the game file's size, not greyed, no
+	  "Crown" read round it, you not playing, the mouse still on it. Then up
+	  to 12 s: a loading screen, a new zone or a jump - "Party: teleported to
+	  <wizard> by the Group button (...)" and it follows from there; a
+	  question about teleporting is answered Yes, any other No, a box with
+	  only OK is the game saying no (its words are logged); a message about
+	  Crowns - nothing clicked. Nothing at all: the windows that came up are
+	  logged ("new windows: ...") and left to you. A try at most once a
+	  minute (after one that didn't work: 5 minutes, or once the leader's in
+	  another zone), never in battle, loading, quick selling, with Wizard101
+	  behind another window or while you're playing. "Party: not teleporting
+	  to ... - <why>" says why not (once a reason).
+	- Riding the leader's mount (partyride, on - new, not tried in the game
+	  yet): standing by the leader (partynear), a follower reads the prompt at
+	  the bottom of the game every 1.5 s and presses X at one to ride the
+	  leader's mount - Press X to Ride / Mount / Board / Join, or one with the
+	  leader's wizard's name - again whenever it shows (after a zone change, a
+	  battle); "Party: pressed X to ride ...". Any other prompt by the leader
+	  is logged once ("Party: a prompt by ...: ... - not one to ride its
+	  mount") and left alone. The follower stops partynear (250) from the
+	  leader: if the prompt only shows closer, set partynear lower.
 	- Your own plate in a party battle: found by your wizard's name (learned
 	  from a battle with no other wizard on your side - the game's log; one
 	  such battle first), read off the plates along the bottom.
