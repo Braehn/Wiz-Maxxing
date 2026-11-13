@@ -7,6 +7,8 @@
 ; and the bot uses them from its next click or round on: no restart. Point at a setting to see what it does.
 ; The dashboard's menu bar and a settings file loaded set them the same way (CfgApply); SettingsFile.ahk writes
 ; them to a file of your own (File > Save settings as...) and reads one back (File > Load settings from...).
+; Drag the window's edge or corner to resize it: let go, and the settings are laid out again in as many rows and
+; columns (or tabs) as fit that size, which it keeps for the next time it opens (dashboard.ini [settingswin]).
 ;
 ; Also here: the mouse put back where it was when the bot took it (MouseGrab / MouseLetGo, mousereturn), and your mouse
 ; locked while the bot uses it (MouseLockOn / MouseLockOff, mouselock).
@@ -17,6 +19,9 @@ global CfgHwnd, CfgHelpText, CfgNote, CfgCtls, CfgShownVals, CfgHelps, CfgHelpSh
 ;The view: simple (only the most used settings - CfgSimpleKeys) or all of them; changes not saved yet, kept across a
 ;switch of view ({key: value}); where the window was (the switch opens it there again)
 global CfgSimple, CfgPending, CfgReopenX, CfgReopenY
+;The tabs (a Tab3 - "" when it has none) and the one on show when it's made again (CfgRemake); its inside's size when it
+;was made (at 100% display scaling: CfgResizeDone - a size that changed from it was dragged)
+global CfgTabCtl, CfgReopenTab, CfgMadeW, CfgMadeH
 ;Where the mouse was when the bot took it (MouseGrab), whether that's kept, and when it was taken
 global MouseHomeX, MouseHomeY, MouseHomeSet, MouseHomeAt
 ;Cards of kinds switched off discarded this round (RoundStart clears it; at most discardmax)
@@ -291,6 +296,7 @@ CfgShow()
 	{
 	static hooked := 0
 	global CfgCtls, CfgShownVals, CfgHelps, CfgHelpShown, CfgSimple, Cfg, CfgHwnd, CfgReopenX, CfgPending ; (v1 globals it sets)
+	global CfgTabCtl, CfgReopenTab, CfgMadeW, CfgMadeH
 	if (CfgHwnd && WinExist("ahk_id " CfgHwnd))
 		{
 		WinActivate("ahk_id " CfgHwnd)
@@ -303,9 +309,13 @@ CfgShow()
 	CfgSimple := ViewSimple("settings")
 	;(v1: Gui, Cfg:New destroyed a Cfg window still there)
 	try Cfg.Destroy()
-	Cfg := Gui("-MaximizeBox", "Wizard101 bot " BotVersion() " - settings"), CfgHwnd := Cfg.Hwnd
+	;(its edges and corners can be dragged: let go, it's made again at that size - CfgResizeDone. No maximize: made
+	;again it wouldn't stay maximized)
+	CfgTabCtl := "", CfgMadeW := "", CfgMadeH := ""
+	Cfg := Gui("+Resize -MaximizeBox", "Wizard101 bot " BotVersion() " - settings"), CfgHwnd := Cfg.Hwnd
 	Cfg.OnEvent("Close", CfgGuiClose)
 	Cfg.OnEvent("Escape", CfgGuiEscape)
+	Cfg.OnEvent("Size", CfgGuiSize)
 	;(v1: Gui, Cfg:Color, 1B1D22, 111317 - the window's colour, and 111317 behind every Edit and DropDownList: v2 gives
 	;each of those its own Background111317 below)
 	Cfg.BackColor := "1B1D22"
@@ -333,26 +343,37 @@ CfgShow()
 	cfgMaxY := Max(300, Floor((cfgMB - cfgMT) * 96 / A_ScreenDPI) - 140)
 	;(column n's right edge: 434 + 432 (n - 1), and the window's frame)
 	cfgMaxCols := Max(1, (Floor((cfgMR - cfgML) * 96 / A_ScreenDPI) - 24 - 434) // 432 + 1)
+	;(a size you gave it - dragged its edge or corner: dashboard.ini [settingswin], its inside at 100% display scaling -
+	;as many rows and columns as fit that, no more than fit the monitor. Under the settings: the help line and the
+	;buttons, 86 (CfgPlace keeps the settings above maxY); column n's right edge 432n - 10, and the margin)
+	cfgWantW := IniRead(A_ScriptDir "\dashboard.ini", "settingswin", "w", "")
+	cfgWantH := IniRead(A_ScriptDir "\dashboard.ini", "settingswin", "h", "")
+	if (IsInteger(cfgWantH) && cfgWantH > 0)
+		cfgMaxY := Min(cfgMaxY, Max(300, cfgWantH - 86))
+	if (IsInteger(cfgWantW) && cfgWantW > 0)
+		cfgMaxCols := Min(cfgMaxCols, Max(1, (cfgWantW - 2) // 432))
 	cfgPlan := CfgPlace(cfgMaxY, false)
 	if (cfgPlan.cols > cfgMaxCols)
 		{
 		;(the tabs' buttons above the settings, its frame below them - as many rows of buttons as the names need at the
 		;window's width: a narrow window (one column on a 1920x1080 screen) wraps them to 2 or 3 rows, so the settings
-		;start under the last row, measured (CfgTabsTop) - not under the first, hidden behind the others)
+		;start under the last row, measured (CfgTabsTop) - not under the first, hidden behind the others. At least 6 rows
+		;of settings under them, however short it was dragged: else more tabs, more rows of buttons, and no room left)
 		cfgTop := 44
-		Loop 4
+		Loop 6
 			{
-			cfgPlan := CfgPlace(cfgMaxY - 10 - (cfgTop - 44), true, cfgTop)
+			cfgPlan := CfgPlace(Max(cfgTop + 6 * 28, cfgMaxY - 10 - (cfgTop - 44)), true, cfgTop, cfgMaxCols)
 			cfgTabNames := ""
 			for each, cfgT in cfgPlan.tabs
 				cfgTabNames .= (cfgTabNames = "" ? "" : "|") cfgT
 			cfgNeed := CfgTabsTop(432 * cfgPlan.cols + 6, cfgTabNames)
-			if (cfgNeed <= cfgTop || A_Index = 4)
+			if (cfgNeed <= cfgTop || A_Index = 6)
 				break
 			cfgTop := cfgNeed
 			}
 		Cfg.SetFont("s9 w600 cF2F2F2", "Segoe UI")
 		Tab := Cfg.Add("Tab3", "x6 y8 w" 432 * cfgPlan.cols + 6 " h" cfgPlan.bottom + 2 " +Buttons -Theme", StrSplit(cfgTabNames, "|"))
+		CfgTabCtl := Tab
 		}
 	cfgTab := 0
 	for each, cfgAt in cfgPlan.items
@@ -410,6 +431,20 @@ CfgShow()
 		}
 	if (cfgTab)
 		Tab.UseTab()
+	;(made again - its edge dragged: CfgRemake - on the tab it was on if it has that one still, else on the first part
+	;of it - "Health" for "Health (2)")
+	if (IsObject(CfgTabCtl) && CfgReopenTab != "")
+		{
+		cfgBase := RegExReplace(CfgReopenTab, " \(\d+\)$"), cfgPick := 0
+		for each, cfgT in cfgPlan.tabs
+			if (cfgT == CfgReopenTab)
+				cfgPick := each
+			else if (!cfgPick && cfgT == cfgBase)
+				cfgPick := each
+		if (cfgPick)
+			CfgTabCtl.Choose(cfgPick)
+		}
+	CfgReopenTab := ""
 	cfgY := cfgPlan.bottom + (cfgTab ? 14 : 6)
 	Cfg.SetFont("s9 w400 c9AA0A6", "Segoe UI")
 	cfgHelpW := 432 * cfgPlan.cols - 32
@@ -442,18 +477,94 @@ CfgShow()
 		if (cfgNx != cfgWx || cfgNy != cfgWy)
 			try WinMove(cfgNx, cfgNy, , , "ahk_id " CfgHwnd)  ; (v1: WinMove on a window gone did nothing)
 		}
+	;(the size it was made at: a size event that leaves it so isn't a resize - CfgResizeDone. Dragged no narrower than
+	;its row of buttons, nor shorter than 300 of settings and what's under them)
+	try
+		{
+		Cfg.GetClientPos(, , &CfgMadeW, &CfgMadeH)
+		ogcTextCfgNote.GetPos(&cfgNoteX, , &cfgNoteW)
+		Cfg.Opt("+MinSize" Min(CfgMadeW, cfgNoteX + cfgNoteW + 12) "x" Min(CfgMadeH, 300 + 86))
+		}
+	}
+
+;The window's size changed - its edge or corner dragged (or Windows' snapping, a monitor at another scale): once that's
+;done, CfgResizeDone (each change till then puts it off)
+CfgGuiSize(guiObj, minMax, w, h)
+	{
+	if (minMax != -1)
+		SetTimer(CfgResizeDone, -400)
+	}
+
+;The size you gave the window kept (dashboard.ini [settingswin] w, h: its inside at 100% display scaling - each time
+;it opens, CfgShow) and the window made again at that size: the settings in as many rows and columns as fit it, the
+;changes not saved yet still there (CfgRemake). Nothing while the mouse still holds the edge, or when it's the size it
+;was made at (its own Show, a move)
+CfgResizeDone()
+	{
+	local v1Keep := V1Thread() ; (v1: each thread had its own ErrorLevel)
+	if (!CfgHwnd || !WinExist("ahk_id " CfgHwnd))
+		return
+	if (CfgMadeW = "" || GetKeyState("LButton", "P"))
+		{
+		SetTimer(CfgResizeDone, -300)
+		return
+		}
+	try Cfg.GetClientPos(, , &w, &h)
+	catch
+		return
+	if (Abs(w - CfgMadeW) < 8 && Abs(h - CfgMadeH) < 8)
+		return
+	V1Do(IniWrite, w, A_ScriptDir "\dashboard.ini", "settingswin", "w")
+	V1Do(IniWrite, h, A_ScriptDir "\dashboard.ini", "settingswin", "h")
+	CfgRemake(CfgUnsaved())
+	}
+
+;The changes in the window not saved yet: {key: the value it shows}
+CfgUnsaved()
+	{
+	out := V1Obj()
+	for key, hwnd in CfgCtls
+		{
+		;(v1: GuiControlGet by the control's hwnd)
+		v := GuiCtrlFromHwnd(hwnd).Value
+		if (v != CfgShownVals[key])
+			out[key] := v
+		}
+	return out
+	}
+
+;The window made again where it is (CfgShow: in the view and at the size set now), on the tab it was on, with pending -
+;the changes not saved yet (CfgUnsaved) - shown, still to be saved (CfgPending)
+CfgRemake(pending)
+	{
+	global CfgPending, CfgReopenX, CfgReopenY, CfgReopenTab, CfgHwnd ; (v1 globals it sets)
+	tabName := ""
+	if (IsObject(CfgTabCtl))
+		try tabName := CfgTabCtl.Text
+	;(v1: WinGetPos of a window not found gave blanks - CfgShow then took no place from them; v2 throws, and unsets
+	;the output variables first - the blanks are set in the catch)
+	try WinGetPos(&CfgReopenX, &CfgReopenY, , , "ahk_id " CfgHwnd)
+	catch
+		CfgReopenX := "", CfgReopenY := ""
+	CfgPending := pending, CfgReopenTab := tabName
+	try Cfg.Destroy()
+	CfgHwnd := 0
+	CfgShow()
+	if (pending.Count)
+		Cfg["CfgNote"].Value := pending.Count " change(s) not saved yet - Save to use them"
 	}
 
 ;Where each of CfgList's settings and headings goes in the window: {items: [{s: the setting, x, y, tab}], cols: the
 ;most columns, bottom: the lowest y used, tabs: their names}. Down in columns from the top, a new one at "|" and
 ;wherever the next wouldn't end above maxY (a heading goes with its first setting). tabbed: each heading starts a
 ;tab of its own (named after it; the heading itself not shown), the settings under the tabs' buttons (from top - one
-;row of them: 44), "|" left out
-CfgPlace(maxY, tabbed, top := "")
+;row of them: 44), "|" left out; a heading's settings that need more than maxCols columns (0: any) go on in a tab of
+;their own, its name and a number - "Health (2)"
+CfgPlace(maxY, tabbed, top := "", maxCols := 0)
 	{
 	top := top != "" ? top : tabbed ? 44 : 12
 	plan := V1Obj({items: [], cols: 1, bottom: top, tabs: []})
-	x := 12, y := top, col := 1
+	x := 12, y := top, col := 1, tabName := "Settings", tabPart := 1
 	for each, s in CfgViewList()
 		{
 		if (s.key = "|")
@@ -466,11 +577,20 @@ CfgPlace(maxY, tabbed, top := "")
 			{
 			name := s.label
 			name := StrLower(name)
-			plan.tabs.Push(Format("{:U}", SubStr(name, 1, 1)) SubStr(name, 2)), x := 12, y := top, col := 1
+			tabName := Format("{:U}", SubStr(name, 1, 1)) SubStr(name, 2), tabPart := 1
+			plan.tabs.Push(tabName), x := 12, y := top, col := 1
 			continue
 			}
 		if (y > top && y + (s.key = "-" ? 8 + 26 + 28 : 28) > maxY)
-			x += 432, y := top, col += 1
+			{
+			if (tabbed && maxCols && col >= maxCols)
+				{
+				tabPart += 1
+				plan.tabs.Push(tabName " (" tabPart ")"), x := 12, y := top, col := 1
+				}
+			else
+				x += 432, y := top, col += 1
+			}
 		;(a gap above a heading that isn't the first)
 		if (s.key = "-" && y > top)
 			y += 8
@@ -1378,37 +1498,19 @@ CfgViewToggle(A_GuiEvent:="", A_GuiControl:="", Info:="", *) { ; V1toV2: Lbl->Fu
 	global
 	local v1Keep := V1Thread() ; (v1: each thread had its own ErrorLevel)
 	local v1Own := V1Thread()  ; (v1: a button's thread had its own ErrorLevel - V1Do's IniWrite, CfgShow set it)
-	CfgPending := V1Obj()
-	for CfgVKey, CfgVC in CfgCtls
-		{
-		;(v1: GuiControlGet by the control's hwnd)
-		CfgVVal := GuiCtrlFromHwnd(CfgVC).Value
-		if (CfgVVal != CfgShownVals[CfgVKey])
-			CfgPending[CfgVKey] := CfgVVal
-		}
+	CfgVPending := CfgUnsaved()
 	;(to the simple view with changes to settings it doesn't show: saved or undone first - they'd be lost)
 	CfgVHid := 0
 	if (!CfgSimple)
-		for CfgVKey in CfgPending
+		for CfgVKey in CfgVPending
 			CfgVHid += CfgSimpleKeys().HasKey(CfgVKey) ? 0 : 1
 	if (CfgVHid)
 		{
 		Cfg["CfgNote"].Value := "Save first - " CfgVHid " change(s) to settings the simple view doesn't show"
-		CfgPending := ""
 		return
 		}
-	CfgVCount := CfgPending.Count
-	;(v1: WinGetPos of a window not found gave blanks - CfgShow then took no place from them; v2 throws, and unsets
-	;the output variables first - the blanks are set in the catch)
-	try WinGetPos(&CfgReopenX, &CfgReopenY, , , "ahk_id " CfgHwnd)
-	catch
-		CfgReopenX := "", CfgReopenY := ""
 	V1Do(IniWrite, CfgSimple ? 0 : 1, A_ScriptDir "\dashboard.ini", "view", "settings")
-	Try Cfg.Destroy()
-	CfgHwnd := 0
-	CfgShow()
-	if (CfgVCount)
-		Cfg["CfgNote"].Value := CfgVCount " change(s) not saved yet - Save to use them"
+	CfgRemake(CfgVPending)
 	return
 }
 ;##############################################
@@ -1420,7 +1522,7 @@ CfgGuiEscape()
 CfgGuiEscape(*) { ; V1toV2: Lbl->Func
 	global
 	Try Cfg.Destroy()
-	CfgHwnd := 0
+	CfgHwnd := 0, CfgTabCtl := ""
 	return
 }
 
@@ -1435,5 +1537,5 @@ SettingsBlank()
 	global MouseLockWhy := "", MouseLockReady := "", MouseLockOnAt := "", MouseLockTicking := "", MouseLockOwnAt := "", MouseLockOwnTtl := ""
 	global MouseLockRenewAt := "", PlanHit := "", BoostMemOk := "", BossChoosen := "", hit4 := "", hit3 := "", hit2 := "", hit1 := "", SbFound := ""
 	global GbFound := "", blade3 := "", blade4 := "", sharpen := "", trap3 := "", feint := "", potent := "", bubble := "", hitschool := "", aura := ""
-	global tower := "", reshuffle := ""
+	global tower := "", reshuffle := "", CfgTabCtl := "", CfgReopenTab := "", CfgMadeW := "", CfgMadeH := ""
 	}

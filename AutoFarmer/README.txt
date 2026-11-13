@@ -1067,7 +1067,10 @@ Settings (the dashboard's Settings > Settings..., or the tray menu
 one window - point at a setting to see what it does. Save writes them to
 PlayerStats.txt (each in its own line, comments kept) and the bot uses them at
 once - no restart. Defaults fills in the defaults (Save to use them). A file
-of your own with them: see Settings files below.
+of your own with them: see Settings files below. Drag its edge or corner to
+make it bigger or smaller: let go and the settings are laid out again to fit
+(in tabs when it's small - a section too long for one is split, "Health (2)"),
+changes not saved yet kept; it opens at that size the next time.
 	- The mouse and waits: Wait for me (on/off, and the seconds after you
 	  stop), put the mouse back (when the bot takes the mouse - a battle
 	  round, a click out of battle - it goes back to where it was once it's
