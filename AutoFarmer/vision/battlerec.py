@@ -66,7 +66,9 @@ A battle (rec "battle"):
   enter           [x, y, z] where the wizard entered the circle (game units)
   result          won / lost / fled / left / cut / unknown:
                     fled  MSG_CombatFlee in the round, then MSG_CombatRemove(Local Player)
-                    lost  MSG_CombatRemove(Local Player) with no flee in that round
+                    lost  MSG_CombatRemove(Local Player) with no flee in that round - or MSG_CombatMatchResult(n), n not
+                          0, with my health down to 0 (a knockout: the game sends no Remove(Local Player) then -
+                          2026-11-07..14, 41 of them, all were "unknown")
                     won   the Victory phase or MSG_CombatMatchResult(0), and every enemy dead or removed
                     left  the log restarted (the game closed), or the duel's lines stopped for 15 min with no game
                     cut   the helper stopped mid-battle and the duel isn't in the current log
@@ -560,8 +562,15 @@ class Parser:
         d = self.duels.get(n)
         if d is not None:
             return d
-        if n in self.done or kind not in OPENS:
+        if kind not in OPENS:
             return None
+        if n in self.done:
+            # a duel number the game uses again - the next battle at the same circle (2026-11-14: 2707434 three times in
+            # an hour, a knockout in the third) opens with its adds after the last one's close: a new duel. Anything else
+            # of a closed one is its tail - dropped
+            if kind != "add":
+                return None
+            self.done = collections.deque((x for x in self.done if x != n), maxlen=64)
         d = self.duels[n] = new_duel(n, stamp, tk, pos, self.zone, self.char)
         self.cx[n] = {"add": None, "ctx": None, "crit": None}
         return d
@@ -1012,6 +1021,11 @@ def side_of(d, p):
 def result_of(d):
     if d["me_out"] is not None:
         return "fled" if d["me_out"]["fled"] else "lost"
+    # a knockout: the match lost (MatchResult not 0) and my health down to 0 - no Remove(Local Player) comes
+    if d["match_result"] not in (None, 0) and any(
+            (p["me"] or p["sc"] == d["me_sc"]) and (p["died_round"] is not None or (p["hp"] is not None and p["hp"] <= 0))
+            for p in d["parts"].values()):
+        return "lost"
     enemies = [p for p in d["parts"].values() if side_of(d, p) == "enemy"]
     gone = bool(enemies) and all(p["out"] in ("dead", "removed", "fled") or p["removed"] or
                                  (p["hp"] is not None and p["hp"] <= 0) for p in enemies)

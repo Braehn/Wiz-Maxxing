@@ -145,6 +145,49 @@ class Parse(unittest.TestCase):
         self.assertTrue(all(r["closed"] for r in d["rounds"]))
         self.assertIn(("closed", DUEL), p.events)
 
+    def test_a_knockout_is_lost(self):
+        """a knockout as the game logs it (2026-11-14): my health to 0, Ended, MatchResult(1), Victory (theirs), EndDuel -
+        no MSG_CombatRemove(Local Player): lost, not unknown"""
+        L = Log().duel_start()
+        L.planning()
+        L.execution([(11, 1, 501, 1, 0), (21, 0, 300, 1, 0)])
+        L.cast(1, 0, "Rat Bite")
+        L.target(0, 4, "kDamage", 352)
+        L.hp(21, 300, -352)
+        L.resolution()
+        L.line("ClientDuel", "Duel %d: MSG_CombatPhase(kPhase_Ended)" % DUEL)
+        L.line("ClientDuel", "Duel %d: MSG_CombatMatchResult(1)" % DUEL)
+        L.line("ClientDuel", "Duel %d: MSG_CombatPhase(kPhase_Victory)" % DUEL)
+        L.line("CORE_SEER", "Duel %d: MSG_EndDuel received: and we were a part of it." % DUEL)
+        d = L.p.closed[0]
+        self.assertEqual((d["result"], d["match_result"], d["parts"][4]["died_round"]), ("lost", 1, 1))
+        # (the match lost but my health not down to 0 - not known how: unknown, as before)
+        L = Log().duel_start()
+        L.planning()
+        L.execution([(11, 1, 501, 1, 0), (21, 0, 300, 1, 0)])
+        L.resolution()
+        L.line("ClientDuel", "Duel %d: MSG_CombatMatchResult(1)" % DUEL)
+        L.line("CORE_SEER", "Duel %d: MSG_EndDuel received: and we were a part of it." % DUEL)
+        self.assertEqual(L.p.closed[0]["result"], "unknown")
+
+    def test_a_circles_duel_number_again(self):
+        """the next battle at the same circle has the last one's duel number (the game's own, 2026-11-14): a win, then a
+        knockout under it - both recorded, the second lost"""
+        L, _t1, _t2 = two_round_win()
+        L.duel_start(enemies=(("GH2-Skeleton-Ice-4-BOSS-R10", 12, 502),))
+        L.planning()
+        L.execution([(12, 1, 1690, 1, 0), (21, 0, 300, 1, 0)])
+        L.cast(1, 0, "Ice Wyvern")
+        L.target(0, 4, "kDamage", 352)
+        L.hp(21, 300, -352)
+        L.resolution()
+        L.line("ClientDuel", "Duel %d: MSG_CombatMatchResult(1)" % DUEL)
+        L.line("CORE_SEER", "Duel %d: MSG_EndDuel received: and we were a part of it." % DUEL)
+        self.assertEqual([d["result"] for d in L.p.closed], ["won", "lost"])
+        # (a closed duel's tail - a line that doesn't open one - still dropped)
+        L.line("ClientDuel", "Duel %d: MSG_CombatPhase(kPhase_Victory)" % DUEL)
+        self.assertEqual((len(L.p.closed), L.p.duel), (2, None))
+
     def test_another_wizards_duel_is_dropped(self):
         p = R.Parser()
         L = Log(p)

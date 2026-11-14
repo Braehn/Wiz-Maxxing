@@ -2526,6 +2526,41 @@ PzLogLineDo(line)
 				PzDuelNow.fled := 1, PzJSave()
 			return
 			}
+		;(the match's result - 0 your side won, else it lost: a knockout ends the duel so, with no MSG_CombatRemove(Local
+		;Player) - 2026-11-07..14 41 knockouts, each MatchResult(1): a duel still without a result was taken as won. One
+		;already closed as won - "Leaving state: Sigil" comes as the first enemy goes, mid-battle (2026-11-14 12:29, the
+		;12:40 knockout's battle) - is put right in the journal: the last fight of that duel, ended in the last 30 minutes)
+		if (RegExMatch(line, "Duel (\d+): MSG_CombatMatchResult\((-?\d+)\)", &m))
+			{
+			if (m[2] = 0)
+				return
+			d := PzDuelNow
+			if (IsObject(d) && d.duel = m[1] && d.result = "")
+				{
+				d.result := d.fled ? "fled" : "lost"
+				PzDuelEnd(d)
+				return
+				}
+			if (IsObject(d) && d.duel = m[1])
+				return
+			global PzJ ; (read: the journal)
+			pzI := IsObject(PzJ) ? PzJ.Length : 0
+			while (pzI >= 1)
+				{
+				e := PzJ[pzI], pzI -= 1
+				if (e.kind != "fight" || e.duel != m[1])
+					continue
+				;(its end - a fight read back from the journal's file at a restart (PzJLoad) has none: its start)
+				pzEnd := (e.endAt != "" && e.endAt) ? e.endAt : e.at
+				if (InStr(e.result, "won") = 1 && pzEnd != "" && A_TickCount - pzEnd < 1800000)
+					{
+					e.result := e.fled ? "fled" : "lost"
+					PzJSave()
+					}
+				break
+				}
+			return
+			}
 		if (RegExMatch(line, "Duel (\d+): MSG_CombatRemove\((.+?)\)", &m))
 			{
 			d := PzDuelNow

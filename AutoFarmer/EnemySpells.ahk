@@ -21,6 +21,9 @@ global BlPos, BlHead, BlDuel, BlNames, BlSub, BlCasts, BlRound, BlReadAt
 global BlPhase, BlPhaseAt
 ;Fled this round (MSG_CombatFlee - the bot or you): the removal from the battle that follows isn't a defeat
 global BlFled
+;The duel whose end was said (defeated, or taken out after a flee) - its MSG_CombatMatchResult not said again; cleared
+;at each planning phase (a circle's duel number comes again for the next battle there - 2026-11-14 one three times)
+global BlOutDuel
 ;Your own wizard's name: the one wizard on your side of a battle with no other (learned this run - party.ini [me] keeps
 ;the last for the next), and the character it's for (the game's log's CharID - another character logged in: not its)
 global BlMe, BlMeChar
@@ -101,6 +104,7 @@ BattleLogPlanning(ms)
 BattleLogLine(blLine)
 	{
 	global BlFled, BlPhase, BlPhaseAt, BlDuel, BlNames, BlCasts, BlRound, BlSub, BlMe, BlMeChar ; (v1 globals it sets)
+	global BlOutDuel ; (v2-only: the port tools don't know it)
 	if (!InStr(blLine, "Combat") && !InStr(blLine, "Subcircle"))
 		return
 	if (InStr(blLine, "MSG_CombatFlee"))
@@ -109,13 +113,27 @@ BattleLogLine(blLine)
 	;game sends you to a safe spot; a won battle never takes you out. The dashboard counts it: Deaths)
 	if (InStr(blLine, "MSG_CombatRemove(Local Player)"))
 		{
-		if (!BlFled)
+		if (!BlFled && BlOutDuel != BlDuel)
 			DebugLog("Defeated: the wizard was knocked out of the battle (the game's log: taken out of duel " BlDuel " without fleeing)")
-		BlPhase := "", BlPhaseAt := 0, BlFled := 0
+		BlPhase := "", BlPhaseAt := 0, BlFled := 0, BlOutDuel := BlDuel
+		}
+	;(defeated - the match's result, MSG_CombatMatchResult(n): 0 your side won, else it lost. A knockout ends the duel so:
+	;the game takes you out with no MSG_CombatRemove(Local Player) - 2026-11-07..14 41 knockouts, every one
+	;MatchResult(1), none said. This battle's, once, not after a flee)
+	if (RegExMatch(blLine, "Duel (\d+): MSG_CombatMatchResult\((-?\d+)\)", &blMr))
+		{
+		if (blMr[2] != 0 && blMr[1] = BlDuel && !BlFled && BlOutDuel != blMr[1])
+			{
+			BlOutDuel := blMr[1]
+			DebugLog("Defeated: the wizard was knocked out of the battle (the game's log: duel " BlDuel " lost - MSG_CombatMatchResult(" blMr[2] "))")
+			}
 		}
 	if (RegExMatch(blLine, "Duel (\d+): MSG_CombatPhase\((kPhase_\w+)\)", &blM))
 		{
 		BlPhase := blM[2], BlPhaseAt := A_TickCount
+		;(a battle's rounds under way: its end not said yet - the next battle at a circle may have the last one's number)
+		if (blM[2] = "kPhase_Planning" || blM[2] = "kPhase_PrePlanning")
+			BlOutDuel := ""
 		if (blM[1] != BlDuel)
 			BlDuel := blM[1], BlNames := V1Obj(), BlCasts := [], BlRound := 0, BlSub := ""
 		;(each planning phase names those still in the circle - one that died isn't: the names afresh)
@@ -435,6 +453,7 @@ EnemyDefend()
 EnemySpellsBlank()
 	{
 	global BlPos := "", BlHead := "", BlDuel := "", BlNames := "", BlSub := "", BlCasts := "", BlRound := "", BlReadAt := "", BlPhase := ""
+	global BlOutDuel := ""
 	global BlPhaseAt := "", BlFled := "", BlMe := "", BlMeChar := "", OwnHpCur := "", OwnHpMax := "", OwnHpAt := "", OwnHpVotes := "", OwnHpWin := ""
 	global EnemyLethal := "", EnemyLethalRound := "", heal1 := "", heal2 := "", hitschool := "", tower := "", absorb := ""
 	}
