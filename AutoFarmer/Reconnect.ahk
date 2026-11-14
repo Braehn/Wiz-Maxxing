@@ -1085,14 +1085,16 @@ RcLoginHelp(why)
 	}
 
 ;How near a line of text on the game comes to reading text (the username in the login box): the fewest letter changes
-;between them - both lower case, spaces left out, an "Account:" in front taken off or not, whichever is nearer; 99
-;nothing like it read. withX: the same for text with xqz after it (the test letters of RcStartStep's Tab step). Nothing
-;read is kept or logged
+;between them - both lower case, spaces left out, an "Account:" in front taken off or not, and the text cursor after it
+;(read as a "1", "l", "i" or "|") taken off or not, whichever is nearer; 99 nothing like it read. withX: the same for
+;text with xqz after it (the test letters of RcStartStep's Tab step). Nothing read is kept or logged
 RcLineDist(text, gameWin, &withX := "", field := "")
 	{
 	rcWant := RegExReplace(Format("{:L}", text), "\s"), rcBest := 99, withX := 99
-	;(field: only that box - the login box's Account field, RcAccountField - read closer up: its text is small)
-	for each, zoom in (IsObject(field) ? [3, 4] : [1, 2])
+	;(field: only that box - the login box's Account field - read at 2x, then 1x, then 3x. Windows OCR reads nothing there
+	;at 3x or 4x - seen 2026-11-13 21:22 on the real field with zq7 in it, white on black, which 1x read "ZQ71" and 2x
+	;"zq71": the 3x/4x of before is why the login never got past its test)
+	for each, zoom in (IsObject(field) ? [2, 1, 3] : [1, 2])
 		{
 		if (IsObject(field))
 			OcrRect(field.x, field.y, field.w, field.h, "en", zoom, &ocrLines)
@@ -1105,7 +1107,8 @@ RcLineDist(text, gameWin, &withX := "", field := "")
 			if (!RcOnGame(ocrLine.x + ocrLine.w // 2, ocrLine.y + ocrLine.h // 2, gameWin))
 				continue
 			rcRaw := RegExReplace(Format("{:L}", Trim(ocrLine.text)), "\s")
-			for each2, rcSeen in [rcRaw, RegExReplace(rcRaw, "^account:?")]
+			rcNoAcct := RegExReplace(rcRaw, "^account:?")
+			for each2, rcSeen in [rcRaw, rcNoAcct, RegExReplace(rcRaw, "[1li|!]$"), RegExReplace(rcNoAcct, "[1li|!]$")]
 				{
 				if (rcSeen = "" || Abs(StrLen(rcSeen) - StrLen(rcWant)) > 4)
 					continue
@@ -1117,7 +1120,7 @@ RcLineDist(text, gameWin, &withX := "", field := "")
 		if (rcBest = 0 && withX > 0)
 			break
 		}
-	rcWant := "", rcSeen := "", rcRaw := ""
+	rcWant := "", rcSeen := "", rcRaw := "", rcNoAcct := ""
 	return rcBest
 	}
 
