@@ -906,9 +906,18 @@ RcStartStep()
 		loginUser := "", loginPass := ""
 		return RcLoginHelp("couldn't see the username in the login box after typing it (" (rcDist = 99 ? "no line like it read" : "the nearest line read was " rcDist " letters off") ")")
 		}
-	;2. Tab to the Password box: test letters (xqz) typed now mustn't show up in the Account box - the line read is
-	;nearer the username than the username with them after it, by 2 letters or more (an OCR slip can't make up for 3)
-	RcChars(gameWin, Chr(9))
+	;2. Into the Password box - a click on it (the game's memory has its place, else under the PASSWORD label: rcField.pw);
+	;a Tab typed as a character doesn't move the game's focus (2026-11-13 22:00:24: the test letters went into the Account
+	;box) - Tab only when its place isn't known. Test letters (xqz) typed now mustn't show up in the Account box - the line
+	;read is nearer the username than the username with them after it, by 2 letters or more (an OCR slip can't make up for 3)
+	rcPwAt := V1At(rcField, "pw")
+	if (IsObject(rcPwAt))
+		{
+		RcLoginFocus(rcPwAt, "Password")
+		Sleep(300)
+		}
+	else
+		RcChars(gameWin, Chr(9))
 	RcChars(gameWin, "xqz")
 	Sleep(400)
 	rcDist := RcLineDist(loginUser, gameWin, &rcDistX, rcField)
@@ -916,7 +925,7 @@ RcStartStep()
 		{
 		RcChars(gameWin, "", 40)
 		loginUser := "", loginPass := ""
-		return RcLoginHelp("Tab didn't move on to the Password box")
+		return RcLoginHelp((IsObject(rcPwAt) ? "the click into the Password box didn't take" : "Tab didn't move on to the Password box") " - the test letters (xqz) went into the Account box, or the username couldn't be read there any more (" rcDist " letters off)")
 		}
 	;3. The password (the test letter cleared first), and the Account box still just the username
 	RcChars(gameWin, "", 40)
@@ -953,8 +962,8 @@ RcLoginTest(field, gameWin, &bg)
 	}
 
 ;The login box's Account field from the game's own memory (the helper's /gui - READ-ONLY, Vision.ahk NavGui: its
-;LoginWindow/loginName - never what's typed in it): {x, y, w, h, cx, cy, mem: 1} (screen), as RcAccountField's - its box
-;exactly. "" otherwise, why saying which; seen: 1 nothing to be clicked yet - a message box up (over the login box or not)
+;LoginWindow/loginName - never what's typed in it): {x, y, w, h, cx, cy, mem: 1, pw} (screen), as RcAccountField's - its
+;box exactly; pw the Password box's {x, y, w, h, cx, cy} (LoginWindow/loginPassword), "" not read. "" otherwise, why saying which; seen: 1 nothing to be clicked yet - a message box up (over the login box or not)
 ;or the login box hidden (still patching): wait; 0 the screen's way then (the windows not read - the helper off, an older
 ;one - or no login box in them, or one in an odd place). boxBtn: the message box's one button when its words say a login
 ;was turned down ("Invalid username or password") - {x, y (screen), label, text}, else "". atLogin: 1 the login box is
@@ -967,7 +976,7 @@ RcLoginMem(&why, &seen, &boxBtn := "", &atLogin := "", &memOk := "")
 		why := "no reader for the game's memory"
 		return ""
 		}
-	rcG := NavGui.Call("LoginWindow/loginName,LoginWindow/okButton", 900)
+	rcG := NavGui.Call("LoginWindow/loginName,LoginWindow/loginPassword,LoginWindow/okButton", 900)
 	if (!IsObject(rcG))
 		{
 		why := "the game's windows not read (" NavGuiWhy ")"
@@ -1010,7 +1019,16 @@ RcLoginMem(&why, &seen, &boxBtn := "", &atLogin := "", &memOk := "")
 		why := "an odd place for the Account field (" rcW.l "," rcW.t " to " rcW.r "," rcW.b " of " rcG.rootW "x" rcG.rootH ")"
 		return ""
 		}
-	return V1Obj({x: rcX, y: rcY, w: rcR - rcX, h: rcB - rcY, cx: (rcX + rcR) // 2, cy: (rcY + rcB) // 2, mem: 1})
+	;(the Password box's place too, the same way - pw, "" when it isn't read or is somewhere odd: RcStartStep presses Tab then)
+	rcPwBox := "", rcP := V1At(rcG.win, "LoginWindow/loginPassword")
+	if (IsObject(rcP) && rcP.found && rcP.shown)
+		{
+		rcPx := GameLeft + Round(rcP.l * GameW / rcG.rootW), rcPy := GameTop + Round(rcP.t * GameH / rcG.rootH)
+		rcPr := GameLeft + Round(rcP.r * GameW / rcG.rootW), rcPb := GameTop + Round(rcP.b * GameH / rcG.rootH)
+		if (rcPr - rcPx >= 20 && rcPb - rcPy >= 8 && rcPy >= rcB && rcPb <= GameTop + GameH)
+			rcPwBox := V1Obj({x: rcPx, y: rcPy, w: rcPr - rcPx, h: rcPb - rcPy, cx: (rcPx + rcPr) // 2, cy: (rcPy + rcPb) // 2})
+		}
+	return V1Obj({x: rcX, y: rcY, w: rcR - rcX, h: rcB - rcY, cx: (rcX + rcR) // 2, cy: (rcY + rcB) // 2, mem: 1, pw: rcPwBox})
 	}
 
 ;The game sitting at its login box with nothing getting it past it - started by hand, or the bot started with the game
@@ -1128,20 +1146,24 @@ RcLineDist(text, gameWin, &withX := "", field := "")
 ;its labels read badly ("PASSWQD:", "Accmna:" at 1440p, 2026-10-23): the field is the black box over that label, from 2.5
 ;to 0.8 of the label's height above it, 17 heights wide - as the game's memory has it (2026-11-13 at 1920x1080: the field
 ;525-545, the label's top 557, 13 high; the old 1.6 to 0.1 put it 12 px too low). The way when the game's memory can't be
-;read (RcLoginMem first). {x, y, w, h, cx, cy} (screen)
+;read (RcLoginMem first). {x, y, w, h, cx, cy, pw} (screen) - pw the Password box under the label, from 1.2 to 2.7 of
+;its height below the label's top (the game's memory: 572-592)
 RcAccountField(word)
 	{
 	rcH := word.h
 	rcX := word.left - Round(rcH * 0.2), rcY := word.top - Round(rcH * 2.5), rcW := Round(rcH * 17), rcFH := Round(rcH * 1.7)
-	return V1Obj({x: rcX, y: rcY, w: rcW, h: rcFH, cx: rcX + rcW // 2, cy: rcY + rcFH // 2})
+	rcPy := word.top + Round(rcH * 1.2)
+	return V1Obj({x: rcX, y: rcY, w: rcW, h: rcFH, cx: rcX + rcW // 2, cy: rcY + rcFH // 2
+		, pw: V1Obj({x: rcX, y: rcPy, w: rcW, h: rcFH, cx: rcX + rcW // 2, cy: rcPy + rcFH // 2})})
 	}
 
-;A click into the login box's Account field (field: RcAccountField), so what's typed goes there: with the real mouse
-;when the game's in front (your mouse held off meanwhile, put back after), else in the background (RcClick)
-RcLoginFocus(field)
+;A click into one of the login box's fields (field: RcAccountField's, or its pw; what: "Account" or "Password"), so what's
+;typed goes there: with the real mouse when the game's in front (your mouse held off meanwhile, put back after), else in the
+;background (RcClick)
+RcLoginFocus(field, what := "Account")
 	{
 	if (!RcGameActive())
-		return RcClick(field.cx, field.cy, "the login box's Account field")
+		return RcClick(field.cx, field.cy, "the login box's " what " field")
 	MouseGetPos(&rcMx, &rcMy)
 	;(your mouse locked meanwhile - Settings.ahk MouseLockOn)
 	MouseLockOn("login")
@@ -1153,7 +1175,7 @@ RcLoginFocus(field)
 	Sleep(120)
 	MouseMove(rcMx, rcMy, 0)
 	MouseLockOff("login")
-	RcLogMsg("clicked into the login box's Account field at " field.cx - GameLeft "," field.cy - GameTop)
+	RcLogMsg("clicked into the login box's " what " field at " field.cx - GameLeft "," field.cy - GameTop)
 	return true
 	}
 
