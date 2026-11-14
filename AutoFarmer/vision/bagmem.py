@@ -460,6 +460,19 @@ class BagMem:
     def is_check(self, tn):
         return bool(tn) and tn.endswith("CheckBox")
 
+    def root_of(self, hm, names):
+        """the GUI's root for windows named names: hm.root() - but when a LoginWindow is among the names, the login
+        screen's first (hm.login_root - the root with a LoginWindow in it; looked for further only when root() has none,
+        no windowHUD): the login box's fields, where AutoFarmer's Reconnect.ahk clicks to log in (its OCR'd labels put
+        the Account field 12 px too low at 1920x1080, 2026-11-13) - also after a disconnect, should the GUI manager still
+        hold a windowHUD then. Never the text typed in them: a ControlEdit's isn't read (describe). 0 none"""
+        root = hm.root()
+        if "LoginWindow" in names and hasattr(hm, "login_root"):
+            login = hm.login_root(scan=not root)
+            if login:
+                return login
+        return root
+
     def describe(self, f):
         """{type, shown, rect, prect, checked, greyed, raw} of a found window f (walk's)"""
         w = f["w"]
@@ -675,13 +688,13 @@ class BagMem:
             return None, "reading the game's windows failed (%r)" % (e,)
 
     def _gui(self, hm, paths):
-        root = hm.root()
+        parsed = [(p, p.split("/")) for p in paths]
+        root = self.root_of(hm, [n for _, parts in parsed for n in parts])
         if not root:
             return None, "no GUI root (not in the game world)"
         rr = self.root_rect(root)
         if rr is None:
             return None, "the GUI root's size can't be read"
-        parsed = [(p, p.split("/")) for p in paths]
         want = {parts[-1] for _, parts in parsed} | set(BOX_PARTS) | {"MessageBoxModalWindow"}
         found, n = self.walk(root, want)
         wins = {}
@@ -738,7 +751,7 @@ class BagMem:
             return None, "reading the game's window tree failed (%r)" % (e,)
 
     def _tree(self, hm, under, shown_only, depth, cap):
-        root = hm.root()
+        root = self.root_of(hm, (under or "").split("/"))
         if not root:
             return None, "no GUI root (not in the game world)"
         rr = self.root_rect(root)

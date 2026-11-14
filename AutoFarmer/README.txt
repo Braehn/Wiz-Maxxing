@@ -1213,7 +1213,24 @@ Auto-reconnect (Reconnect.ahk, on from the start):
 	  login into the game's login box and goes back in. It only presses Enter
 	  once it can read your username back in the login box (an OCR slip or
 	  two allowed in a longer one), and stops for good if the game turns the
-	  login down.
+	  login down (remembered across restarts of the bot, till you save the
+	  login again). It finds the box's Account field in the game's own memory
+	  (where the box is - never what's typed in it), else from its PASSWORD
+	  label on screen. (Before 2026-11-13 only from the label: at 1920x1080
+	  that was 12 px too low, so the login never got past its first test.)
+	- RECONNECT turned down ("Invalid username or password" - the game's
+	  session ran out): it goes back to looking - RECONNECT again if the game
+	  shows one - and once the game's login box is up, with a saved login it
+	  logs in there as above (a message box saying the login was turned down
+	  gets its one button clicked first); without one it says so (debug.log,
+	  a Discord alert if set up) and leaves it to you. (Before 2026-11-13 it
+	  sat on the login box looking for RECONNECT, and said nothing.)
+	  It never types while you're using the game, and never closes the game
+	  under you; with the game behind another window it waits till you've
+	  left the PC alone 30 s, then brings the game to the front to type.
+	- The game sitting at its login box (started by hand, or the bot started
+	  with the game there): with a saved login it logs in once you've left the
+	  PC alone a minute; without one it says so once.
 	- Stuck on a loading screen (hungload, Settings: 5 minutes, 0 = never): a
 	  zone change the game's log says began that long ago, nothing but its
 	  memory notes written for 3 minutes, Wizard101 in front and neither the

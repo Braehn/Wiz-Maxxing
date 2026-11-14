@@ -617,6 +617,38 @@ class HandMem:
                 return r
         return 0
 
+    def login_root(self, scan=True):
+        """the GUI's root at the game's login box, or 0. There's no windowHUD there, so root() finds none: the window the
+        GUI manager holds where root() finds the root (its place kept, else KNOWN's - scan: else every place looked at),
+        checked by a child named LoginWindow (read 2026-11-13: WorldView, its windows BallonLayer, WizardPatchingWindow,
+        LoginWindow). Only for the login box's own windows - bagmem's gui and tree ask for it when a LoginWindow path is
+        asked (scan only when root() has none) - so nothing in the world changes. Its place kept once found"""
+        st = self.st
+        gmo = self.o.get("gm") or st.o.get("gm")
+        rvas = []
+        for rva, _off in ([gmo] if gmo else []) + list(st.o.get("gm_candidates") or []) \
+                + [(N.KNOWN["guimgr_rva"], N.KNOWN["gm_hud"])]:
+            if rva not in rvas:
+                rvas.append(rva)
+        kept = self.o.get("login_gm")
+        if kept in rvas:
+            rvas.remove(kept)
+            rvas.insert(0, kept)
+        o = self.o.get("root_in_gm")
+        known = ([o] if o is not None else []) + [KNOWN["root_in_gm"]]
+        # (the places root() uses first, for every manager - then every place in each, as root() looks)
+        for offs in ((known, range(0, 0x600, 8)) if scan else (known,)):
+            for rva in rvas:
+                gm = self.u64(st.m.base + rva)
+                if not N.ptr_ok(gm):
+                    continue
+                for off in offs:
+                    r = self.u64(gm + off)
+                    if N.ptr_ok(r) and any(self.wname(k) == "LoginWindow" for k in self.kids(r)[:16]):
+                        self.o["login_gm"] = rva
+                        return r
+        return 0
+
     def _find(self, w, pred, depth):
         p = self._path(w, pred, depth)
         return p[-1] if p else 0
