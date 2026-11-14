@@ -39,6 +39,7 @@
 ;     there, or a disconnect box gone and the login box there instead): with a saved login, typed in as in step 3 once
 ;     you've left the PC alone a minute (and left to you if you're using the game); a message box over it saying the
 ;     login was turned down has its one button clicked first.
+;  Enter not taken (nothing sent to the login server 8 s on - the game's log): the login box's OK clicked, twice at most.
 ;  The login box's Account field is found in the game's own memory (the helper's /gui: LoginWindow/loginName, READ-ONLY -
 ;  never what's typed in it), else from its PASSWORD label read on screen. (Before 2026-11-13 only the label: at 1920x1080
 ;  that put the field 12 px too low - the click went under it and the read-back saw half of it, so it never logged in.)
@@ -74,6 +75,9 @@ global RcBoxUpAt, RcLoginTests, RcBoxClicks, RcBoxFound
 global RcBgWait
 ;(the "box" state: when the login box's PASSWORD label was last looked for on screen - the game's memory unreadable)
 global RcPwLookAt
+;(the "login" state: when the game's log said the login went to the login server (0 not yet), the login box's OK clicks
+;since Enter, and when the last was - RcLoginStep)
+global RcLoginSentAt, RcOkClicks, RcOkAt
 
 ;Call once at start. Picks up a disconnect box that's already showing
 ReconnectInit()
@@ -83,6 +87,7 @@ ReconnectInit()
 	global RcLoadAt, RcLastLineAt, RcHungAsked, RcHungCount, RcHungFirstAt, ErrorLevel, RcPid, RcPos, RcScanning ; (v1 globals it sets)
 	global RcBackAt, RcCharSelAt, RcMaintAt, RcMaintAsked, RcLoggedIn, RcPidAt, RcBoxLookAt, RcBoxSaid ; (v2-only: the port tools don't know them)
 	global RcBoxUpAt, RcLoginTests, RcBoxClicks, RcBoxFound, RcBgWait, RcPwLookAt ; (v2-only: the port tools don't know them)
+	global RcLoginSentAt, RcOkClicks, RcOkAt ; (v2-only: the port tools don't know them)
 	RcCredTarget := "Wizard101Bot"
 	RcOn := 1, RcState := "", RcStateAt := A_TickCount, RcTries := 0, RcNext := 0, RcLookAt := 0
 	RcCheckAt := 0, RcProcAt := 0, RcClickBg := -1, RcLastBg := 0, RcClickAt := 0, RcCharAt := 0
@@ -92,6 +97,7 @@ ReconnectInit()
 	;(the game already running: how long for isn't known - old enough to look at its login box)
 	RcLoggedIn := 0, RcPidAt := A_TickCount - 60000, RcBoxLookAt := 0, RcBoxSaid := 0
 	RcBoxUpAt := 0, RcLoginTests := 0, RcBoxClicks := 0, RcBoxFound := 0, RcBgWait := 0, RcPwLookAt := 0
+	RcLoginSentAt := 0, RcOkClicks := 0, RcOkAt := 0
 	;(a saved login the game turned down before - this run of the bot or an earlier one: not typed till it's saved again)
 	if (RcBadStored())
 		RcLogMsg("the saved login was turned down by the game before - it won't be typed until it's saved again (tray menu: Set Wizard101 login...)")
@@ -358,7 +364,7 @@ RcReadLog()
 RcLogLine(logLine)
 	{
 	global RcLastLineAt, RcLoadAt, RcMsg, RcLoginBad, RcTries, RcNext, RcClickBg, RcCharAt, RcTyped ; (v1 globals it sets)
-	global RcBackAt, RcCharSelAt, RcMaintAt, RcMaintAsked, RcLoggedIn ; (v2-only: the port tools don't know them)
+	global RcBackAt, RcCharSelAt, RcMaintAt, RcMaintAsked, RcLoggedIn, RcLoginSentAt ; (v2-only: the port tools don't know them)
 	;(a zone change under way, and the log's last sign of life - RcHungCheck. Its memory notes come every 5 minutes
 	;whatever the game's doing: they don't count)
 	;(not the empty field after the chunk's last line break - RcReadLog's Loop Parse)
@@ -458,6 +464,12 @@ RcLogLine(logLine)
 		RcSet("box", "disconnected: `"" boxMsg "`" (" boxKey ")")
 		if (!RcScanning && !retry)
 			TrayTip("Disconnected: " boxMsg "`nReconnecting...", "Wizard101 bot", 2)
+		return
+		}
+	;(the login sent to the login server - the game's own line once Enter (or OK) is taken: RcLoginStep clicks no OK then)
+	if (InStr(logLine, "Send MSG_USER_AUTHEN") || InStr(logLine, "LoginServer Connection Timer"))
+		{
+		RcLoginSentAt := A_TickCount
 		return
 		}
 	if (InStr(logLine, "LOGIN RESPONSE: Error=0"))
@@ -962,8 +974,9 @@ RcLoginTest(field, gameWin, &bg)
 	}
 
 ;The login box's Account field from the game's own memory (the helper's /gui - READ-ONLY, Vision.ahk NavGui: its
-;LoginWindow/loginName - never what's typed in it): {x, y, w, h, cx, cy, mem: 1, pw} (screen), as RcAccountField's - its
-;box exactly; pw the Password box's {x, y, w, h, cx, cy} (LoginWindow/loginPassword), "" not read. "" otherwise, why saying which; seen: 1 nothing to be clicked yet - a message box up (over the login box or not)
+;LoginWindow/loginName - never what's typed in it): {x, y, w, h, cx, cy, mem: 1, pw, ok} (screen), as RcAccountField's - its
+;box exactly; pw the Password box's {x, y, w, h, cx, cy} (LoginWindow/loginPassword), ok the OK button's {cx, cy}
+;(LoginWindow/okButton), each "" not read. "" otherwise, why saying which; seen: 1 nothing to be clicked yet - a message box up (over the login box or not)
 ;or the login box hidden (still patching): wait; 0 the screen's way then (the windows not read - the helper off, an older
 ;one - or no login box in them, or one in an odd place). boxBtn: the message box's one button when its words say a login
 ;was turned down ("Invalid username or password") - {x, y (screen), label, text}, else "". atLogin: 1 the login box is
@@ -1028,7 +1041,17 @@ RcLoginMem(&why, &seen, &boxBtn := "", &atLogin := "", &memOk := "")
 		if (rcPr - rcPx >= 20 && rcPb - rcPy >= 8 && rcPy >= rcB && rcPb <= GameTop + GameH)
 			rcPwBox := V1Obj({x: rcPx, y: rcPy, w: rcPr - rcPx, h: rcPb - rcPy, cx: (rcPx + rcPr) // 2, cy: (rcPy + rcPb) // 2})
 		}
-	return V1Obj({x: rcX, y: rcY, w: rcR - rcX, h: rcB - rcY, cx: (rcX + rcR) // 2, cy: (rcY + rcB) // 2, mem: 1, pw: rcPwBox})
+	;(the OK button's middle too - ok, "" when it isn't read, is greyed or somewhere odd: RcLoginStep clicks it if Enter wasn't
+	;taken)
+	rcOkBtn := "", rcO := V1At(rcG.win, "LoginWindow/okButton")
+	if (IsObject(rcO) && rcO.found && rcO.shown && rcO.greyed != 1)
+		{
+		rcOx := GameLeft + Round(rcO.l * GameW / rcG.rootW), rcOy := GameTop + Round(rcO.t * GameH / rcG.rootH)
+		rcOr := GameLeft + Round(rcO.r * GameW / rcG.rootW), rcOb := GameTop + Round(rcO.b * GameH / rcG.rootH)
+		if (rcOr - rcOx >= 10 && rcOb - rcOy >= 8 && rcOy >= rcB && rcOx >= GameLeft && rcOr <= GameLeft + GameW && rcOb <= GameTop + GameH)
+			rcOkBtn := V1Obj({cx: (rcOx + rcOr) // 2, cy: (rcOy + rcOb) // 2})
+		}
+	return V1Obj({x: rcX, y: rcY, w: rcR - rcX, h: rcB - rcY, cx: (rcX + rcR) // 2, cy: (rcY + rcB) // 2, mem: 1, pw: rcPwBox, ok: rcOkBtn})
 	}
 
 ;The game sitting at its login box with nothing getting it past it - started by hand, or the bot started with the game
@@ -1158,12 +1181,13 @@ RcAccountField(word)
 	}
 
 ;A click into one of the login box's fields (field: RcAccountField's, or its pw; what: "Account" or "Password"), so what's
-;typed goes there: with the real mouse when the game's in front (your mouse held off meanwhile, put back after), else in the
-;background (RcClick)
+;typed goes there - or on its OK button (field: RcLoginMem's ok, what "OK"): with the real mouse when the game's in front
+;(your mouse held off meanwhile, put back after), else in the background (RcClick)
 RcLoginFocus(field, what := "Account")
 	{
+	rcWhat := (what = "OK") ? "OK button" : what " field"
 	if (!RcGameActive())
-		return RcClick(field.cx, field.cy, "the login box's " what " field")
+		return RcClick(field.cx, field.cy, "the login box's " rcWhat)
 	MouseGetPos(&rcMx, &rcMy)
 	;(your mouse locked meanwhile - Settings.ahk MouseLockOn)
 	MouseLockOn("login")
@@ -1175,7 +1199,7 @@ RcLoginFocus(field, what := "Account")
 	Sleep(120)
 	MouseMove(rcMx, rcMy, 0)
 	MouseLockOff("login")
-	RcLogMsg("clicked into the login box's " what " field at " field.cx - GameLeft "," field.cy - GameTop)
+	RcLogMsg("clicked " (what = "OK" ? "" : "into ") "the login box's " rcWhat " at " field.cx - GameLeft "," field.cy - GameTop)
 	return true
 	}
 
@@ -1185,11 +1209,30 @@ RcLineTol(text)
 	rcN := StrLen(RegExReplace(text, "\s"))
 	return rcN >= 14 ? 2 : rcN >= 6 ? 1 : 0
 	}
-;Logging in: the log's LOGIN RESPONSE moves on to "select"; "Invalid..." stops for good
+;Logging in: the log's LOGIN RESPONSE moves on to "select"; "Invalid..." stops for good. Enter not taken - nothing sent to
+;the login server 8 s on (the game's log: RcLoginSentAt), the login box still up with nothing over it (RcLoginMem): its OK
+;clicked, twice at most, 8 s apart (2026-11-14 10:09 / 10:11: two logins sat a minute with no answer - a minute each before
+;the game was closed and started again - the third went through)
 RcLoginStep()
 	{
 	global RcLookAt, RcLoginBad, RcTries, RcNext ; (v1 globals it sets)
+	global RcOkClicks, RcOkAt ; (v2-only: the port tools don't know them)
 	nowMs := A_TickCount
+	if (!RcLoginSentAt && RcOkClicks < 2 && nowMs - RcStateAt > 8000 && nowMs - RcOkAt > 8000)
+		{
+		RcOkAt := nowMs
+		if (V1IsFunc("UpdateGameRect"))
+			UpdateGameRect.Call()
+		rcOkField := RcLoginMem(&rcOkWhy, &rcOkSeen)
+		rcOkBtn := IsObject(rcOkField) ? V1At(rcOkField, "ok") : ""
+		;(you using the game meanwhile - perhaps logging in yourself: not clicked)
+		if (IsObject(rcOkBtn) && !(RcGameActive() && UserIdle() < 3000))
+			{
+			RcOkClicks += 1
+			RcLogMsg("nothing sent to the login server " Round((nowMs - RcStateAt) / 1000) " s after Enter - clicking the login box's OK (" RcOkClicks " of 2)")
+			RcLoginFocus(rcOkBtn, "OK")
+			}
+		}
 	if (nowMs - RcStateAt > 4000 && nowMs - RcLookAt > 2000)
 		{
 		RcLookAt := nowMs
@@ -1599,7 +1642,11 @@ RcSet(newState, why := "")
 	{
 	global RcState, RcStateAt, RcNote, RcPeeks, RcPeekAt ; (v1 globals it sets)
 	global RcBoxUpAt, RcLoginTests, RcBoxClicks, RcBoxFound, RcBgWait ; (v2-only: the port tools don't know them)
+	global RcLoginSentAt, RcOkClicks, RcOkAt ; (v2-only: the port tools don't know them)
 	RcState := newState, RcStateAt := A_TickCount, RcNote := 0, RcPeeks := 0, RcPeekAt := 0
+	;(a login typed: whether it went to the login server, and the OK clicks, afresh - RcLoginStep)
+	if (newState = "login")
+		RcLoginSentAt := 0, RcOkClicks := 0, RcOkAt := 0
 	;(a login about to be typed: its waits and tries afresh - RcStartStep. RcAtLoginBox / RcLoginBoxCheck say when the
 	;login box was found up, after this)
 	if (newState = "start")
@@ -1796,4 +1843,5 @@ ReconnectBlank()
 	global RcHungFirstAt := "", RcBackAt := "", RcCharSelAt := "", RcMaintAt := "", RcMaintAsked := ""
 	global RcLoggedIn := "", RcPidAt := "", RcBoxLookAt := "", RcBoxSaid := ""
 	global RcBoxUpAt := "", RcLoginTests := "", RcBoxClicks := "", RcBoxFound := "", RcBgWait := "", RcPwLookAt := ""
+	global RcLoginSentAt := "", RcOkClicks := "", RcOkAt := ""
 	}
