@@ -5429,7 +5429,7 @@ WalkNotify(kind, title, text, withKeep := false)
 	;(the quest's page on Wizard101 Central, for a notice about the quest - in the notice, the log and Discord: yours to open, the bot
 	;never fetches it. The quest's title by the game's memory - asked once more if it isn't known yet)
 	wkLink := "", wkFind := "", wkTitle := ""
-	if (kind = "stuck" || kind = "collect" || kind = "wait" || kind = "puzzle" || kind = "arrow")
+	if (kind = "stuck" || kind = "collect" || kind = "wait" || kind = "puzzle" || kind = "arrow" || kind = "ko")
 		{
 		if (WkGoalQuest = "" && V1IsFunc("NavGoal"))
 			{
@@ -5484,7 +5484,8 @@ WalkNotify(kind, title, text, withKeep := false)
 ;How important a notice is: stuck > collect, a blocked way (AutoFarmer's Puzzle.ahk) > no arrow > waiting at a goal
 WalkNoteRank(kind)
 	{
-	return (kind = "stuck" || kind = "shop") ? 4 : (kind = "collect" || kind = "puzzle") ? 3 : kind = "arrow" ? 2 : 1
+	;(a knockout stop 3.5: over a collect, a blocked way, no arrow or a wait - under stuck or a shop left open, which can follow it)
+	return (kind = "stuck" || kind = "shop") ? 4 : kind = "ko" ? 3.5 : (kind = "collect" || kind = "puzzle") ? 3 : kind = "arrow" ? 2 : 1
 	}
 
 ;The quest's page on Wizard101 Central (search: its search, which lands on the page when one has exactly that name - and finds the

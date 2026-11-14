@@ -24,6 +24,8 @@ global BlFled
 ;The duel whose end was said (defeated, or taken out after a flee) - its MSG_CombatMatchResult not said again; cleared
 ;at each planning phase (a circle's duel number comes again for the next battle there - 2026-11-14 one three times)
 global BlOutDuel
+;Knockouts at one quest goal (KoNote): the goal (the walker's goal line, else the zone) and when each was (the last 3 hours)
+global KoGoal, KoTimes
 ;Your own wizard's name: the one wizard on your side of a battle with no other (learned this run - party.ini [me] keeps
 ;the last for the next), and the character it's for (the game's log's CharID - another character logged in: not its)
 global BlMe, BlMeChar
@@ -114,7 +116,7 @@ BattleLogLine(blLine)
 	if (InStr(blLine, "MSG_CombatRemove(Local Player)"))
 		{
 		if (!BlFled && BlOutDuel != BlDuel)
-			DebugLog("Defeated: the wizard was knocked out of the battle (the game's log: taken out of duel " BlDuel " without fleeing)")
+			BattleDefeated("taken out of duel " BlDuel " without fleeing")
 		BlPhase := "", BlPhaseAt := 0, BlFled := 0, BlOutDuel := BlDuel
 		}
 	;(defeated - the match's result, MSG_CombatMatchResult(n): 0 your side won, else it lost. A knockout ends the duel so:
@@ -125,7 +127,7 @@ BattleLogLine(blLine)
 		if (blMr[2] != 0 && blMr[1] = BlDuel && !BlFled && BlOutDuel != blMr[1])
 			{
 			BlOutDuel := blMr[1]
-			DebugLog("Defeated: the wizard was knocked out of the battle (the game's log: duel " BlDuel " lost - MSG_CombatMatchResult(" blMr[2] "))")
+			BattleDefeated("duel " BlDuel " lost - MSG_CombatMatchResult(" blMr[2] ")")
 			}
 		}
 	if (RegExMatch(blLine, "Duel (\d+): MSG_CombatPhase\((kPhase_\w+)\)", &blM))
@@ -448,10 +450,74 @@ EnemyDefend()
 	return false
 	}
 
+;Knocked out (BattleLogLine; how: what the game's log said): said - the dashboard counts the line (Deaths) - and counted
+;at the quest goal (KoNote)
+BattleDefeated(how)
+	{
+	DebugLog("Defeated: the wizard was knocked out of the battle (the game's log: " how ")")
+	KoNote()
+	}
+
+;A knockout counted at the quest goal it happened at (the walker's goal line, else the zone - each goal's own count: KoTimes
+;{goal: [when]}, the last 3 hours; KoGoal the last one's). The bot on only (F6 off, or never started: your own knockouts
+;aren't its to count). The 3rd at one goal while walking: walking stopped, a notice (and a Discord alert, if set up) - the
+;deck isn't winning that fight, and every knockout costs a potion run (2026-11-13/14: 12 knockouts in a night at the same
+;Nastrond bosses, a run of 5400-7200 gold after each, till you moved the wizard). Walking on (F8) counts that goal afresh
+KoNote()
+	{
+	global KoGoal, KoTimes, Walking ; (v1 globals it sets)
+	global WkGoalLine, BotOn ; (read: the walker's goal line, the bot on)
+	if (!BotOn)
+		return
+	koG := Trim(WkGoalLine)
+	if (koG = "")
+		koG := "somewhere in " (V1IsFunc("WalkZone") ? WalkZone.Call() : "this zone")
+	if (!IsObject(KoTimes))
+		KoTimes := V1Obj()
+	koKeep := []
+	for koT in (KoTimes.Has(koG) ? KoTimes[koG] : [])
+		if (A_TickCount - koT < 10800000)
+			koKeep.Push(koT)
+	koKeep.Push(A_TickCount)
+	KoTimes[koG] := koKeep, KoGoal := koG
+	koN := koKeep.Length
+	DebugLog("Knockouts: " koN " in the last 3 hours at the quest goal '" SubStr(KoGoal, 1, 100) "'" (koN < 3 ? "" : Walking ? " - walking stopped" : " - walking is off already"))
+	if (koN < 3 || !Walking)
+		return
+	Walking := 0
+	ReleaseKeys()
+	KoTimes.Delete(koG)
+	koKey := V1IsFunc("HkText") ? HkText.Call("walk") : "F8"
+	koText := "Knocked out " koN " times in 3 hours at the quest goal '" SubStr(KoGoal, 1, 100) "' - the deck isn't winning that fight, and every knockout costs a potion run. Walking is stopped: a stronger deck (hits that cost few pips), a party, or another quest - then press " koKey " to walk on."
+	if (V1IsFunc("SetStatus"))
+		SetStatus.Call("stopped - knocked out " koN " times at the same quest goal: press " koKey " to walk on")
+	if (V1IsFunc("WalkNotify"))
+		WalkNotify.Call("ko", "Knocked out again and again", koText)
+	;(made in the battle - the knockout's read while it's still on: shown once it's over. The walker's next step would show it,
+	;but a follower's, a dungeon run's or a puzzle run's never comes with walking off)
+	SetTimer(KoNoteShow, -2000)
+	}
+
+;The knockout notice shown once the battle's over (KoNote) - not if it's gone, shown already or put away (OK)
+KoNoteShow()
+	{
+	global WkNoteKind, WkNoteShown, WkNoteOff, inbattle ; (read: the walker's notice, the battle)
+	if (WkNoteKind != "ko" || WkNoteShown || WkNoteOff)
+		return
+	if (inbattle)
+		{
+		SetTimer(KoNoteShow, -2000)
+		return
+		}
+	if (V1IsFunc("WalkNoteShow"))
+		WalkNoteShow.Call()
+	}
+
 ;(v2 port, CONVENTIONS.md "Blank start": v1 started every variable blank; v2 leaves it unset and throws on
 ;reading it. The entry script calls this first thing: this file's globals start blank, as in v1)
 EnemySpellsBlank()
 	{
+	global KoGoal := "", KoTimes := ""
 	global BlPos := "", BlHead := "", BlDuel := "", BlNames := "", BlSub := "", BlCasts := "", BlRound := "", BlReadAt := "", BlPhase := ""
 	global BlOutDuel := ""
 	global BlPhaseAt := "", BlFled := "", BlMe := "", BlMeChar := "", OwnHpCur := "", OwnHpMax := "", OwnHpAt := "", OwnHpVotes := "", OwnHpWin := ""
