@@ -16,6 +16,9 @@
 ;dealt with). (this file is #Included at the bottom: an initializer here never runs - they start blank, made numbers
 ;in FleeCheck)
 global FleeNoCards, FleeNoMana, FleeNoHits, FleeWhy
+;The last FleeRefillMana: the game's count of potions when it gave up only because the drink didn't take ("" none counted, or
+;a run) - FleeNoManaWhy says so in the hold's alert, not "none left"
+global FleeDrinkStuck
 ;The battle round (roundnumber) the no-hits count last looked at - "" a new battle (ResetVariables)
 global FleeHitsRound
 
@@ -250,13 +253,13 @@ FleeAfter()
 		;same, and a hold would only leave them unplayed: said and an alert, the battles played on - as checkmana)
 		if (BattlesOnly())
 			{
-			DebugLog("after fleeing: no mana and no potion - not holding: battles only is on (Settings), the battles are played on")
-			AlertSend("mana", "out of mana", "Fled out of mana, no potion left, and battles only is on (Settings): the bot doesn't go to buy any and plays the battles on - drink or buy some yourself.")
+			DebugLog("after fleeing: no mana and " (FleeDrinkStuck != "" ? "the drink didn't take" : "no potion") " - not holding: battles only is on (Settings), the battles are played on")
+			AlertSend("mana", "out of mana", "Fled out of mana, " FleeNoManaWhy(true) ", and battles only is on (Settings): the bot plays the battles on - drink one yourself" (FleeDrinkStuck != "" ? "" : " or buy some") ".")
 			return
 			}
 		Respond("Error, It Seems I Have No Mana. Preventing Timeout.")
-		TrayTip("Out of mana and couldn't get potions - the bot has stopped (kept from timing out).", "Wizard101 bot", 2)
-		AlertSend("mana", "out of mana", "Fled out of mana, and no potion to be had (none left, and buying didn't work) - the bot is holding (kept from timing out) and carries on by itself once there's mana again.")
+		TrayTip("Out of mana and " (FleeDrinkStuck != "" ? "the potion drink didn't take" : "couldn't get potions") " - the bot has stopped (kept from timing out).", "Wizard101 bot", 2)
+		AlertSend("mana", "out of mana", "Fled out of mana, and " FleeNoManaWhy() " - the bot is holding (kept from timing out) and carries on by itself once there's mana again.")
 		afk("mana")
 		}
 	}
@@ -266,7 +269,8 @@ FleeAfter()
 ;as PotionCheck). True if mana went up - or, not known, Wizard101 went to the tray meanwhile (Autofarmer.ahk GameTrayHide)
 FleeRefillMana(why)
 	{
-	global AfkRetries, PotionFailUntil ; (v1 globals it sets)
+	global AfkRetries, PotionFailUntil, FleeDrinkStuck ; (v1 globals it sets)
+	FleeDrinkStuck := ""
 	before := PotionGlobes().mana
 	if (FleeDrinkForMana(before))
 		{
@@ -281,6 +285,22 @@ FleeRefillMana(why)
 	if (V1Lt(A_TickCount, PotionFailUntil))  ; (v1: no failed run yet - blank, Potions.ahk's initializer never ran - compared as text: false)
 		{
 		DebugLog(why ": no potion left, and the last run to buy some failed - not trying again yet")
+		return false
+		}
+	;(potions there by the game's own count (Potions.ahk PotionsLeft) - the press only didn't take (2026-11-14: Ctrl+O not
+	;taken for 10-20 minutes after knockouts while the potion row was full, and runs went to buy more): pressed again, held
+	;longer (FleeDrinkHeld); still not - no run to buy more (it would find them full): false, as for none, said so)
+	frmHave := V1IsFunc("PotionsLeft") ? PotionsLeft.Call() : ""
+	if (V1IsNum(frmHave) && frmHave >= 1)
+		{
+		if (FleeDrinkHeld(before))
+			{
+			DebugLog(why ": drank a potion for mana (Ctrl+O held - " frmHave " by the game's count)")
+			AfkRetries := 0
+			return true
+			}
+		DebugLog(why ": " frmHave " potion(s) by the game's count, but the drink didn't take - not going to buy more")
+		FleeDrinkStuck := frmHave
 		return false
 		}
 	;(battles only - Settings: battlesonly: no run to buy some - it moves nothing out of battle)
@@ -306,6 +326,29 @@ FleeRefillMana(why)
 	return false
 	}
 
+;Why no mana could be had, for an alert: the game counting potions while the drink didn't take (FleeDrinkStuck - the last
+;FleeRefillMana), else none to be had. short: the battles-only wording
+FleeNoManaWhy(short := false)
+	{
+	if (FleeDrinkStuck != "")
+		return "the game counts " FleeDrinkStuck " potion(s) but the Drink Potion key (Ctrl+O) didn't take"
+	return short ? "no potion left" : "no potion to be had (none left, and buying didn't work)"
+	}
+
+;Ctrl+O pressed held longer (Potions.ahk PotionPressHeld - the game looked at right before each key); true if mana (or
+;health, when mana can't be read) went up - as FleeDrinkForMana
+FleeDrinkHeld(before)
+	{
+	hpBefore := PotionGlobes().hp
+	if (GameInTray || !V1IsFunc("PotionPressHeld") || !PotionPressHeld.Call())
+		return false
+	Sleep(2500)
+	g := PotionGlobes()
+	if (before != "" && g.mana != "")
+		return g.mana > before
+	return (hpBefore != "" && g.hp != "" && g.hp > hpBefore)
+	}
+
 ;Ctrl+O; true if mana (or health, when mana can't be read) went up
 FleeDrinkForMana(before)
 	{
@@ -326,6 +369,7 @@ FleeDrinkForMana(before)
 ;reading it. The entry script calls this first thing: this file's globals start blank, as in v1)
 FleeBlank()
 	{
+	global FleeDrinkStuck := ""
 	global FleeNoCards := "", FleeNoMana := "", FleeNoHits := "", FleeWhy := "", FleeHitsRound := "", LearnAll := "", Manual := "", RoundAgain := ""
 	global dualmode := "", roundnumber := "", wand := "", GameLeft := "", GameTop := "", hit1 := "", hit2 := "", hit3 := "", hit4 := ""
 	global BossChoosen := "", reshuffle := "", LastHandAnswer := ""

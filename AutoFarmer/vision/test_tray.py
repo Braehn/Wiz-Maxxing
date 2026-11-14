@@ -383,10 +383,12 @@ class TrayWiring(unittest.TestCase):
         self.assertRegex(rep, r'Sleep\(120\)\s*if \(GameInTray\)\s*ok := false\s*else\s*Click\(\)\s*if \(ownGrab\)\s*'
                               r'MouseLetGo\(\)\s*MouseLockOff\("route"\)\s*if \(!ok\)\s*break')
         self.assertEqual(rep.count('Click()'), 1)
-        # (a hide in the drink's wait: no "none left" booked, no run - whether one was drunk isn't known)
+        # (a hide in the drink's wait: no "none left" booked, no run - whether one was drunk isn't known. Between the hide
+        # check and "none left" booked: only the game's own count saying there are potions - then no run either)
         self.assertRegex(self.fn(pot, 'PotionCheck'),
                          r'if \(PotionDrink\(hp\)\)\s*\{\s*PotionNoneAt := 0\s*return\s*\}\s*if \(GameInTray\)\s*'
-                         r'return\s*PotionNoneAt := A_TickCount')
+                         r'return\s*if \(V1IsNum\(PotionDrinkHave\) && PotionDrinkHave >= 1\)\s*\{[^{}]*\{[^{}]*\}[^{}]*'
+                         r'return\s*\}\s*PotionNoneAt := A_TickCount')
         for name in ('PotionCheck', 'PotionDrink', 'PotionRun', 'PotionTeleport', 'PotionRunWalk', 'PotionReplay'):
             self.assertNotRegex(self.fn(pot, name), r'GameInTray\s*:=', name)
         # (the mana drink's Ctrl+O - after its health read; a hide in its wait: no run, no hold, no alert)

@@ -75,6 +75,7 @@ import time
 HERE = os.path.dirname(os.path.abspath(__file__))
 if HERE not in sys.path:
     sys.path.insert(0, HERE)
+import math                          # noqa: E402
 import navmem as N                   # noqa: E402
 
 NEED = {"Window": ("m_sName", "m_Children", "m_Flags", "m_Window"),
@@ -88,6 +89,7 @@ NEED = {"Window": ("m_sName", "m_Children", "m_Flags", "m_Window"),
         "ClientWizInventoryBehavior": ("m_numItemsAllowed",)}
 # (read when found: without them that part's left out - no textures, no sets, no kinds)
 OPTIONAL = {"ControlSprite": ("m_pMaterial",), "Material": ("m_pDiffuseMap",), "Texture": ("m_sFilename",),
+            "WizGameStats": ("m_potionCharge", "m_potionMax"),
             "ClientWizEquipmentBehavior": ("m_equipmentSets",),
             "EquipmentSet": ("m_serializedItems", "m_isEquipped"),
             "GameObjectTemplate": ("m_objectName", "m_adjectiveList")}
@@ -279,6 +281,10 @@ class BagMem:
     def u32(self, a):
         b = self.p.try_read(a, 4) if N.ptr_ok(a) else None
         return struct.unpack("<I", b)[0] if b else None
+
+    def f32(self, a):
+        b = self.p.try_read(a, 4) if N.ptr_ok(a) else None
+        return struct.unpack("<f", b)[0] if b else None
 
     def i32(self, a):
         b = self.p.try_read(a, 4) if N.ptr_ok(a) else None
@@ -566,6 +572,7 @@ class BagMem:
         if not co:
             return None, why
         r = {"items": None, "allowed": None, "extra": None, "gold": None, "gold_max": None, "walked": 0, "emotes": 0,
+             "potions": None, "potions_max": None,
              "player_gid": self.u64(co + CO["m_globalID.m_full"]) or None, "cats": {}, "sets": [], "set_items": [],
              "sets_ok": False, "tips": [], "space": None, "space_raw": None, "root": None, "crownshop": []}
         gs = self.u64(co + P["WizClientObject"]["m_gameStats"])
@@ -574,6 +581,12 @@ class BagMem:
             r["gold_max"] = self.i32(gs + P["WizGameStats"]["m_baseGoldPouch"])
             if self.off("WizGameStats", "m_extraInventorySpace") is not None:
                 r["extra"] = self.i32(gs + P["WizGameStats"]["m_extraInventorySpace"])
+            # (the potions the wizard has, and holds at most - floats, 3.0 of 3.0 read 2026-11-14 with the HUD's row full:
+            # AutoFarmer's Potions.ahk asks when a drink doesn't take, before deciding there are none left)
+            r["potions"] = potion_count(self.f32(gs + P["WizGameStats"]["m_potionCharge"])
+                                        if self.off("WizGameStats", "m_potionCharge") is not None else None)
+            r["potions_max"] = potion_count(self.f32(gs + P["WizGameStats"]["m_potionMax"])
+                                            if self.off("WizGameStats", "m_potionMax") is not None else None)
         inv = eq = 0
         for beh in self.vec16(co + CO["m_inactiveBehaviors"]):
             tn = self.tname(beh)
@@ -831,7 +844,9 @@ def bag_lines(r, why=""):
     tip|i|shown|l|t|r|b|image texture|button texture|name    (the HUD's right-hand column, its rect in the root)
     set|n|equipped|ids|name                                  (each Equipment Set)
     setitem|set n|set equipped|gid hex|template id|object name|kind|crowns
-    root|w|h"""
+    root|w|h
+    potions|have|most                                        (the potions the wizard has and holds at most - the game's
+                                                              count, 2 decimals at most; only when read)"""
     if not r:
         return ['none|' + cell(why or "the backpack can't be read")]
     out = ['|'.join(['bag', cell(r.get('items')), cell(r.get('allowed')), cell(r.get('extra')), cell(r.get('gold')),
@@ -857,7 +872,24 @@ def bag_lines(r, why=""):
                              cell(bool(si.get('crowns')))]))
     if r.get('root'):
         out.append('root|%d|%d' % r['root'])
+    if r.get('potions') is not None:
+        out.append('potions|%s|%s' % (fmt_count(r['potions']), fmt_count(r.get('potions_max'))))
     return out
+
+
+def potion_count(v):
+    """a potion count read (a float) - None when it isn't one: unread, NaN, below 0 or over 100"""
+    if v is None or v != v or v < 0 or v > 100:
+        return None
+    return v
+
+
+def fmt_count(v):
+    """a count for an answer line, down to 2 decimals - never rounded up (0.996 isn't a whole potion: '0.99'), a float's
+    hair under a whole one taken as it (2.9999999 -> '3'): 3.0 -> '3', 1.5 -> '1.5', None -> ''"""
+    if v is None:
+        return ''
+    return ('%.2f' % (math.floor(v * 100 + 1e-3) / 100)).rstrip('0').rstrip('.')
 
 
 def gui_lines(g, why="", paths=()):

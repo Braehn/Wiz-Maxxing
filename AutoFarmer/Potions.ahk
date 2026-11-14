@@ -7,7 +7,11 @@
 ; Health: the number on the red globe (vision.py /globes, digit pictures in ui1.144\globedigits), as a %
 ; of your most health (read off your name plate in battle - <school>.maxhealth in PlayerStats.txt - or
 ; the most the globe has shown). Under potionat % (PlayerStats.txt, default 40) it drinks (Ctrl+O, the
-; game's Drink Potion key); health not going up after that means no potion was left.
+; game's Drink Potion key); health not going up after that means no potion was left - unless the game's own
+; count (its memory, the helper's /bag - read-only) says there are some: then Ctrl+O again, held longer, and
+; no run to buy more - it rests (no walking) and tries the drink again 30 s on (2026-11-14: the potion row
+; full in screenshots while Ctrl+O did nothing for 10-20 minutes after knockouts, and runs went to buy more).
+; The same for mana (Flee.ahk FleeRefillMana). Counted potions not drinking for 5 minutes: an alert (once in 10).
 ;
 ; Out of potions (potionmark:1, the default): your Mark is at the potion seller - you leave it there
 ; (Page Down, right next to Hilda Brewer) and the bot never marks anywhere else:
@@ -79,6 +83,12 @@ global PotionShopLeft
 ;the last drink found none (no Ctrl+O again for 2 minutes)
 ;(no starting values: this file is #Included at the bottom, where they never run - blank counts as 0)
 global PotionResting, PotionNoneAt, PotionRestFrom
+;What the game's own count said at the last drink that didn't take (PotionDrink - PotionsLeft): potions there, "" not
+;read - PotionCheck and PotionAfterBuy don't take that drink for "none left" when it's 1 or more
+global PotionDrinkHave
+;Since when the game has counted potions while the drink didn't take (0 not now - a drink that took, or none counted), and
+;when that was last said in an alert (PotionStuckAlert)
+global PotionStuckSince, PotionStuckSaidAt
 
 ;Called out of battle from the main loop (every few seconds at most): low health -> drink, none -> run
 PotionCheck()
@@ -86,6 +96,7 @@ PotionCheck()
 	;(when battles only last said there are none left - not bought: once in 10 minutes)
 	static boSaidAt := 0
 	global PotionNextCheck, PotionResting, PotionNoneAt, PotionRestFrom, PotionFailUntil ; (v1 globals it sets)
+	global PotionStuckSince ; (v2-only: the port tools don't know it)
 	;(not while a dungeon run is being recorded: you're playing it - Dungeons.ahk)
 	;(v1: PotionNextCheck blank at first - the tick isn't < a blank, compared as text)
 	if (V1Lt(A_TickCount, PotionNextCheck) || PotionRecording || DgRecording || !VisionOn || !GameActive())
@@ -109,7 +120,12 @@ PotionCheck()
 		DebugLog("Potions: health " hp "/" most " (" Round(pct) "%) - " (pct >= limit + 20 ? "back up" : "10 minutes rested") ", walking on")
 		}
 	if (!most || pct >= limit)
+		{
+		;(health fine: a spell of counted potions not drinking is over - PotionStuckAlert counts afresh from the next one)
+		if (most)
+			PotionStuckSince := 0
 		return
+		}
 	;(no potion at the last drink, 2 minutes ago or less: not again yet)
 	;(v1: PotionNoneAt blank - the sum blank, not > 120000; !blank true)
 	if (V1Gt(V1Ago(PotionNoneAt), 120000) || !PotionNoneAt)
@@ -124,7 +140,37 @@ PotionCheck()
 		;nothing booked, no run: looked at again once it's back)
 		if (GameInTray)
 			return
+		;(potions there by the game's own count - the drink just didn't take: no run to buy more. Resting (no walking) till
+		;it does or health is back, the drink tried again 30 s on)
+		if (V1IsNum(PotionDrinkHave) && PotionDrinkHave >= 1)
+			{
+			PotionNoneAt := A_TickCount - 90000
+			;(battles only - Settings: battlesonly: no rest - there's no walking to hold back)
+			if (!PotionResting && !BattlesOnly())
+				{
+				PotionResting := 1, PotionRestFrom := A_TickCount
+				DebugLog("Potions: resting (no walking) - " PotionDrinkHave " potion(s) left by the game's count, but the drink didn't take: tried again in 30 s, walking on at " limit + 20 "%")
+				}
+			PotionStuckAlert(pct)
+			return
+			}
 		PotionNoneAt := A_TickCount
+		}
+	;(the last drink found potions by the game's own count - it only didn't take: not "none left" - no run, none of its
+	;alerts; resting meanwhile - not walking into battles this low (also after a run whose own drink didn't take) - the drink
+	;tried again 30 s on at most. The review of 2026-11-14: without this the very next look - the drink block skipped for
+	;its 30 s - went on to buy more, and after such a run the wizard walked on at low health)
+	if (V1IsNum(PotionDrinkHave) && PotionDrinkHave >= 1)
+		{
+		if (V1Ago(PotionNoneAt) < 90000)
+			PotionNoneAt := A_TickCount - 90000
+		if (!PotionResting && !BattlesOnly())
+			{
+			PotionResting := 1, PotionRestFrom := A_TickCount
+			DebugLog("Potions: resting (no walking) - " PotionDrinkHave " potion(s) by the game's count, the drink not taking yet: tried again in 30 s at most, walking on at " limit + 20 "%")
+			}
+		PotionStuckAlert(pct)
+		return
 		}
 	;(battles only - Settings: battlesonly: no run to buy more - it moves nothing out of battle: an alert, why in the log -
 	;once in 10 minutes; no rest either - there's no walking to hold back)
@@ -227,24 +273,127 @@ PotionNoteMax(n, exact := true)
 		StatsSet([[school ".maxhealth", n]], "your " school " wizard's most health (off its name plate in battle; Potions.ahk)")
 	}
 
-;Drinks a potion (Ctrl+O). True if health went up
+;Drinks a potion (Ctrl+O). True if health went up. Not up: the game's own count asked (PotionsLeft - PotionDrinkHave):
+;potions there - Ctrl+O again, held longer (a game that reads its keys once a frame can miss a short press); still not
+;up: false, and PotionDrinkHave says there are some (PotionCheck and PotionAfterBuy don't take that for "none left")
 PotionDrink(before)
 	{
 	;(Wizard101 gone to the tray - Settings: traygame: Ctrl+O would go to the window in front - none drunk)
 	if (GameInTray)
 		return false
+	global PotionDrinkHave, PotionStuckSince ; (v1 globals it sets)
+	PotionDrinkHave := ""
 	ReleaseKeys()
 	Send("{Blind}^o")
 	Sleep(2500)
 	after := PotionHealth()
-	;(v1: most health blank - the sum blank, and after compared with it as text: more)
-	if (after != "" && V1Gt(after, V1Add(before, V1Max(5, V1FloorDiv(PotionMost(), 50)))))
+	if (PotionDrankUp(before, after))
 		{
 		DebugLog("Potions: drank one - health " before " -> " after)
+		PotionStuckSince := 0
 		return true
 		}
-	DebugLog("Potions: health didn't go up (" before " -> " (after = "" ? "?" : after) ") - no potion left")
+	;(none left - or did the press not take? The game's own count says: 2026-11-14 the potion row was full in screenshots
+	;while Ctrl+O did nothing for 10-20 minutes after knockouts, and runs went to buy more)
+	PotionDrinkHave := PotionsLeft()
+	;(pressed again only when health was read and isn't up - health not read, the first press may have worked: a second
+	;would drink another)
+	if (V1IsNum(PotionDrinkHave) && PotionDrinkHave >= 1 && after != "")
+		{
+		DebugLog("Potions: health didn't go up (" before " -> " after ") - but the game says " PotionDrinkHave " potion(s) left: Ctrl+O again, held longer")
+		if (PotionPressHeld())
+			{
+			Sleep(2500)
+			after := PotionHealth()
+			if (PotionDrankUp(before, after))
+				{
+				DebugLog("Potions: drank one (Ctrl+O held) - health " before " -> " after)
+				PotionDrinkHave := "", PotionStuckSince := 0
+				return true
+				}
+			}
+		DebugLog("Potions: the drink still didn't take (health " (after = "" ? "?" : after) ") - " PotionDrinkHave " potion(s) left by the game's count: none bought")
+		}
+	;(counted potions not drinking: since when - an alert once it's gone on 5 minutes, PotionStuckAlert)
+	if (V1IsNum(PotionDrinkHave) && PotionDrinkHave >= 1)
+		{
+		if (!PotionStuckSince)
+			PotionStuckSince := A_TickCount
+		return false
+		}
+	PotionStuckSince := 0
+	DebugLog("Potions: health didn't go up (" before " -> " (after = "" ? "?" : after) ") - no potion left" (PotionDrinkHave = "" ? "" : " (the game's count: " PotionDrinkHave ")"))
 	return false
+	}
+
+;Ctrl+O pressed held longer - Ctrl down, O down 150 ms, both up: a game that reads its keys once a frame can miss a short
+;press - and not interrupted on the way: a hide to the tray (Alt+F4, the X) or another window coming up between its keys
+;would send Ctrl+O to the window behind - the game looked at right before each key, Ctrl always let go. True if O was
+;pressed (PotionDrink, Flee.ahk FleeDrinkHeld)
+PotionPressHeld()
+	{
+	ReleaseKeys()
+	pphCrit := A_IsCritical
+	Critical()
+	if (GameInTray || !GameActive())
+		{
+		if (!pphCrit)
+			Critical("Off")
+		return false
+		}
+	Send("{Blind}{Ctrl down}")
+	Sleep(80)
+	pphPressed := !GameInTray && GameActive()
+	if (pphPressed)
+		{
+		Send("{Blind}{o down}")
+		Sleep(150)
+		Send("{Blind}{o up}")
+		Sleep(60)
+		}
+	Send("{Blind}{Ctrl up}")
+	if (!pphCrit)
+		Critical("Off")
+	return pphPressed
+	}
+
+;The game has counted potions for 5 minutes while the drink didn't take (PotionStuckSince): an alert (Discord, if set up)
+;and a log line, once in 10 minutes - nothing else says so (no run, no "none left"). pct: health now (%)
+PotionStuckAlert(pct)
+	{
+	global PotionStuckSaidAt ; (v1 globals it sets)
+	if (!PotionStuckSince || A_TickCount - PotionStuckSince < 300000)
+		return
+	if (PotionStuckSaidAt && A_TickCount - PotionStuckSaidAt < 600000)
+		return
+	PotionStuckSaidAt := A_TickCount
+	psaMins := Round((A_TickCount - PotionStuckSince) / 60000)
+	DebugLog("Potions: the game counts " PotionDrinkHave " potion(s), but the drink (Ctrl+O) hasn't taken for " psaMins " minutes - health " Round(pct) "%")
+	AlertSend("potions", "potion not drinking", "The game counts " PotionDrinkHave " potion(s), but the Drink Potion key (Ctrl+O) hasn't taken for " psaMins " minutes (health " Round(pct) "%). " (BattlesOnly() ? "Battles only is on: the battles are played on." : "The bot is resting meanwhile (no walking).") " Drink one yourself, or check the key.")
+	}
+
+;Health gone up by more than a little (a potion, not health coming back by itself) - after "" not read: no (pure)
+PotionDrankUp(before, after)
+	{
+	;(v1: most health blank - the sum blank, and after compared with it as text: more)
+	return after != "" && V1Gt(after, V1Add(before, V1Max(5, V1FloorDiv(PotionMost(), 50))))
+	}
+
+;How many potions the wizard has - the game's own count (WizGameStats.m_potionCharge: the helper's /bag, Vision.ahk NavBag -
+;READ-ONLY; 3 of 3 read with the HUD's potion row full). A number, "" when it can't be read (navmem off, no helper, an
+;older helper without the count)
+PotionsLeft()
+	{
+	if (!V1IsFunc("NavBag"))
+		return ""
+	plBag := NavBag.Call(1500)
+	;(the helper's first answer in a game - its reader being made, about half a second: asked once more)
+	if (!IsObject(plBag) && InStr(NavBagWhy, "reading the game's"))
+		{
+		Sleep(800)
+		plBag := NavBag.Call(1500)
+		}
+	return (IsObject(plBag) && V1IsNum(V1At(plBag, "potions"))) ? plBag.potions : ""
 	}
 
 ;The refill run (see the top of this file). True if it came back with potions
@@ -494,6 +643,14 @@ PotionAfterBuy(useOne := false)
 		return true
 	if (PotionDrink(hp))
 		return true
+	;(potions there by the game's own count - the drink only didn't take (PotionDrink): false all the same, so the run's
+	;10-minute wait before another is kept and no second fill is tried - PotionCheck rests and tries the drink again, no run.
+	;Not with the game gone to the tray: no drink was tried, the count is an old one)
+	if (!GameInTray && V1IsNum(PotionDrinkHave) && PotionDrinkHave >= 1)
+		{
+		DebugLog("Potions: " PotionDrinkHave " potion(s) by the game's count, but the drink didn't take - not counted as bought: no more runs for 10 minutes, the drink tried again meanwhile")
+		return false
+		}
 	DebugLog("Potions: still no potion after buying - nothing bought? (no gold, or a click missed - record the buying again)")
 	return false
 	}
@@ -885,7 +1042,8 @@ PotionTurnBy(h)
 	}
 
 ;Walks to the potion seller s by the zone's map: steering at the route's aim (a point ahead on it, round walls)
-;by the game's memory. Stuck (no closer in 6 s): backs up and turns, 3 times at most. True once within 140 of
+;by the game's memory. Stuck (no closer in 6 s): backs up and turns, 3 times at most - in the walk's first 15 s (just
+;come through a way out) W let go and pressed again and a turn instead, never backing up. True once within 140 of
 ;her. Stops for a battle, your hands on the keys or mouse, the game's memory unreadable, or 2.5 minutes.
 ;door: s is a way out of the zone (PotionDoor) - walked on into it: true once through it, in another zone
 PotionWalkTo(s, since := 0, door := false)
@@ -900,6 +1058,7 @@ PotionWalkTo(s, since := 0, door := false)
 	ReleaseKeys()
 	DebugLog("Potions: walking to " what " (" s.name ") by the zone's map - " s.zone " at " Round(s.x) ", " Round(s.y))
 	t0 := A_TickCount, best := "", bestLeft := "", bestAt := A_TickCount, unstuck := 0, said := "", misses := 0, inSaid := false
+	nudges := 0
 	since := since ? since : t0
 	Loop
 		{
@@ -960,6 +1119,27 @@ PotionWalkTo(s, since := 0, door := false)
 			bestLeft := nav.left, bestAt := A_TickCount, unstuck := 0
 		if (A_TickCount - bestAt > 6000)
 			{
+			;(just come through a way out - the walk's first 15 s: W let go and pressed again, and a turn - never backing up:
+			;the game hadn't taken W right after the gate (2026-11-14 03:27: the wizard stood 6 s with W held - screenshots -
+			;then backing up took it straight back through the gate it came in by; 3 runs that night ended so). Counted apart
+			;from the backing up: its 3 tries are all still there after
+			if (A_TickCount - t0 < 15000)
+				{
+				nudges += 1
+				DebugLog("Potions: no closer in 6 s (" Round(d) " away) just after arriving - W let go and pressed again, and a turn (no backing up: the way in is behind)")
+				PotionHoldW(0)
+				Sleep(250)
+				PotionTurnBy(Mod(nudges, 2) ? 45 : -45)
+				if (!PotionOk(true, since))
+					{
+					ReleaseKeys()
+					return false
+					}
+				PotionHoldW(1)
+				Sleep(900)
+				bestAt := A_TickCount
+				continue
+				}
 			unstuck += 1
 			if (unstuck > 3)
 				{
@@ -1293,15 +1473,68 @@ PotionShopXFind(anchor, &x, &y)
 	return !ErrorLevel
 	}
 
-;Clicks the potion shop's close button (PotionShopXFind), hovered a moment first - with no Crown near and only while
-;the bot may act (WalkMenuMayAct, from). 1 if clicked, 0 if not, -1 if the bot mayn't act (you've taken over, it's
-;off, the game isn't in front)
+;The potion shop's close button from the game's own memory (the helper's /gui - READ-ONLY: main/exit, with the shop's
+;title main/shopTitleText shown with "Mixtures" in it - that "main" is the potion shop - and no message box up): true
+;and its middle in x, y (screen), checked as a spot to click (QsPxOk). 2026-11-14 03:49 the screen's way looked 31 px
+;off - its anchor, Fill All's words, read wrong - and the shop was left open. why: why not
+PotionShopXMem(&x, &y, &why)
+	{
+	x := "", y := "", why := ""
+	if (!Stat("navmem") || !VisionOn)
+		{
+		why := "the game's memory isn't read"
+		return false
+		}
+	g := NavGui("main/shopTitleText,main/exit", 800)
+	if (!IsObject(g))
+		{
+		why := "the game's windows can't be read (" NavGuiWhy ")"
+		return false
+		}
+	if (g.box.shown)
+		{
+		why := "a game message is up"
+		return false
+		}
+	t := g.win["main/shopTitleText"]
+	if (!V1At(t, "shown") || !InStr(V1At(t, "text"), "Mixtures"))
+		{
+		why := "the potion shop's window isn't up in the game's memory"
+		return false
+		}
+	w := g.win["main/exit"]
+	if (!IsObject(w) || !w.found || !w.shown || w.dups != 1)
+		why := "its exit button isn't shown once"
+	else if (w.l = "" || w.r = "" || w.t = "" || w.b = "" || w.r <= w.l || w.b <= w.t || w.l < 0 || w.t < 0 || w.r > g.rootW || w.b > g.rootH)
+		why := "its exit button's rect is odd (" w.l "," w.t "," w.r "," w.b ")"
+	else if (w.pl != "" && (V1Lt(w.l, V1Sub(w.pl, 1)) || V1Lt(w.t, V1Sub(w.pt, 1)) || V1Gt(w.r, V1Add(w.pr, 1)) || V1Gt(w.b, V1Add(w.pb, 1))))
+		why := "its exit button is outside the shop's window"
+	if (why != "")
+		return false
+	QsPx(w.l, w.t, w.r, w.b, g.rootW, g.rootH, &x, &y)
+	if (!QsPxOk(x, y, &psxWhy))
+		{
+		why := "its exit button: " psxWhy
+		x := "", y := ""
+		return false
+		}
+	return true
+	}
+
+;Clicks the potion shop's close button - by the game's memory (PotionShopXMem), else its red found round where Fill All's
+;words put it (PotionShopXFind) - hovered a moment first, with no Crown near and only while the bot may act (WalkMenuMayAct,
+;from). 1 if clicked, 0 if not, -1 if the bot mayn't act (you've taken over, it's off, the game isn't in front)
 PotionShopX(anchor, from)
 	{
-	if (!PotionShopXFind(anchor, &redX, &redY))
+	psxHow := "the game's memory"
+	if (!PotionShopXMem(&redX, &redY, &psxMemWhy))
 		{
-		DebugLog("Potions: the shop's close button (its red X) wasn't found by " anchor.x + Round(235 * UiScale) - GameLeft "," anchor.y + Round(359 * UiScale) - GameTop)
-		return false
+		psxHow := "the screen"
+		if (!PotionShopXFind(anchor, &redX, &redY))
+			{
+			DebugLog("Potions: the shop's close button (its red X) wasn't found by " anchor.x + Round(235 * UiScale) - GameLeft "," anchor.y + Round(359 * UiScale) - GameTop " (the game's memory: " psxMemWhy ")")
+			return false
+			}
 		}
 	if (!PotionNoCrowns(redX, redY))
 		return false
@@ -1311,20 +1544,25 @@ PotionShopX(anchor, from)
 		Critical("Off")
 		return -1
 		}
-	DebugLog("Potions: closing the shop with its X at " redX - GameLeft "," redY - GameTop)
+	DebugLog("Potions: closing the shop with its X at " redX - GameLeft "," redY - GameTop " (" psxHow ")")
 	TargetClick(redX, redY)
 	Critical("Off")
 	return 1
 	}
 
 ;The shop's up - by its own words (its X's red alone could be a robe or a mount): where its Fill All is, from those
-;words, else Fill All's place read before it was clicked (known) while some of the shop's words are read; or ""
+;words, else Fill All's place read before it was clicked (known) while some of the shop's words are read; else by the
+;game's memory (PotionShopXMem: its window and exit button up) - Fill All's place worked out back from the X; or ""
 PotionShopUp(known := "")
 	{
 	shop := PotionShopAnchor(&shopSeen)
 	if (IsObject(shop))
 		return shop
-	return (shopSeen && IsObject(known)) ? known : ""
+	if (shopSeen && IsObject(known))
+		return known
+	if (PotionShopXMem(&psuX, &psuY, &psuWhy))
+		return V1Obj({x: psuX - Round(235 * UiScale), y: psuY - Round(359 * UiScale), mem: 1})
+	return ""
 	}
 
 ;Closes the potion shop's window with its own close button (PotionShopX - Escape doesn't close Hilda's shop, it opens
@@ -1929,4 +2167,5 @@ PotionsBlank()
 	global PotionRecStop := "", PotionRecT0 := "", PotionRecDown := "", PotionHook := "", PotionMarkZone := "", PotionMarkAt := ""
 	global PotionMarkOff := "", PotionRecAtMark := "", PotionRecRestart := "", PotionShopLeft := "", PotionResting := "", PotionNoneAt := ""
 	global PotionRestFrom := "", GameLeft := "", GameW := "", UiScale := "", GameTop := "", GameH := ""
+	global PotionDrinkHave := "", PotionStuckSince := "", PotionStuckSaidAt := ""
 	}

@@ -2871,13 +2871,13 @@ checkmana()
 				if (!boSaidAt || A_TickCount - boSaidAt > 600000)
 					{
 					boSaidAt := A_TickCount
-					DebugLog("no mana and no potion - not holding: battles only is on (Settings), the battles are played on (buy or drink potions yourself)")
-					AlertSend("mana", "out of mana", "No mana and no potion left, and battles only is on (Settings): the bot doesn't go to buy any and plays the battles on with what mana it has - drink or buy some yourself.")
+					DebugLog("no mana and " (FleeDrinkStuck != "" ? "the potion drink didn't take" : "no potion") " - not holding: battles only is on (Settings), the battles are played on (buy or drink potions yourself)")
+					AlertSend("mana", "out of mana", "No mana, " FleeNoManaWhy(true) ", and battles only is on (Settings): the bot plays the battles on with what mana it has - drink one yourself" (FleeDrinkStuck != "" ? "" : " or buy some") ".")
 					}
 				return
 				}
 			Respond("Error, It Seems I Have No Mana. Preventing Timeout.")
-			AlertSend("mana", "out of mana", "No mana and no potion to be had - the bot is holding (kept from timing out) and carries on by itself once there's mana again.")
+			AlertSend("mana", "out of mana", "No mana and " FleeNoManaWhy() " - the bot is holding (kept from timing out) and carries on by itself once there's mana again.")
 			afk("mana")
 			}
 		}

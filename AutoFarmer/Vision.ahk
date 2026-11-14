@@ -1177,7 +1177,7 @@ NavBag(timeoutMs := 600)
 		}
 	NavBagWaitUntil := 0
 	nbgOut := V1Obj({items: "", allowed: "", extra: "", gold: "", goldMax: "", gid: "", walked: "", emotes: "", setsOk: 0, space: "", cats: V1Obj()
-		, tips: [], sets: [], setItems: [], crownShop: [], rootW: "", rootH: ""})
+		, tips: [], sets: [], setItems: [], crownShop: [], rootW: "", rootH: "", potions: "", potionsMax: ""})
 	Loop Parse, nbgAns, "`n", "`r"
 		{
 		nbgF := StrSplit(A_LoopField, "|")
@@ -1204,6 +1204,9 @@ NavBag(timeoutMs := 600)
 		else if (V1At(nbgF, 1) = "setitem")
 			nbgOut.setItems.Push(V1Obj({set: NavNum(V1At(nbgF, 2)), equipped: V1At(nbgF, 3) = "1" ? 1 : 0, gid: Trim(V1At(nbgF, 4)), tid: NavNum(V1At(nbgF, 5))
 				, name: Trim(V1At(nbgF, 6)), kind: Trim(V1At(nbgF, 7)), crowns: V1At(nbgF, 8) = "1" ? 1 : 0}))
+		;(the potions the wizard has and holds at most - the game's own count, a newer helper's: "" without it)
+		else if (V1At(nbgF, 1) = "potions")
+			nbgOut.potions := NavNum(V1At(nbgF, 2)), nbgOut.potionsMax := NavNum(V1At(nbgF, 3))
 		else if (V1At(nbgF, 1) = "root")
 			nbgOut.rootW := NavNum(V1At(nbgF, 2)), nbgOut.rootH := NavNum(V1At(nbgF, 3))
 		}
