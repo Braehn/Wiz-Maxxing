@@ -370,7 +370,12 @@ class TrayWiring(unittest.TestCase):
                          r'hp := PotionHealth\(\)\s*if \(hp = "" \|\| GameInTray\)\s*return')
         drink = self.fn(pot, 'PotionDrink')
         self.assertTrue(first_is_guard(drink, ' false'))
-        self.assertLess(drink.index('GameInTray'), drink.index('Send('))
+        self.assertLess(drink.index('GameInTray'), drink.index('PotionPressHeld('))
+        # (the press held, first try and second - no short tap the game misses; it looks at the game before each key)
+        self.assertNotIn('Send(', drink)
+        held = self.fn(pot, 'PotionPressHeld')
+        self.assertRegex(held, r'if \(GameInTray \|\| !GameActive\(\)\)')
+        self.assertLess(held.index('GameActive()'), held.index('Send('))
         self.assertRegex(self.fn(pot, 'PotionRun'), r'if \(GameInTray\)\s*return false\s*Send\("\{Blind\}\{PgDn\}"\)')
         self.assertRegex(self.fn(pot, 'PotionTeleport'), r'if \(GameInTray\)\s*return false\s*Send\("\{Blind\}" key\)')
         # (the walk's own Mark - not one made, a kept one left as it was)
@@ -395,7 +400,8 @@ class TrayWiring(unittest.TestCase):
         fl = code_of(os.path.join(AF, 'Flee.ahk'))
         fdm = self.fn(fl, 'FleeDrinkForMana')
         self.assertRegex(fdm, r'hpBefore := PotionGlobes\(\)\.hp\s*if \(GameInTray\)\s*return false\s*'
-                              r'Send\("\{Blind\}\^o"\)')
+                              r'if \(V1IsFunc\("PotionPressHeld"\)\)\s*\{\s*if \(!PotionPressHeld\.Call\(\)\)\s*'
+                              r'return false\s*\}\s*else\s*Send\("\{Blind\}\^o"\)')
         self.assertEqual(fdm.count('Send('), 1)
         frm = self.fn(fl, 'FleeRefillMana')
         self.assertRegex(frm, r'if \(FleeDrinkForMana\(before\)\)\s*\{[^}]*\}\s*if \(GameInTray\)\s*return true\s*'

@@ -273,9 +273,10 @@ PotionNoteMax(n, exact := true)
 		StatsSet([[school ".maxhealth", n]], "your " school " wizard's most health (off its name plate in battle; Potions.ahk)")
 	}
 
-;Drinks a potion (Ctrl+O). True if health went up. Not up: the game's own count asked (PotionsLeft - PotionDrinkHave):
-;potions there - Ctrl+O again, held longer (a game that reads its keys once a frame can miss a short press); still not
-;up: false, and PotionDrinkHave says there are some (PotionCheck and PotionAfterBuy don't take that for "none left")
+;Drinks a potion (Ctrl+O, held - PotionPressHeld: 2026-11-14 the game missed the short tap 5 times of 5 and took the held
+;press 5 of 5). True if health went up. Not up: the game's own count asked (PotionsLeft - PotionDrinkHave): potions there -
+;Ctrl+O again, held longer still; still not up: false, and PotionDrinkHave says there are some (PotionCheck and
+;PotionAfterBuy don't take that for "none left")
 PotionDrink(before)
 	{
 	;(Wizard101 gone to the tray - Settings: traygame: Ctrl+O would go to the window in front - none drunk)
@@ -283,31 +284,38 @@ PotionDrink(before)
 		return false
 	global PotionDrinkHave, PotionStuckSince ; (v1 globals it sets)
 	PotionDrinkHave := ""
-	ReleaseKeys()
-	Send("{Blind}^o")
-	Sleep(2500)
-	after := PotionHealth()
-	if (PotionDrankUp(before, after))
+	;(the game not the window in front - Ctrl+O would go to that window: not pressed, none drunk - the game's count asked
+	;below as for a press that didn't take)
+	after := ""
+	pdPressed := PotionPressHeld()
+	if (pdPressed)
 		{
-		DebugLog("Potions: drank one - health " before " -> " after)
-		PotionStuckSince := 0
-		return true
+		Sleep(2500)
+		after := PotionHealth()
+		if (PotionDrankUp(before, after))
+			{
+			DebugLog("Potions: drank one - health " before " -> " after)
+			PotionStuckSince := 0
+			return true
+			}
 		}
+	else
+		DebugLog("Potions: Ctrl+O not pressed - the game isn't the window in front")
 	;(none left - or did the press not take? The game's own count says: 2026-11-14 the potion row was full in screenshots
 	;while Ctrl+O did nothing for 10-20 minutes after knockouts, and runs went to buy more)
 	PotionDrinkHave := PotionsLeft()
 	;(pressed again only when health was read and isn't up - health not read, the first press may have worked: a second
 	;would drink another)
-	if (V1IsNum(PotionDrinkHave) && PotionDrinkHave >= 1 && after != "")
+	if (pdPressed && V1IsNum(PotionDrinkHave) && PotionDrinkHave >= 1 && after != "")
 		{
 		DebugLog("Potions: health didn't go up (" before " -> " after ") - but the game says " PotionDrinkHave " potion(s) left: Ctrl+O again, held longer")
-		if (PotionPressHeld())
+		if (PotionPressHeld(300))
 			{
 			Sleep(2500)
 			after := PotionHealth()
 			if (PotionDrankUp(before, after))
 				{
-				DebugLog("Potions: drank one (Ctrl+O held) - health " before " -> " after)
+				DebugLog("Potions: drank one (Ctrl+O held longer) - health " before " -> " after)
 				PotionDrinkHave := "", PotionStuckSince := 0
 				return true
 				}
@@ -326,11 +334,11 @@ PotionDrink(before)
 	return false
 	}
 
-;Ctrl+O pressed held longer - Ctrl down, O down 150 ms, both up: a game that reads its keys once a frame can miss a short
-;press - and not interrupted on the way: a hide to the tray (Alt+F4, the X) or another window coming up between its keys
-;would send Ctrl+O to the window behind - the game looked at right before each key, Ctrl always let go. True if O was
-;pressed (PotionDrink, Flee.ahk FleeDrinkHeld)
-PotionPressHeld()
+;Ctrl+O pressed held - Ctrl down, O down holdMs (150; a second try 300), both up: the game misses a short tap (it reads its
+;keys once a frame) - and not interrupted on the way: a hide to the tray (Alt+F4, the X) or another window coming up between
+;its keys would send Ctrl+O to the window behind - the game looked at right before each key, Ctrl always let go. True if O
+;was pressed (PotionDrink, Flee.ahk FleeDrinkForMana / FleeDrinkHeld)
+PotionPressHeld(holdMs := 150)
 	{
 	ReleaseKeys()
 	pphCrit := A_IsCritical
@@ -347,7 +355,7 @@ PotionPressHeld()
 	if (pphPressed)
 		{
 		Send("{Blind}{o down}")
-		Sleep(150)
+		Sleep(holdMs)
 		Send("{Blind}{o up}")
 		Sleep(60)
 		}

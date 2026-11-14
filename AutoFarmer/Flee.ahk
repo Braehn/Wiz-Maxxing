@@ -335,12 +335,12 @@ FleeNoManaWhy(short := false)
 	return short ? "no potion left" : "no potion to be had (none left, and buying didn't work)"
 	}
 
-;Ctrl+O pressed held longer (Potions.ahk PotionPressHeld - the game looked at right before each key); true if mana (or
-;health, when mana can't be read) went up - as FleeDrinkForMana
+;Ctrl+O pressed held longer still (Potions.ahk PotionPressHeld, 300 ms - the game looked at right before each key); true if
+;mana (or health, when mana can't be read) went up - as FleeDrinkForMana
 FleeDrinkHeld(before)
 	{
 	hpBefore := PotionGlobes().hp
-	if (GameInTray || !V1IsFunc("PotionPressHeld") || !PotionPressHeld.Call())
+	if (GameInTray || !V1IsFunc("PotionPressHeld") || !PotionPressHeld.Call(300))
 		return false
 	Sleep(2500)
 	g := PotionGlobes()
@@ -349,7 +349,8 @@ FleeDrinkHeld(before)
 	return (hpBefore != "" && g.hp != "" && g.hp > hpBefore)
 	}
 
-;Ctrl+O; true if mana (or health, when mana can't be read) went up
+;Ctrl+O, held (Potions.ahk PotionPressHeld: 2026-11-14 the game missed the short tap 5 times of 5 and took the held press 5
+;of 5); true if mana (or health, when mana can't be read) went up
 FleeDrinkForMana(before)
 	{
 	ReleaseKeys()
@@ -357,7 +358,14 @@ FleeDrinkForMana(before)
 	;(Wizard101 gone to the tray - Settings: traygame: Ctrl+O would go to the window in front - none drunk)
 	if (GameInTray)
 		return false
-	Send("{Blind}^o")
+	;(the game not the window in front: not pressed, none drunk)
+	if (V1IsFunc("PotionPressHeld"))
+		{
+		if (!PotionPressHeld.Call())
+			return false
+		}
+	else
+		Send("{Blind}^o")
 	Sleep(2500)
 	g := PotionGlobes()
 	if (before != "" && g.mana != "")
