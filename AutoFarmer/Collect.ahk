@@ -720,9 +720,14 @@ UseOwnPrompt(me, d, goal)
 		return false
 	if (RegExMatch(WkPromptDest " " WkPromptText, "i)teleport") && !InStr(WalkLetters(UsIt.name), "TELEPORT"))
 		return false
-	if (WkPromptVerb = "" || RegExMatch(WkPromptVerb, "i)^(talk|speak|chat|shop|trade|buy|sell|browse|craft|learn|train|ride|mount|board|join|enter)"))
+	if (WkPromptVerb != "" && RegExMatch(WkPromptVerb, "i)^(talk|speak|chat|shop|trade|buy|sell|browse|craft|learn|train|ride|mount|board|join|enter)"))
 		return false
-	if (!RegExMatch(Trim(goal), "i)^" WkPromptVerb "\b"))
+	;(the goal's verb on the prompt: read after "Press X ... to", else its letters "TO<verb>" in the prompt - the OCR can put "Press"
+	;after "to Collect" (2026-11-14 17:24: "...DTNTRSCORTOCOLLECTPRESS", no verb read). The quest line over the prompt starts with
+	;the verb, never "to" before it)
+	if (!RegExMatch(Trim(goal), "^([A-Za-z]{3,})", &uopG))
+		return false
+	if (!(WkPromptVerb != "" && WkPromptVerb = uopG[1]) && !InStr(WkPromptDest, "TO" StrUpper(uopG[1])))
 		return false
 	for i, uopT in (IsObject(UsThings) ? UsThings : [])
 		{
