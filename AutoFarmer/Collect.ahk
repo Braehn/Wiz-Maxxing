@@ -124,8 +124,10 @@ CollectItemStep(goal)
 		{
 		if (CiGid != "")
 			{
+			;(only for a real item: a use / go / talk goal leaves its marker - "(use)" - behind, and a fight goal after it had none)
+			if (SubStr(CiGid, 1, 1) != "(")
+				WalkLog("collect: none of the goal's items left in the game's memory - roaming and looking for monsters")
 			CiGid := ""
-			WalkLog("collect: none of the goal's items left in the game's memory - roaming and looking for monsters")
 			ReleaseKeys()
 			}
 		return false
@@ -458,7 +460,8 @@ UseWait(key)
 		return true
 		}
 	UsXAt := 0
-	if (UsXs < 2 && !UsBlind && InteractPrompt() = "press" && WalkUseNames(WkPromptDest, WkCollect.text))
+	if (UsXs < 2 && InteractPrompt() = "press" && ((!UsBlind && WalkUseNames(WkPromptDest, WkCollect.text))
+		|| (UsD != "" && UsD <= 300 && UseOwnPrompt(WkNavLast, UsD, WkCollect.text))))
 		return UseX(UsIt, "its prompt again - the count didn't rise", key)
 	return UseLeave("X " UsXs " time" (UsXs = 1 ? "" : "s") " and the count didn't rise")
 	}
@@ -671,6 +674,10 @@ UseStep(goal)
 		UsPrompt := InteractPrompt()
 		if (UsPrompt = "press" && WalkUseNames(WkPromptDest, goal))
 			return UseX(UsIt, "its prompt '" SubStr(WkPromptDest, 1, 30) "', " Round(usDist) " off", usKey)
+		;(its title misread - 2026-11-14 Dulin's Hammer as "DTNTRSHANNER": 8 prompts in 33 s and no X, given up "570 off", 5 times
+		;in a day: a "Press X to <the goal's verb>" within 300 of it, nothing else named nearer - its own: UseOwnPrompt)
+		if (UsPrompt = "press" && usDist <= 300 && UseOwnPrompt(usNav, usDist, goal))
+			return UseX(UsIt, "the prompt by it ('" SubStr(WkPromptDest, 1, 30) "' - to " WkPromptVerb ", nothing else named nearer), " Round(usDist) " off", usKey)
 		}
 	;Right by it (within 120, or held up within 300 - its body): stood there once stood on, held up, or 3 s by it; no prompt at all
 	;on the last look - one X in case (never into another's prompt); another's prompt all the while (6 s) - not it: left
@@ -697,6 +704,36 @@ UseStep(goal)
 		return true
 	SetStatus("using - walking to " UsIt.name " (" Round(usDist) " away)")
 	DgSteer(usNav, V1Obj({x: UsIt.x, y: UsIt.y}), usDist)
+	return true
+	}
+
+;Is the "Press X" prompt up now (InteractPrompt's - WkPromptDest, WkPromptVerb, WkPromptText) the thing's own (UsIt), its title
+;misread? Its verb the goal's ("Press X to Collect" for "Collect Dulin's Hammer in Nastrond"), no Crowns on it, no teleport
+;(unless the thing is one), not a talk / shop prompt, and no other thing the game names (UsThings: not a mob, not another of
+;the goal's) within 400 of the wizard and nearer than the thing (me: {x, y}, d: the wizard's distance to it). Never the
+;quest line's words alone: that line sits over every prompt while the quest is tracked
+UseOwnPrompt(me, d, goal)
+	{
+	if (!IsObject(UsIt) || !IsObject(me) || me.x = "" || me.y = "" || d = "" || StrLen(WkPromptDest) < 3)
+		return false
+	if (RegExMatch(WkPromptText, "i)cr[o0]wn"))
+		return false
+	if (RegExMatch(WkPromptDest " " WkPromptText, "i)teleport") && !InStr(WalkLetters(UsIt.name), "TELEPORT"))
+		return false
+	if (WkPromptVerb = "" || RegExMatch(WkPromptVerb, "i)^(talk|speak|chat|shop|trade|buy|sell|browse|craft|learn|train|ride|mount|board|join|enter)"))
+		return false
+	if (!RegExMatch(Trim(goal), "i)^" WkPromptVerb "\b"))
+		return false
+	for i, uopT in (IsObject(UsThings) ? UsThings : [])
+		{
+		if (uopT.kind = "mob" || uopT.quest || uopT.x = "" || uopT.y = "")
+			continue
+		if (UseT(uopT) = UseT(UsIt) && (uopT.x - UsIt.x) ** 2 + (uopT.y - UsIt.y) ** 2 <= 160000)
+			continue
+		uopD := Sqrt((me.x - uopT.x) ** 2 + (me.y - uopT.y) ** 2)
+		if (uopD <= 400 && uopD < d + 50)
+			return false
+		}
 	return true
 	}
 

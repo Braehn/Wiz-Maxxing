@@ -45,8 +45,8 @@ global SpeedOff, SpeedMiss
 global WkDlgEndAt, WkAcceptLooks, WkAcceptClicks, WkAcceptAt
 global WkGoalZones, WkKnownZones, WkZonesFile, WkPromptDest, WkTransUsed, WkTransSeen, WkTransStep, WkTransStepAt, WkWaitWhat
 global WkPromptUsed, WkZoneFrom, WkZoneAt, WkPressAt, DialogQuiet, WkQuietUntil, WkQuietLogged
-;A loading screen per the game's log: a zone transfer under way (WkLoading), when the last one finished
-global WkLoading, WkLoadedAt, SkipGap, WkDlgLook
+;A loading screen per the game's log: a zone transfer under way (WkLoading - since WkLoadingAt), when the last one finished
+global WkLoading, WkLoadedAt, SkipGap, WkDlgLook, WkLoadingAt
 global CollectWait, RoamRadius, ChaseTime, CollectMax
 ;Telling you when it needs you (WalkNotify): settings; the notice up now ("" none: its kind, title, window,
 ;shown now, OK'd - not shown again till it's sorted); how long without an arrow / waiting at a goal; the
@@ -207,6 +207,7 @@ WalkerInit(prefix := "AutoQuester")
 	global WkMet, WkPassMin, WkPassKey, WkPromptSkip, WkPreXText, WkQmLooked, WkQmTalked, WkNavJump, WkNavJumpAt, WkJumpKey ; (v1 globals it sets)
 	global WkJumpStuck, WkJumpPushUntil, WkNavMob, WkNavMobName, WkMobLogged, WkNavMobAt, WkBlindAt, WkBlindBackSaid ; (v1 globals it sets)
 	global WkBlindMob, WkLoading, WkLoadedAt, WkDlgLook, WkCloseLook, WkNavEscAt, WkCollect, WkGoalReadAt, WkAfterXLooked ; (v1 globals it sets)
+	global WkLoadingAt ; (v2-only: the port tools don't know it)
 	global WkGoalLine, WkGoalLineAt, WkRealSeenAt, WkArrowAtX, WkGoalFrom, WkNoteKind, WkNoteTitle, WkNoteHwnd, WkNoteShown ; (v1 globals it sets)
 	global WkNoteOff, WkWaitFrom, WkLastX, WkResetAt, WkNavOk, WkNavUse, WkNavH, WkNavD, WkNavHops, WkNavObj, WkNavState ; (v1 globals it sets)
 	global WkNavTrusted, WkNavAgree, WkNavMirror, WkNavOdd, WkNavScales, WkNavScaleBad, WkNavPrev, WkNavTurns, WkNavTurnLog ; (v1 globals it sets)
@@ -325,7 +326,7 @@ WalkerInit(prefix := "AutoQuester")
 	WkNavMob := "", WkNavMobName := "", WkMobLogged := "", WkNavMobAt := 0, WkBlindAt := 0, WkBlindBackSaid := 0, WkBlindMob := ""
 	;(0, not blank: A_TickCount - "" is blank, and blank < 5000 holds - WalkCloseWindow never looked, 2026-10-23 15:02, a
 	;potion shop left open held the wizard; blank > 1500 doesn't - the party leader never waited for followers)
-	WkLoading := 0, WkLoadedAt := 0, WkDlgLook := 0, WkCloseLook := 0, WkNavEscAt := 0
+	WkLoading := 0, WkLoadedAt := 0, WkDlgLook := 0, WkCloseLook := 0, WkNavEscAt := 0, WkLoadingAt := 0
 	WkCollect := "", WkGoalReadAt := 0, WkAfterXLooked := 0, WkGoalLine := "", WkGoalLineAt := 0, WkRealSeenAt := 0, WkArrowAtX := 0
 	WkGoalFrom := ""
 	WkNoteKind := "", WkNoteTitle := "", WkNoteHwnd := 0, WkNoteShown := 0, WkNoteOff := 0, WkWaitFrom := 0, WkLastX := 0
@@ -427,6 +428,16 @@ WalkStep()
 			{
 			WkFrontLook := A_TickCount
 			if (%"GameToFront"%.Call("nothing touched for 5 minutes, another window in front", true, true))
+				return true
+			}
+		;(and a battle round up by the game's log: its Pass can't be seen with another window over the game, so the round's own
+		;look never brings it forward - 2026-11-14 13:29 and 16:41, rounds passed by the game's timer, knocked out. Once you've left
+		;the keyboard and mouse alone 3 s, as battles only does - AutoFarmer's BattlesOnlyWait)
+		if (V1IsFunc("GameFrontOn") && %"GameFrontOn"%.Call() && V1IsFunc("BattleLogPlanning") && %"BattleLogPlanning"%.Call(0)
+			&& A_TickCount - WkFrontLook > 1500)
+			{
+			WkFrontLook := A_TickCount
+			if (%"GameToFront"%.Call("a battle round is up (the game's log)"))
 				return true
 			}
 		if (V1IsFunc("GameFrontOn") && %"GameFrontOn"%.Call() && A_TickCount - WkFrontLook > 1500)
@@ -1006,6 +1017,17 @@ WalkStep()
 				}
 			WalkLog("talk: X by the obstacle opened nothing - going round it after all")
 			WkArrived := 0, WkStuckTalk := 0, WkBestTime := A_TickCount, WkLastRead := A_TickCount
+			return true
+			}
+		;(X opened nothing - the game opens a thing's prompt as the wizard stops by it, after the X (2026-11-14 13:16, 14:22, 14:44:
+		;the Icy Wall's, then a push into the wall, 15 s and a false "Way blocked"): a prompt the quest wants up now - X at it, not a
+		;push. Not a teleport's, a shop's or a talk's, nor one with Crowns on it)
+		if (!WkDialog && !(WkNavOk && V1Gt(WkNavHops, 0)) && InteractPrompt() = "press" && WalkPromptFree(WkPromptDest, 60000)
+			&& !RegExMatch(WkPromptDest " " WkPromptText, "i)teleport|cr[o0]wn")
+			&& !RegExMatch(WkPromptVerb, "i)^(talk|speak|chat|shop|trade|buy|sell|browse|craft|learn|train)") && WalkPromptWanted(WkPromptDest, dist))
+			{
+			WalkLog("talk: X opened nothing, but a prompt the quest wants is up now ('" SubStr(WkPromptDest, 1, 30) "') - X at it, not a push")
+			StartPressX(WkPromptDest)
 			return true
 			}
 		if (WkDialog)
@@ -5733,15 +5755,21 @@ WalkLoadingScreen()
 
 ;---- Remembered obstacles: where it got stuck (zone + distance to the goal) and which way round worked ----
 
-;Which zone the wizard is in, from the game's own log ("ConnectComplete destination Zone=..."), e.g.
-;"Karamelle/KM_Z03_GumdropForest". Looked at every few seconds, only when the log has grown
+;Which zone the wizard is in, from the game's own log ("ConnectComplete destination Zone=..." - or, for a zone change on the
+;same server, "Finished loading zone '...'"), e.g. "Karamelle/KM_Z03_GumdropForest". Looked at every few seconds, only when
+;the log has grown
 WalkZone(fresh := false)
 	{
 	static logPath := "", lastSize := -1, zone := "", checkedAt := 0, lastHead := ""
 	global ErrorLevel, WkGoalZones, WkLoading, WkLoadedAt, WkZoneFrom, WkZoneAt, WkSigilAt ; (v1 globals it sets)
+	global WkLoadingAt ; (v2-only: the port tools don't know it)
 	if (A_TickCount - checkedAt < (fresh ? 250 : 3000))
 		return zone
 	checkedAt := A_TickCount
+	;(a zone transfer the game's log never says finished - over 90 s: taken as over. Real ones take 1-16 s; one that didn't say
+	;so - 2026-11-14 14:56 - kept a loading screen believed up for 30 minutes: no arrival, no back-up, no no-arrow notice)
+	if (WkLoading && WkLoadingAt && A_TickCount - WkLoadingAt > 90000)
+		WkLoading := 0, WkLoadingAt := 0, WalkLog("the game's log never said the zone change finished (90 s) - taken as over")
 	exePath := V1Try(WinGetProcessPath, "ahk_class " GameClass " ahk_exe " GameExe)  ; (v1: blank with no game window)
 	if (exePath != "")
 		{
@@ -5781,25 +5809,33 @@ WalkZone(fresh := false)
 	logFile.Pos := readFrom
 	chunk := logFile.Read(logSize - readFrom)
 	logFile.Close()
-	;(whole lines only: a line still being written could hold half a zone name). After each zone change
-	;the game lists the zones of the quest's goals ("checking goal zone ...")
+	;(whole lines only: a line still being written could hold half a zone name - the Finished line's closing quote ends it).
+	;After each zone change the game lists the zones of the quest's goals ("checking goal zone ...")
 	foundAt := 1, goals := "", zoneBefore := zone
-	while (foundAt := RegExMatch(chunk, "(ConnectComplete destination Zone=|checking goal zone )(\S+)\r?\n", &zoneMatch, foundAt))
+	while (foundAt := RegExMatch(chunk, "(ConnectComplete destination Zone=|checking goal zone )(\S+)\r?\n|Finished loading zone '([^'\r\n]+)'", &zoneMatch, foundAt))
 		{
-		if (InStr(zoneMatch[1], "ConnectComplete"))
-			zone := zoneMatch[2], goals := []
+		zName := zoneMatch[3] != "" ? zoneMatch[3] : zoneMatch[2]
+		;(the zone loaded: a change on the same server writes no ConnectComplete - 2026-11-14 14:56:33, a sigil into Nastrond.
+		;Only when it differs: a normal transfer's goal-zone lines come between its ConnectComplete and this, and stay)
+		if (zoneMatch[3] != "")
+			{
+			if (zName != zone)
+				zone := zName, goals := []
+			}
+		else if (InStr(zoneMatch[1], "ConnectComplete"))
+			zone := zName, goals := []
 		else
 			{
 			if (!IsObject(goals))
 				goals := []
 			isNew := true
 			for i, goalZone in goals
-				if (goalZone = zoneMatch[2])
+				if (goalZone = zName)
 					isNew := false
 			if (isNew)
-				goals.Push(zoneMatch[2])
+				goals.Push(zName)
 			}
-		WalkZoneSeen(zoneMatch[2])
+		WalkZoneSeen(zName)
 		foundAt += StrLen(zoneMatch[0])
 		}
 	if (IsObject(goals) && goals.Length)
@@ -5808,11 +5844,17 @@ WalkZone(fresh := false)
 	;what was written since the last look (the first read of a log is history)
 	if (zoneBefore != "" && readFrom > 0)
 		{
-		startAt := InStr(chunk, "MSG_ZoneTransferRequest", false, -1), doneAt := InStr(chunk, "ConnectComplete destination", false, -1)
+		startAt := InStr(chunk, "MSG_ZoneTransferRequest", false, -1)
+		doneAt := Max(InStr(chunk, "ConnectComplete destination", false, -1), InStr(chunk, "Finished loading zone", false, -1))
 		if (startAt > doneAt)
+			{
+			;(since when - the 90 s cap above; the read's 300-byte overlap may see the same request again: not restarted)
+			if (!WkLoading)
+				WkLoadingAt := A_TickCount
 			WkLoading := 1
+			}
 		else if (doneAt)
-			WkLoading := 0, WkLoadedAt := A_TickCount
+			WkLoading := 0, WkLoadingAt := 0, WkLoadedAt := A_TickCount
 		}
 	;(the zone just left, and when that was noticed: coming out of a dungeon puts you at its sigil)
 	if (zoneBefore != "" && zone != zoneBefore)
@@ -6867,6 +6909,7 @@ WalkerBlank()
 	global SpeedMiss := "", WkDlgEndAt := "", WkAcceptLooks := "", WkAcceptClicks := "", WkAcceptAt := "", WkGoalZones := "", WkKnownZones := ""
 	global WkZonesFile := "", WkPromptDest := "", WkTransUsed := "", WkTransSeen := "", WkTransStep := "", WkTransStepAt := "", WkWaitWhat := ""
 	global WkPromptUsed := "", WkZoneFrom := "", WkZoneAt := "", WkPressAt := "", DialogQuiet := "", WkQuietUntil := "", WkQuietLogged := ""
+	global WkLoadingAt := ""
 	global WkLoading := "", WkLoadedAt := "", SkipGap := "", WkDlgLook := "", CollectWait := "", RoamRadius := "", ChaseTime := "", CollectMax := ""
 	global NoArrowNotify := "", WaitNotify := "", CollectStall := "", OnTopDist := "", ResetTeleport := "", ResetEvery := "", StuckForever := ""
 	global WkResetAt := "", WkProgBest := "", WkProgAt := "", WkProgStep := "", WkNoteKind := "", WkNoteTitle := "", WkNoteHwnd := ""

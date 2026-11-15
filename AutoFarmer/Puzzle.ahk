@@ -1179,7 +1179,9 @@ PzThings(r, kind, off := "")
 		if (RegExMatch(t.name " " t.template, "(?i)teleport|portal|sigil|skeleton\s*key|key\s*lock|padlock|lockbox|(?-i:(?<![A-Za-z])(?:[Ll]ock|LOCK)(?![a-z])|(?<=[a-z0-9])Lock(?![a-z]))|chest|shop|vendor|mail|crown"))
 			continue
 		d := PzD(t.x, t.y, r.x, r.y)
-		if (kind = "object" && (d > PzObjR || (V1IsNum(t.z) && V1IsNum(r.z) && Abs(t.z - r.z) > 260)))
+		;(an NPC too - within PzGuardR and on the floor: 2026-11-14 13:16 the Icy Wall's block sent the wizard to Truda 5615 off and
+		;Ymir 16506 off, 1:39 and 3 stuck episodes before a false "Way blocked")
+		if ((kind = "object" || kind = "npc") && (d > (kind = "npc" ? PzGuardR : PzObjR) || (V1IsNum(t.z) && V1IsNum(r.z) && Abs(t.z - r.z) > 260)))
 			continue
 		if (PzBeyond(r, t))
 			continue
