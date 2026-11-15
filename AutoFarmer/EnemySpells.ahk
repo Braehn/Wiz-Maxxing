@@ -473,13 +473,14 @@ KoNote()
 	if (koG = "")
 		koG := "somewhere in " (V1IsFunc("WalkZone") ? WalkZone.Call() : "this zone")
 	if (!IsObject(KoTimes))
-		KoTimes := V1Obj()
+		KoTimes := KoLoad()
 	koKeep := []
 	for koT in (KoTimes.Has(koG) ? KoTimes[koG] : [])
 		if (A_TickCount - koT < 10800000)
 			koKeep.Push(koT)
 	koKeep.Push(A_TickCount)
 	KoTimes[koG] := koKeep, KoGoal := koG
+	KoSave("ko", koG)
 	koN := koKeep.Length
 	DebugLog("Knockouts: " koN " in the last 3 hours at the quest goal '" SubStr(KoGoal, 1, 100) "'" (koN < 3 ? "" : Walking ? " - walking stopped" : " - walking is off already"))
 	if (koN < 3 || !Walking)
@@ -487,6 +488,7 @@ KoNote()
 	Walking := 0
 	ReleaseKeys()
 	KoTimes.Delete(koG)
+	KoSave("reset", koG)
 	koKey := V1IsFunc("HkText") ? HkText.Call("walk") : "F8"
 	koText := "Knocked out " koN " times in 3 hours at the quest goal '" SubStr(KoGoal, 1, 100) "' - the deck isn't winning that fight, and every knockout costs a potion run. Walking is stopped: a stronger deck (hits that cost few pips), a party, or another quest - then press " koKey " to walk on."
 	if (V1IsFunc("SetStatus"))
@@ -496,6 +498,62 @@ KoNote()
 	;(made in the battle - the knockout's read while it's still on: shown once it's over. The walker's next step would show it,
 	;but a follower's, a dungeon run's or a puzzle run's never comes with walking off)
 	SetTimer(KoNoteShow, -2000)
+	}
+
+;The knockout counts' file: kept over a restart of the bot - one line a knockout or a stop's reset ("when|ko|goal",
+;"when|reset|goal"; when: A_Now)
+KoFile()
+	{
+	return A_ScriptDir "\learned\knockouts.txt"
+	}
+
+;A line onto it (kind: "ko" or "reset") - never in the way if it can't be written
+KoSave(kind, goal)
+	{
+	try
+		FileAppend(A_Now "|" kind "|" StrReplace(StrReplace(goal, "`r"), "`n", " ") "`n", KoFile(), "UTF-8")
+	}
+
+;The counts as the file has them: {goal: [when, as A_TickCount]}, the last 3 hours - a goal's reset drops those before it.
+;The file cut down to them when it's grown over 32 KB. Nothing there, or unreadable: none
+KoLoad()
+	{
+	klOut := V1Obj()
+	try
+		klText := FileRead(KoFile(), "UTF-8")
+	catch
+		return klOut
+	klKeep := ""
+	Loop Parse, klText, "`n", "`r"
+		{
+		klF := StrSplit(A_LoopField, "|", , 3)
+		if (klF.Length < 3 || !RegExMatch(klF[1], "^\d{14}$") || klF[3] = "")
+			continue
+		try
+			klAge := DateDiff(A_Now, klF[1], "Seconds")
+		catch
+			continue
+		if (klAge < 0 || klAge >= 10800)
+			continue
+		if (klF[2] = "reset")
+			klOut.Delete(klF[3])
+		else if (klF[2] = "ko")
+			{
+			if (!klOut.Has(klF[3]))
+				klOut[klF[3]] := []
+			klOut[klF[3]].Push(A_TickCount - klAge * 1000)
+			}
+		else
+			continue
+		klKeep .= A_LoopField "`n"
+		}
+	if (StrLen(klText) > 32768)
+		try
+			{
+			FileDelete(KoFile())
+			FileAppend(klKeep, KoFile(), "UTF-8")
+			}
+	return klOut
 	}
 
 ;The knockout notice shown once the battle's over (KoNote) - not if it's gone, shown already or put away (OK)
