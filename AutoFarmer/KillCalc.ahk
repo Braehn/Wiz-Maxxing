@@ -971,7 +971,15 @@ MemBoxCheck(ans)
 		MemBox[mbcKey] := V1Obj({agree: 0, trusted: 0, lastOk: ""})
 	mbcS := MemBox[mbcKey]
 	;(not as many: a look that doesn't line up - the run of 3 starts again, as with a card that has no box (v1.0.0 review:
-	;before, trust could build across a look the counts told apart))
+	;before, trust could build across a look the counts told apart). FEWER on the screen than in the memory - the cards being
+	;dealt or zoomed, the screen's read short (2026-11-14: 15 looks, 0-6 boxes for the memory's 7): the trust kept as it was,
+	;nothing built on it - each sent the next 3 looks to the pictures, slower, and an enchanted card's never matches)
+	if (mbcBoxes.Length < mbcHand.cards.Length)
+		{
+		if (!said.Has(mbcSay "|short"))
+			said[mbcSay "|short"] := 1, DebugLog("  Memory card boxes (log only): the screen shows " mbcBoxes.Length " card box(es), the game's memory " mbcHand.cards.Length " card(s) - not compared this look (the screen's read short: the memory's boxes " (mbcS.trusted ? "still clicked" : "not trusted yet") ") (said once a window size)")
+		return
+		}
 	if (mbcBoxes.Length != mbcHand.cards.Length)
 		{
 		mbcWas := mbcS.trusted, mbcS.agree := 0, mbcS.trusted := 0

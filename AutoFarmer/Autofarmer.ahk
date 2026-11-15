@@ -2312,6 +2312,10 @@ HitTarget(title, dir, force := 0, dmg := "")
 		DebugLog("  " title " needs a target, but no enemy nameplate was found to click")
 		return
 		}
+	;(the Crown buttons read now if the plate's by their corner - during the wait below, not after it: TargetClickSpot takes
+	;a read under 1.5 s old)
+	if (tx < GameLeft + Px(300) && ty < GameTop + Px(130))
+		TargetCrownRead()
 	;(the game asking for a target a moment after the card's clicked: then the plate hovered, then clicked)
 	AfterClick(600)
 	if (!TargetClick(tx, ty, tbox))
@@ -2389,8 +2393,10 @@ TargetClickSpot(&x, &y, box, &why)
 	tsCorner := (x < GameLeft + Px(185) && y < GameTop + Px(110))
 	if (!tsCorner && (x >= GameLeft + Px(300) || y >= GameTop + Px(130)))
 		return true
-	tsPaths := ["windowHUD/CrownShopButtonsWindow", "windowHUD/btnSubscribe", "windowHUD/btnEarnCrowns"]
-	tsG := (Stat("navmem") && VisionOn && dualmode != 1) ? NavGui(tsPaths[1] "," tsPaths[2] "," tsPaths[3], 600) : ""
+	global TargetCrownG, TargetCrownAt ; (read: TargetCrownRead's)
+	tsPaths := TargetCrownPaths()
+	;(a read just made - HitTarget's, before the after-click wait: under 1.5 s old - else read now)
+	tsG := (TargetCrownAt && A_TickCount - TargetCrownAt < 1500) ? TargetCrownG : TargetCrownRead()
 	tsFound := 0, tsUp := 0, tsOdd := 0, tsR := "", tsB := ""
 	if (IsObject(tsG))
 		for tsP in tsPaths
@@ -2451,6 +2457,35 @@ TargetClickSpot(&x, &y, box, &why)
 		}
 	why := tsOn
 	return false
+	}
+
+;The game's three Crown buttons at the top left (TargetClickSpot)
+TargetCrownPaths()
+	{
+	return ["windowHUD/CrownShopButtonsWindow", "windowHUD/btnSubscribe", "windowHUD/btnEarnCrowns"]
+	}
+
+;The Crown buttons read from the game's memory (NavGui, read-only): the answer ("" not read - navmem off, dual mode, the
+;helper not running), kept with when (TargetCrownG, TargetCrownAt) for TargetClickSpot
+TargetCrownRead()
+	{
+	global TargetCrownG, TargetCrownAt ; (v2-only: the port tools don't know them)
+	tcrP := TargetCrownPaths()
+	TargetCrownG := (Stat("navmem") && VisionOn && dualmode != 1) ? NavGui(tcrP[1] "," tcrP[2] "," tcrP[3], 600) : ""
+	TargetCrownAt := A_TickCount
+	return TargetCrownG
+	}
+
+;The Crown buttons' first read of a run, at a battle's first round before any card's clicked (RoundStart): the helper makes
+;its window reader then (about half a second, "" meanwhile) - 2026-11-14 12:05, 12:21, 15:42 the first target click of a run
+;in the Crown shop's corner was moved along its plate for want of it, and not taken (twice the Hydra not cast at all)
+TargetCrownWarm()
+	{
+	static tcwDone := 0
+	if (tcwDone || !Stat("navmem") || !VisionOn || dualmode = 1)
+		return
+	tcwDone := 1
+	TargetCrownRead()
 	}
 
 ;A target clicked: the mouse there, a moment on it (the game takes a nameplate click better hovered), the click;
@@ -5260,6 +5295,8 @@ if (BossChoosen == 1)
 	BossX := GameLeft + Round(BossRelX * UiScale), BossY := GameTop + Round(BossRelY * UiScale)
 
 global inbattle := 1
+;(the Crown buttons' first read of the run - before a target click needs it: TargetCrownWarm)
+TargetCrownWarm()
 LearnedThisRound := 0, LastHandAnswer := "", DiscardedUnused := 0, DiscardOffCount := 0, BoostMisfitDone := 0, HandStale := 0, SpentLook := V1Obj()
 
 ;(carry mode, the main's turn: it passes - the carry plays the round, its window up at EndRound: Carry.ahk)
@@ -6382,6 +6419,7 @@ AutofarmerBlank()
 	global Trap2U1 := "", Trap2U2 := "", PlanWait := "", SbFound := "", GbFound := "", BoostHand := "", BoostSrcUsed := "", BoostExtra := ""
 	global HammerPlan := "", BoostMemOk := "", BoostSaid := "", BoostMisfitDone := "", BoostUnrec := "", BoostOneOfOff := "", BoostMemOnly := ""
 	global BubbleUp := "", absorb := "", absorbX := "", absorbY := "", AbsorbFreeOk := "", AbsorbOnlyFree := "", negaura := "", NegAuraOn := ""
+	global TargetCrownG := "", TargetCrownAt := 0
 	global ConvertOn := "", inbattle := "", roundnumber := "", battles := "", BossChoosen := "", BossRelX := "", BossRelY := "", EnemyPlates := ""
 	global EnemyPlatesAt := "", boosts := "", afkVar := "", bossX := "", bossY := "", GameExe := "", GameClass := "", CardTol := "", PicSets := ""
 	global PicSet := "", PicDir := "", UiScale := "", LastSetTry := "", HandHalf := "", HalfPitch := "", GameLeft := "", GameTop := "", GameW := ""
