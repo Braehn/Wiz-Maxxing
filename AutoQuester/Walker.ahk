@@ -692,6 +692,26 @@ WalkStep()
 				return true
 			WalkNotify("wait", "Waiting at the quest goal", "The wizard has been at the quest goal for " Round((A_TickCount - WkWaitFrom) / 60000) " minutes and the quest hasn't moved on - it may need something the bot can't do. It walks on by itself once there's a new goal.")
 			}
+		;(the quest's own prompt up while waiting there - 2026-11-14 17:33-17:40 the Icy Wall's open 7 minutes, the X at arrival
+		;not taken, and the arrow steady on screen keeps the prompt look below from running: a look every 5 s, X at it once a
+		;minute - never a teleport's or one with Crowns on it, not in the quiet time after a dialogue. Twice a goal at most: each
+		;X starts the wait again, so with no cap a prompt that does nothing would keep the "Waiting at the quest goal" notice away
+		;for good)
+		static wkWaitLook := 0, wkWaitXGoal := "", wkWaitXN := 0
+		if (wkWaitXGoal != WkGoalLine)
+			wkWaitXGoal := WkGoalLine, wkWaitXN := 0
+		if (wkWaitXN < 2 && WkWaitFrom && A_TickCount - WkWaitFrom > 3000 && A_TickCount > wkWaitLook && A_TickCount >= WkQuietUntil)
+			{
+			wkWaitLook := A_TickCount + 5000
+			if (InteractPrompt() = "press" && WalkPromptFree(WkPromptDest, 60000) && !WalkTalkSpent(WkPromptDest)
+				&& !RegExMatch(WkPromptDest " " WkPromptText, "i)teleport|cr[o0]wn") && WalkPromptWanted(WkPromptDest, dist))
+				{
+				wkWaitXN += 1
+				WalkLog("waiting at the goal: the quest's prompt is up ('" SubStr(WkPromptDest, 1, 30) "') - X at it (" wkWaitXN " of 2 for this goal)")
+				StartPressX(WkPromptDest)
+				return true
+				}
+			}
 		}
 	else if (WkArrived != 1)
 		{
@@ -3597,7 +3617,7 @@ WalkClick(x, y)
 		%"MouseLockOff"%.Call("walker")
 	}
 
-;One key press (down and up), only while walking is on and Wizard101 has focus
+;One key press (down, 80 ms, up), only while walking is on and Wizard101 has focus
 PressKey(key)
 	{
 	global MsWinAt ; (v1 globals it sets)
@@ -3605,7 +3625,13 @@ PressKey(key)
 	;(a window may open: the mouse's look for one done afresh - MouseSteer.ahk)
 	MsWinAt := 0
 	if (Walking && GameActive())
-		Send("{Blind}{" key "}")
+		{
+		;(held a moment: the game reads its keys once a frame and misses a bare tap - 2026-11-14 the Ctrl+O tap 6 times of 6,
+		;and an X at the Icy Wall's open prompt, 17:33:30)
+		Send("{Blind}{" key " down}")
+		Sleep(80)
+		Send("{Blind}{" key " up}")
+		}
 	Critical("Off")
 	}
 
