@@ -4973,6 +4973,13 @@ class Handler(BaseHTTPRequestHandler):
                 return self.reply(REC.post(q, b'') if REC is not None else 'off')
             if u.path == '/recstat':
                 return self.reply(REC.stat() if REC is not None else "rec|off|0|0||the battle recorder isn't running")
+            if u.path == '/bhist':
+                # (the Battles tab: the cards cast in a battle, from the recorder's files - vision\battlehist.py. Never
+                # while the bot's or the walker's read is in flight: the dashboard asks again a few seconds later)
+                if GATE.busy():
+                    return self.reply('busy')
+                import battlehist
+                return self.reply(battlehist.reply(ROOT, q))
             if u.path == '/deck':
                 return self.reply('\n'.join(deck_lines(q.get('fresh') == '1')))
             if u.path == '/decks':

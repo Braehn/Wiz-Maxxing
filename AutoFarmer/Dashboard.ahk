@@ -74,10 +74,11 @@ DashInit()
 	;"on" till BotOnShow says how it is, as the bot starts)
 	Dash.SetFont("s9 w400 c000000", "Segoe UI")
 	Dash.Add("Button", "x640 y7 w136 h24 vDashBotBtn", "Bot: on (" HkText("bot") ")").OnEvent("Click", DashGLabel.Bind(DashBotToggle, "Normal"))
-	;Six tabs: Bot (statistics, what it sees, the log), Dungeons (Dungeons.ahk), Spells (the cards the bot learned by
-	;itself: Spells.ahk), Cards (your hand, the enemies' spells), Network (Network.ahk) and Keys (Hotkeys.ahk)
+	;Seven tabs: Bot (statistics, what it sees, the log), Dungeons (Dungeons.ahk), Spells (the cards the bot learned by
+	;itself: Spells.ahk), Cards (your hand, the enemies' spells), Network (Network.ahk), Keys (Hotkeys.ahk) and Battles
+	;(every card cast in a battle: DashBhFill)
 	Dash.SetFont("s9 w600 cF2F2F2", "Segoe UI")
-	tabs := Dash.Add("Tab3", "x6 y36 w772 h742 +Buttons -Theme vDashTabs", ["Bot", "Dungeons", "Spells", "Cards", "Network", "Keys"])
+	tabs := Dash.Add("Tab3", "x6 y36 w772 h742 +Buttons -Theme vDashTabs", ["Bot", "Dungeons", "Spells", "Cards", "Network", "Keys", "Battles"])
 	tabs.UseTab(1)
 	Dash.SetFont("s9 w600 c8AB4F8", "Segoe UI")
 	Dash.Add("Text", "x12 y68 w86 h16", "STATISTICS")
@@ -284,6 +285,20 @@ DashInit()
 	lv := Dash.Add("ListView", "x12 y190 w760 h598 vKeyList AltSubmit -Multi Background111317 cDADADA", ["Action", "Key", "Default", "Works", "Id"])
 	lv.OnEvent("DoubleClick", DashGLabel.Bind(KeyListEvent, "DoubleClick"))
 	lv.ModifyCol(1, 330), lv.ModifyCol(2, 130), lv.ModifyCol(3, 150), lv.ModifyCol(4, 140), lv.ModifyCol(5, 0)
+	;The Battles tab: every card cast in a battle, round by round - yours, your party's, the enemies' (DashBhFill: the
+	;helper's /bhist, vision\battlehist.py, from the battle recorder's files)
+	tabs.UseTab(7)
+	Dash.SetFont("s9 w600 c8AB4F8", "Segoe UI")
+	Dash.Add("Text", "x12 y68 w400 h16", "CARDS CAST IN BATTLE")
+	Dash.SetFont("s9 w400 c9AA0A6", "Segoe UI")
+	Dash.Add("Text", "x12 y88 w760 h32 vBhHelp", "Every card cast, round by round - yours, your party's and the enemies' - with its targets and what it did. This battle follows the one you're in after each round; pick an earlier one from today or yesterday. From the battle recorder (Settings: battlerec).")
+	Dash.SetFont("s9 w400 c000000", "Segoe UI")
+	Dash.Add("DropDownList", "x12 y124 w560 vBhPick Choose1", ["This battle (live)"]).OnEvent("Change", DashGLabel.Bind(DashBhPick, "Normal"))
+	Dash.SetFont("s9 w400 cB9E2B9", "Consolas")
+	Dash.Add("Text", "x12 y156 w760 h30 vBhStatus", "Nothing read yet - shown while this tab is open")
+	Dash.SetFont("s9 w400 cDADADA", "Segoe UI")
+	lv := Dash.Add("ListView", "x12 y190 w760 h598 vBhList -Multi NoSortHdr Background111317 cDADADA", ["Round", "Who", "Card", "Pips", "Target", "What it did"])
+	lv.ModifyCol(1, 50), lv.ModifyCol(2, 130), lv.ModifyCol(3, 140), lv.ModifyCol(4, 70), lv.ModifyCol(5, 140), lv.ModifyCol(6, 210)
 	tabs.UseTab()
 	;The Play for me button, on every tab - the tab row's right end (DashGuiSize keeps it there), not the heading's
 	;room: every check for you off till you click it again; off at every start. A red bar (green while on: DashPlayShow) -
@@ -978,6 +993,123 @@ DashNetShown()
 	return netTab = "Network"
 	}
 
+;The Battles tab: open (the window shown, that tab picked)
+DashBhShown()
+	{
+	if (!DashHwnd || !DashShown)
+		return false
+	return Dash["DashTabs"].Text = "Battles"
+	}
+
+;A battle picked in the Battles tab's list: shown at once
+DashBhPick()
+	{
+	DashBhFill(true)
+	}
+
+;The Battles tab afresh (DashRefresh, every second): only while it's open - the battle shown every 3 s, the list of
+;battles every 15 s - and never in a round the bot plays (the mouse locked: nothing asked of the helper then); an answer
+;the same as the last one isn't drawn again. The battle: the helper's /bhist?b=cur (the one in progress, else the last
+;one recorded) or /bhist?b=<id> (one picked); the list /bhist?list=1 (vision\battlehist.py)
+DashBhFill(force := false)
+	{
+	static showAt := 0, listAt := 0, shown := "", listText := "", ids := [], wasOpen := 0
+	if (!DashBhShown())
+		{
+		wasOpen := 0
+		return
+		}
+	;(the tab just opened: at once, the list too)
+	if (!wasOpen)
+		force := true, wasOpen := 1, listAt := 0
+	if (MouseLocked || (!force && A_TickCount - showAt < 3000))
+		return
+	if (!VisionOn)
+		{
+		DashSet("BhStatus", "The vision helper isn't running - nothing to show")
+		return
+		}
+	showAt := A_TickCount
+	pick := Dash["BhPick"]
+	;(today's and yesterday's battles, newest first - the one picked kept picked)
+	if (!listAt || A_TickCount - listAt > 15000)
+		{
+		got := VisionGet("/bhist?list=1", 800, true)
+		if (got != "" && got != "busy")
+			{
+			listAt := A_TickCount
+			if (got != listText)
+				{
+				listText := got
+				was := (pick.Value > 1 && pick.Value - 1 <= ids.Length) ? ids[pick.Value - 1] : ""
+				items := ["This battle (live)"], ids := []
+				for i, ln in StrSplit(got, "`n", "`r")
+					{
+					f := StrSplit(ln, "`t")
+					if (f.Length < 6 || f[1] != "b")
+						continue
+					ids.Push(f[2])
+					items.Push(f[3] "   " f[4] (f[5] != "" ? " in " f[5] " round" (f[5] = 1 ? "" : "s") : "") "   " f[6])
+					}
+				at := 1
+				for i, id in ids
+					if (was != "" && id = was)
+						at := i + 1
+				pick.Delete()
+				pick.Add(items)
+				pick.Choose(at)
+				}
+			}
+		}
+	want := (pick.Value > 1 && pick.Value - 1 <= ids.Length) ? ids[pick.Value - 1] : "cur"
+	got := VisionGet("/bhist?b=" want, 800, true)
+	if (got = "")
+		{
+		DashSet("BhStatus", "The vision helper didn't answer" (VisionErr != "" ? " (" VisionErr ")" : "") " - asked again in a few seconds")
+		shown := ""
+		return
+		}
+	;(the bot's or the walker's read in flight: again in a second)
+	if (got = "busy")
+		{
+		showAt := A_TickCount - 2000
+		return
+		}
+	if (got = shown && !force)
+		return
+	shown := got
+	lines := StrSplit(got, "`n", "`r")
+	f := StrSplit(lines[1], "`t")
+	lv := Dash["BhList"]
+	if (f[1] = "none" || f[1] != "h" || f.Length < 8)
+		{
+		DashSet("BhStatus", f[1] = "none" ? (f.Length > 1 ? f[2] : "Nothing recorded yet") : "An answer the bot can't read: " SubStr(lines[1], 1, 80))
+		lv.Delete()
+		return
+		}
+	;(h, id, live, result, rounds, zone, enemies, HH:MM)
+	live := f[3] = 1
+	head := live ? "Live - round " f[5] : (want = "cur" ? "No battle now - the last one: " : "") f[8] " - " f[4] " in " f[5] " round" (f[5] = 1 ? "" : "s")
+	DashSet("BhStatus", head (f[7] != "" ? " - " f[7] : "") (f[6] != "" ? "`n" f[6] : ""))
+	wasCrit := A_IsCritical
+	Critical()
+	lv.Opt("-Redraw")
+	lv.Delete()
+	;(c, round, side, who, card, pips, targets, what it did)
+	for i, ln in lines
+		{
+		c := StrSplit(ln, "`t")
+		if (i = 1 || c.Length < 8 || c[1] != "c")
+			continue
+		lv.Add("", c[2], c[4], c[5], c[6], c[7], c[8])
+		}
+	;(live: the newest round in sight)
+	if (live && lv.GetCount())
+		lv.Modify(lv.GetCount(), "Vis")
+	lv.Opt("+Redraw")
+	CfgUncritical(wasCrit, 0)
+	}
+
 ;The Network tab's list and status line afresh (NetTick, every 2 s): this PC first, then every bot heard - the one
 ;picked kept picked
 DashNetFill()
@@ -1574,6 +1706,8 @@ DashRefresh()
 	;(the Spells tab's list: again when the catalog changed - LearnSave - or a correction was applied)
 	if (SpDirty)
 		SpListFill()
+	;(the Battles tab, while it's open)
+	DashBhFill()
 	up := (A_TickCount - DashStart) // 1000
 	upText := Format("{:02}:{:02}:{:02}", up // 3600, Mod(up // 60, 60), Mod(up, 60))
 	;What it's doing
@@ -2589,6 +2723,10 @@ DashGuiSize(thisGui:="", MinMax:="", A_GuiWidth:="", A_GuiHeight:="") { ; (v1: a
 	Dash["DgHelp"].Move(, , A_GuiWidth - 24)
 	Dash["DgStatus"].Move(, , A_GuiWidth - 24)
 	Dash["DgList"].Move(, , A_GuiWidth - 24, Max(40, A_GuiHeight - 298))
+	;(the Battles tab: its list takes what's left)
+	Dash["BhHelp"].Move(, , A_GuiWidth - 24)
+	Dash["BhStatus"].Move(, , A_GuiWidth - 24)
+	Dash["BhList"].Move(, , A_GuiWidth - 24, Max(60, A_GuiHeight - 202))
 	;(the Keys tab: its list takes what's left)
 	Dash["KeyHelp"].Move(, , A_GuiWidth - 24)
 	Dash["KeyStatus"].Move(, , A_GuiWidth - 24)

@@ -1365,6 +1365,15 @@ the ones you play too, is written down so the bot can learn battles later.
 	      python vision\battlereport.py --days 30 --enemy "Bonestriker"
 	- It never slows a round: the bot hands its lines over after its last
 	  click, and the helper reads nothing extra while the bot plays a round.
+	- The dashboard's Battles tab shows it: every card cast in a battle,
+	  round by round - yours, your party's and the enemies' - with its pips,
+	  targets and what it did (damage, heals, blades, traps, shields,
+	  fizzles, criticals, knockouts). "This battle (live)" follows the one
+	  you're in after each round (else it shows the last one); pick an
+	  earlier battle from today or yesterday in its list. Enemies of the same
+	  name are numbered left to right; a wizard not in your own party shows as
+	  Ally or Enemy wizard. Asked for only while the tab is open, never during
+	  a round the bot plays.
 
 Enchants (Strong, Giant, Monstrous, Gargantuan, Colossal, Epic - treasure cards
 too) go on the hit about to be cast, a learned hit in no slot as well; an
