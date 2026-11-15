@@ -732,10 +732,12 @@ PotionRecall()
 ;Presses a teleport key and waits for the loading screen to come and go (up to 60 s). True if it did.
 ;Nothing loading after 15 s with the spellbook still on screen (no Mark, too little mana): it gives up then;
 ;a battle starting stops it too. arrived (a Func, optional): true once there with no loading screen (a
-;Recall in the same zone), looked at every second from 3 s on
-PotionTeleport(key, what, arrived := "")
+;Recall in the same zone), looked at every second from 3 s on. The key turned down by the game - an NPC's talk open
+;(PotionTurnedDown): Space through it and the key once more (again: that second go)
+PotionTeleport(key, what, arrived := "", again := 0)
 	{
 	before := WalkZone(true)
+	ptLogAt := V1Try(FileGetSize, RcLog)  ; (v1: blank when the game's log isn't known)
 	;(Wizard101 gone to the tray - Settings: traygame: not pressed - the key would go to the window in front)
 	if (GameInTray)
 		return false
@@ -747,6 +749,27 @@ PotionTeleport(key, what, arrived := "")
 		WalkZone(true)
 		if (WkLoading)
 			started := true
+		;(turned down by the game - an NPC's talk open: "GameClient is not attached to zone server to send MSG_GOTODORM" -
+		;2026-11-14 16:12:31, the run begun 2 s into Truda Stoutheart's talk; 13:57:50 End's MSG_GOHOME the same: Space through
+		;the talk (Space never opens anything), then the key once more)
+		if (!started && !again && A_Index = 6 && PotionTurnedDown(ptLogAt))
+			{
+			if (GameInTray || !GameActive())
+				return false
+			DebugLog("Potions: " key " turned down by the game (an NPC's talk open) - Space through it, then " key " again")
+			;(each Space only with the game in front and not hidden to the tray - a hide in a wait: nothing more sent)
+			Loop 4
+				{
+				if (GameInTray || !GameActive())
+					return false
+				Send("{Blind}{Space}")
+				Sleep(400)
+				}
+			Sleep(600)
+			if (GameInTray || !GameActive())
+				return false
+			return PotionTeleport(key, what, arrived, 1)
+			}
 		;(v1: WkLoadedAt blank before any loading screen - compared as text: not >)
 		if (!WkLoading && V1Gt(WkLoadedAt, t0 + 500))
 			{
@@ -776,6 +799,30 @@ PotionTeleport(key, what, arrived := "")
 		}
 	DebugLog("Potions: no loading screen after " key " for " what " (still in " before ") - stopping")
 	return false
+	}
+
+;Did the game turn a teleport key down since the game's log was at size from - "GameClient is not attached to zone server
+;to send MSG_..." (Home's MSG_GOTODORM, End's MSG_GOHOME): what it writes with an NPC's talk open. False if not known
+PotionTurnedDown(from)
+	{
+	if (RcLog = "" || from = "")
+		return false
+	try
+		{
+		ptdFile := FileOpen(RcLog, "r", "CP0")
+		ptdSize := ptdFile.Length
+		if (ptdSize <= from)
+			{
+			ptdFile.Close()
+			return false
+			}
+		ptdFile.Pos := from
+		ptdText := ptdFile.Read(Min(ptdSize - from, 262144))
+		ptdFile.Close()
+		}
+	catch
+		return false
+	return InStr(ptdText, "is not attached to zone server to send MSG_") > 0
 	}
 
 ;Where routes start: Home (the Home key; potionfromhome:1, the default) or the world's Commons (End)

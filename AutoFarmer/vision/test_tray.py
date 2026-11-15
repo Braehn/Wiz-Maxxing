@@ -378,6 +378,9 @@ class TrayWiring(unittest.TestCase):
         self.assertLess(held.index('GameActive()'), held.index('Send('))
         self.assertRegex(self.fn(pot, 'PotionRun'), r'if \(GameInTray\)\s*return false\s*Send\("\{Blind\}\{PgDn\}"\)')
         self.assertRegex(self.fn(pot, 'PotionTeleport'), r'if \(GameInTray\)\s*return false\s*Send\("\{Blind\}" key\)')
+        # (the Space through an NPC's talk that turned the key down: the game looked at before each Space, and before the key again)
+        self.assertRegex(self.fn(pot, 'PotionTeleport'), r'if \(GameInTray \|\| !GameActive\(\)\)\s*return false\s*Send\("\{Blind\}\{Space\}"\)')
+        self.assertRegex(self.fn(pot, 'PotionTeleport'), r'if \(GameInTray \|\| !GameActive\(\)\)\s*return false\s*return PotionTeleport\(')
         # (the walk's own Mark - not one made, a kept one left as it was)
         self.assertRegex(self.fn(pot, 'PotionRunWalk'),
                          r'g := PotionGlobes\(\)\s*if \(GameInTray\)\s*return false\s*Send\("\{Blind\}\{PgDn\}"\)')
