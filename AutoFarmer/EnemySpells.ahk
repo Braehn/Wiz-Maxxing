@@ -26,6 +26,9 @@ global BlFled
 global BlOutDuel
 ;Knockouts at one quest goal (KoNote): the goal (the walker's goal line, else the zone) and when each was (the last 3 hours)
 global KoGoal, KoTimes
+;The goal the guard stopped walking at this run ("" none, or walked on since) - its "when|stop|goal" line is only a note: a
+;restart walks on by itself, and the knockouts kept stop it again at the next one there
+global KoStopGoal
 ;Your own wizard's name: the one wizard on your side of a battle with no other (learned this run - party.ini [me] keeps
 ;the last for the next), and the character it's for (the game's log's CharID - another character logged in: not its)
 global BlMe, BlMeChar
@@ -462,14 +465,16 @@ BattleDefeated(how)
 ;{goal: [when]}, the last 3 hours; KoGoal the last one's). The bot on only (F6 off, or never started: your own knockouts
 ;aren't its to count). The 3rd at one goal while walking: walking stopped, a notice (and a Discord alert, if set up) - the
 ;deck isn't winning that fight, and every knockout costs a potion run (2026-11-13/14: 12 knockouts in a night at the same
-;Nastrond bosses, a run of 5400-7200 gold after each, till you moved the wizard). Walking on (F8) counts that goal afresh
+;Nastrond bosses, a run of 5400-7200 gold after each, till you moved the wizard). The counts are kept at the stop - a restart
+;of the bot walks on by itself, and the next knockout there stops it again; walking on yourself (F8: KoForget) starts afresh
 KoNote()
 	{
-	global KoGoal, KoTimes, Walking ; (v1 globals it sets)
-	global WkGoalLine, BotOn ; (read: the walker's goal line, the bot on)
+	global KoGoal, KoTimes, Walking, KoStopGoal ; (v1 globals it sets)
+	global WkGoalLine, BotOn, DgRun ; (read: the walker's goal line, the bot on, a dungeon run)
 	if (!BotOn)
 		return
-	koG := Trim(WkGoalLine)
+	;(a dungeon run's knockouts: its own count - the quest's goal line isn't what it's doing)
+	koG := (IsObject(DgRun) && !DgRun.between && DgRun.name != "") ? "the dungeon run '" DgRun.name "'" : Trim(WkGoalLine)
 	if (koG = "")
 		koG := "somewhere in " (V1IsFunc("WalkZone") ? WalkZone.Call() : "this zone")
 	if (!IsObject(KoTimes))
@@ -487,8 +492,8 @@ KoNote()
 		return
 	Walking := 0
 	ReleaseKeys()
-	KoTimes.Delete(koG)
-	KoSave("reset", koG)
+	KoStopGoal := koG
+	KoSave("stop", koG)
 	koKey := V1IsFunc("HkText") ? HkText.Call("walk") : "F8"
 	koText := "Knocked out " koN " times in 3 hours at the quest goal '" SubStr(KoGoal, 1, 100) "' - the deck isn't winning that fight, and every knockout costs a potion run. Walking is stopped: a stronger deck (hits that cost few pips), a party, or another quest - then press " koKey " to walk on."
 	if (V1IsFunc("SetStatus"))
@@ -498,6 +503,23 @@ KoNote()
 	;(made in the battle - the knockout's read while it's still on: shown once it's over. The walker's next step would show it,
 	;but a follower's, a dungeon run's or a puzzle run's never comes with walking off)
 	SetTimer(KoNoteShow, -2000)
+	}
+
+;Walking on yourself after the guard stopped it (F8 - Walker.ahk WalkToggle; a dungeon run you start - Dungeons.ahk
+;DgRunStart): that goal's knockout count afresh - you've changed something (the deck, the quest). Only that goal's, and only
+;after a stop of the guard's: F8 after another stop (a shop left open, stuck) keeps the counts. Kept in the file too
+;("when|reset|goal"), so a restart doesn't bring it back
+KoForget()
+	{
+	global KoTimes, KoStopGoal ; (v1 globals it sets)
+	if (!IsObject(KoTimes))
+		KoTimes := KoLoad()
+	if (KoStopGoal = "")
+		return
+	if (KoTimes.Has(KoStopGoal))
+		KoTimes.Delete(KoStopGoal)
+	KoSave("reset", KoStopGoal)
+	KoStopGoal := ""
 	}
 
 ;The knockout counts' file: kept over a restart of the bot - one line a knockout or a stop's reset ("when|ko|goal",
@@ -514,8 +536,8 @@ KoSave(kind, goal)
 		FileAppend(A_Now "|" kind "|" StrReplace(StrReplace(goal, "`r"), "`n", " ") "`n", KoFile(), "UTF-8")
 	}
 
-;The counts as the file has them: {goal: [when, as A_TickCount]}, the last 3 hours - a goal's reset drops those before it.
-;The file cut down to them when it's grown over 32 KB. Nothing there, or unreadable: none
+;The counts as the file has them: {goal: [when, as A_TickCount]}, the last 3 hours - a goal's reset drops those before it (a
+;"stop" line is a note, kept). The file cut down to them when it's grown over 32 KB. Nothing there, or unreadable: none
 KoLoad()
 	{
 	klOut := V1Obj()
@@ -535,8 +557,13 @@ KoLoad()
 			continue
 		if (klAge < 0 || klAge >= 10800)
 			continue
-		if (klF[2] = "reset")
+		if (klF[2] = "reset" && klF[3] = "*")
+			klOut := V1Obj()
+		else if (klF[2] = "reset")
 			klOut.Delete(klF[3])
+		else if (klF[2] = "stop")
+			{
+			}
 		else if (klF[2] = "ko")
 			{
 			if (!klOut.Has(klF[3]))
@@ -575,7 +602,7 @@ KoNoteShow()
 ;reading it. The entry script calls this first thing: this file's globals start blank, as in v1)
 EnemySpellsBlank()
 	{
-	global KoGoal := "", KoTimes := ""
+	global KoGoal := "", KoTimes := "", KoStopGoal := ""
 	global BlPos := "", BlHead := "", BlDuel := "", BlNames := "", BlSub := "", BlCasts := "", BlRound := "", BlReadAt := "", BlPhase := ""
 	global BlOutDuel := ""
 	global BlPhaseAt := "", BlFled := "", BlMe := "", BlMeChar := "", OwnHpCur := "", OwnHpMax := "", OwnHpAt := "", OwnHpVotes := "", OwnHpWin := ""

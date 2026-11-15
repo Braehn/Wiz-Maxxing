@@ -3055,9 +3055,32 @@ WalkIsGoalNpc(key, tg)
 	if (StrLen(key) < 4 || !IsObject(tg))
 		return false
 	if (tg.npc != "")
-		return WalkNpcLike(key, tg.npc)
-	ignLine := WalkLetters(WkGoalLine)
-	return ignLine != "" && InStr(ignLine, key)
+		{
+		if (WalkNpcLike(key, tg.npc))
+			return true
+		}
+	else
+		{
+		ignLine := WalkLetters(WkGoalLine)
+		if (ignLine != "" && InStr(ignLine, key))
+			return true
+		}
+	;(its name misread past that - 2026-11-14 18:58 Nalia Dunestrider as 'NAMADIXESTRIDQ': 3 X's spent, NEEDS YOU: a "Press X to
+	;Talk" with the goal's NPC within 200 on the same floor by the game's memory - the prompt is hers. Never one with Crowns or a
+	;teleporter on it. And its surname still half there at least ("DUNESTRIDER" 4 letters off in 'NAMADIXESTRIDQ'; Beatrice
+	;Wildwind's prompt by her 6, Mrs. Dowager's 8): another NPC's name read well isn't taken for hers)
+	if (tg.npc = "" || key != WkPromptDest || tg.r = "" || tg.r > 200 || (tg.dz != "" && Abs(tg.dz) > 150))
+		return false
+	if (!(WkPromptVerb = "talk" || InStr(WkPromptDest, "TOTALK")) || RegExMatch(WkPromptDest " " WkPromptText, "i)cr[o0]wn|teleport"))
+		return false
+	inSur := ""
+	for each, inW in StrSplit(RegExReplace(tg.npc, "[^A-Za-z]+", " "), " ")
+		if (StrLen(inW) >= 3)
+			inSur := WalkLetters(inW)
+	;(only the name's part of the key - the letters before "PRESS": the prompt's own "PRESSXTOTALK" can pass for a short surname
+	;(TALBOT, WALKER 3 off it); 2 letters in 5 at most, a surname of 6 letters or more - LEWIS is 2 off "BEATRICEWILDWIND")
+	inName := InStr(key, "PRESS") > 4 ? SubStr(key, 1, InStr(key, "PRESS") - 1) : key
+	return StrLen(inSur) >= 6 && WalkWordIn(inSur, inName) <= StrLen(inSur) * 2 // 5
 	}
 
 ;A try at the talk goal's NPC - X there (StartTalk, StartPressX at its prompt), by the game's memory within TalkReach on the
@@ -3661,6 +3684,9 @@ WalkToggle()
 		;(a blocked way's hold and tries - AutoFarmer's Puzzle.ahk - forgotten: walking on)
 		if (V1IsFunc("PuzzleForget"))
 			%"PuzzleForget"%.Call("walking on with " WalkKeyText())
+		;(the knockout counts afresh - AutoFarmer's EnemySpells.ahk: you walking on is your sign you've changed something)
+		if (V1IsFunc("KoForget"))
+			%"KoForget"%.Call()
 		WalkReset()
 		SetStatus("walking on")
 		}
