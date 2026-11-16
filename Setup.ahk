@@ -5,6 +5,15 @@
 ;
 ; Each part shows whether it's there already; the ones that are missing are ticked. Install does the ticked
 ; ones, in order, writing what happens in the log below:
+;   Version           (the list above the parts) this folder's own version - or any release on GitHub (the repo is
+;                     public: no token needed), downloaded and put in first: into your Programs folder when "Install
+;                     to your Programs folder" is ticked (Setup then starts again from there, as below), else into this
+;                     folder in place of its own, as an update does - settings, learned cards and routes kept. One
+;                     older than what's there is asked about first, and that install's updating by itself switched
+;                     off (autoupdate:0 - it would put the newest back within minutes; picking the latest again puts
+;                     it back). Never into a git checkout (git checkout <tag>). A pre-release (alpha-v1: the 2018
+;                     original, AutoHotkey v1.1, no exes) and the first few (v0.02-v0.06, before the Wiz-Maxxing.exe
+;                     launcher) are only downloaded and unpacked in your Downloads folder
 ;   Install to your Programs folder   %LOCALAPPDATA%\Programs\Wiz-Maxxing (yours, no admin - the updater keeps
 ;                     working): the bot (and the watcher) closed, this folder copied there - over an install that's
 ;                     there already as an update does, its settings, learned cards and routes kept - then Setup
@@ -41,6 +50,8 @@ SetWorkingDir(A_ScriptDir)
 
 global SuLog, SuPyS, SuPkS, SuUnS, SuShS, SuAhS, SuGiS, SuPy, SuPk, SuUn, SuSh, SuAh, SuGi, SuGo, SuStart, SuSm, SuSmS, SuUp, SuUpS, SuPa, SuPaS
 global SuWa, SuWaS, SuIn, SuInS, SuCe, SuCeS
+;(the Version list: its items' releases - "" for this folder's own - every release found on GitHub, and why not)
+global SuVer, SuVerS, SuVerList, SuRels, SuRelsErr
 global SuLogHwnd := 0, SuBusy := 0
 ;(started again from the Programs folder after the copy: the folder it was in, the parts still to do, the old
 ;Setup's pid - /moved <folder> /do <py,pk,...> /oldpid <pid>)
@@ -73,7 +84,12 @@ Su.SetFont("s11 w600", "Segoe UI")
 Su.Add("Text", "w620", "Get this PC ready to run the Wizard101 bot")
 Su.SetFont("s9 w400", "Segoe UI")
 Su.Add("Text", "w620 y+4", "The ticked parts get installed. Python and its packages are needed for the card matching and the zone map; the last two are only for changing the bot.")
-ogcCheckboxSuIn := Su.Add("Checkbox", "xm y+14 w260 vSuIn", "Install to your Programs folder")
+Su.Add("Text", "xm y+14 w60 h23 0x200", "Version")
+ogcDropDownListSuVer := Su.Add("DropDownList", "x+8 w192 R20 vSuVer")
+ogcDropDownListSuVer.OnEvent("Change", SuVerPick)
+ogcTextSuVerS := Su.Add("Text", "x+8 w350 h23 0x200 vSuVerS", "...")
+ogcCheckboxSuIn := Su.Add("Checkbox", "xm y+8 w260 vSuIn", "Install to your Programs folder")
+ogcCheckboxSuIn.OnEvent("Click", SuVerPick)
 ogcTextSuInS := Su.Add("Text", "x+8 w350 vSuInS", "...")
 ogcCheckboxSuPy := Su.Add("Checkbox", "xm y+8 w260 vSuPy", "Python 3")
 ogcTextSuPyS := Su.Add("Text", "x+8 w350 vSuPyS", "...")
@@ -107,6 +123,10 @@ Su.SetFont("s9", "Consolas")
 ogcEditSuLog := Su.Add("Edit", "xm y+12 w620 h240 ReadOnly -Wrap +HScroll vSuLog"), SuLogHwnd := ogcEditSuLog.hwnd
 Su.Show()
 SuCheck(true)
+;(the other versions from GitHub once the window is up - not when started again here after the copy, to go on with it)
+SuVersionsFill("", SuMovedFrom = "" ? "this folder's - looking up the others on GitHub..." : "this folder's")
+if (SuMovedFrom = "")
+	SetTimer(SuVersionsLoad, -100)
 ;(started from the Programs folder after the copy: the parts that were ticked, and the shortcuts / Start menu / PATH /
 ;watcher that point to the old folder - SuCheck ticks those - done; then the download offered to the Recycle Bin)
 if (SuMovedFrom != "")
@@ -346,44 +366,49 @@ SuInstallStop(text, closedWatch)
 	}
 
 ;Copies the bot to SuHome and starts Setup from there (the rest of what's ticked, /do) - 1 if it did (this Setup
-;then goes), 0 if there was nothing to do (here already), -1 if it couldn't (nothing else is done)
-SuInstallHome()
+;then goes), 0 if there was nothing to do (here already), -1 if it couldn't (nothing else is done). src: another
+;version's files to put there instead of this folder's (picked in the Version list, downloaded - SuInstallVersion: it
+;asked about an older one and a running bot already); your settings, learned cards and routes still come from this
+;folder when the bot ran here. autoUp "off": that install's updating by itself switched off (an older version),
+;"back": put back as it was before that (the latest version)
+SuInstallHome(src := "", autoUp := "")
 	{
 	global ErrorLevel ; (v1 globals it sets)
 	SuLogLine("== Install to your Programs folder")
 	home := SuHome()
+	from := src = "" ? A_ScriptDir : src
 	if (SuSamePath(A_ScriptDir, home))
 		return SuSay("installed here already", 0)
-	if (FileExist(A_ScriptDir "\.git") != "")
-		return SuSay("this is a git checkout - it stays where it is", 0)
-	if (InStr(home "\", A_ScriptDir "\") = 1 || InStr(A_ScriptDir "\", home "\") = 1)
-		return SuSay("this folder and " home " are inside each other - move this folder somewhere else first", -1)
-	notOwn := SuOwnFolder(A_ScriptDir)
-	if (notOwn != "")
-		return SuSay("not from " A_ScriptDir ": " notOwn " - put the bot's files in a folder of their own (unzip the download as it is) and run Setup there", -1)
-	newer := SuNewerThere(home)
-	if (newer != "")
-		return SuSay("a newer version (" newer ") is installed there - start that one (Start menu: Wiz-Maxxing); this older one isn't put over it", -1)
-	if (WatchBotRunning())
+	if (src = "")
 		{
-		msgResult := MsgBox("The bot is running. Close it to install it in your Programs folder?", "Wiz-Maxxing setup", 262180)
-		if (msgResult = "No")
-			return SuSay("the bot is running - not installed", -1)
+		if (FileExist(A_ScriptDir "\.git") != "")
+			return SuSay("this is a git checkout - it stays where it is", 0)
+		if (InStr(home "\", A_ScriptDir "\") = 1 || InStr(A_ScriptDir "\", home "\") = 1)
+			return SuSay("this folder and " home " are inside each other - move this folder somewhere else first", -1)
+		notOwn := SuOwnFolder(A_ScriptDir)
+		if (notOwn != "")
+			return SuSay("not from " A_ScriptDir ": " notOwn " - put the bot's files in a folder of their own (unzip the download as it is) and run Setup there", -1)
+		;(this older version over a newer one there: only if you say so - as one picked in the Version list)
+		newer := SuNewerThere(home)
+		if (newer != "")
+			{
+			msgResult := MsgBox("A newer version (" newer ") is installed in your Programs folder. Put this older " UpVersion() " in its place?`n`nYour settings, learned cards and routes are kept. Its updating by itself gets switched off (Settings: autoupdate 0) - it would put the newest back within minutes.", "Wiz-Maxxing setup", 262180)
+			if (msgResult = "No")
+				return SuSay("a newer version (" newer ") is installed there - start that one (Start menu: Wiz-Maxxing); this older one isn't put over it", -1)
+			autoUp := "off"
+			}
+		if (WatchBotRunning())
+			{
+			msgResult := MsgBox("The bot is running. Close it to install it in your Programs folder?", "Wiz-Maxxing setup", 262180)
+			if (msgResult = "No")
+				return SuSay("the bot is running - not installed", -1)
+			}
 		}
 	;(the bot from here and from there, and the watcher - they keep their files open)
 	UpCloseBots(A_ScriptDir)
 	UpCloseBots(home)
-	DetectHiddenWindows(true)
-	closedWatch := WatchPids().Length > 0
-	for i, pid in WatchPids()
-		{
-		;(v1: WinClose of a window that's gone meanwhile did nothing - v2 throws)
-		try WinClose("ahk_pid " pid " ahk_class AutoHotkey")
-		ErrorLevel := ProcessWaitClose(pid, 5)
-		if (ErrorLevel)
-			ErrorLevel := ProcessClose(pid)
-		}
-	ver := V1FileRead(A_ScriptDir "\version.txt")
+	closedWatch := SuCloseWatch()
+	ver := V1FileRead(from "\version.txt")
 	ver := Trim(ver, " `t`r`n")
 	if (FileExist(home "\AutoFarmer\Autofarmer.ahk"))
 		{
@@ -396,10 +421,10 @@ SuInstallHome()
 		SplitPath(A_ScriptDir, , &oldParent)
 		SplitPath(oldParent, &oldParentName)
 		saved := home "\backups\install " stamp (oldWins ? " - the install's own before" : " - from " oldParentName)
-		SuLogLine("an install is there already - copying this version over it")
+		SuLogLine("an install is there already - copying " (src = "" ? "this version" : ver) " over it")
 		rollback := A_Temp "\wiz-maxxing-install-rollback"
 		V1Do(DirDelete, rollback, 1)
-		res := UpCopy(A_ScriptDir, home, rollback)
+		res := UpCopy(from, home, rollback)
 		if (res.failed.Length)
 			{
 			UpRollback(res, home, rollback)
@@ -418,15 +443,15 @@ SuInstallHome()
 			n := SuCopyMine(A_ScriptDir, saved)
 			SuLogLine("the install's own settings, learned cards and routes stay in use (this folder's " n " file(s) saved in " saved ")")
 			}
-		UpMergeStats(A_ScriptDir "\AutoFarmer\PlayerStats.txt", home "\AutoFarmer\PlayerStats.txt", ver)
-		V1Do(FileCopy, A_ScriptDir "\version.txt", home "\version.txt", 1)
+		UpMergeStats(from "\AutoFarmer\PlayerStats.txt", home "\AutoFarmer\PlayerStats.txt", ver)
+		V1Do(FileCopy, from "\version.txt", home "\version.txt", 1)
 		SuLogLine(res.copied " file(s) copied")
 		}
 	else
 		{
 		existed := InStr(FileExist(home), "D")
 		V1Do(DirCreate, home)
-		V1Do(DirCopy, A_ScriptDir, home, 1)
+		V1Do(DirCopy, from, home, 1)
 		if (ErrorLevel || !FileExist(home "\AutoFarmer\Autofarmer.ahk"))
 			{
 			;(half a copy must never count as an install)
@@ -435,8 +460,16 @@ SuInstallHome()
 			return SuInstallStop("couldn't copy everything to " home " (in use? the disk full?) - nothing installed", closedWatch)
 			}
 		saved := ""
-		SuLogLine("copied to " home " - with your settings, learned cards and routes")
+		;(another version's files: yours from this folder put in too, when the bot ran here)
+		if (src != "" && V1Gt(SuLastRun(A_ScriptDir), 0))
+			SuLogLine("copied " ver " to " home " - with your settings, learned cards and routes from here (" SuCopyMine(A_ScriptDir, home) " file(s))")
+		else
+			SuLogLine("copied " (src = "" ? "" : ver " ") "to " home (src = "" ? " - with your settings, learned cards and routes" : ""))
 		}
+	if (autoUp = "off")
+		SuAutoUpdateOff(home)
+	else if (autoUp = "back")
+		SuAutoUpdateBack(home)
 	do := ""
 	for each, code in ["py", "pk", "un", "up", "sm", "sh", "pa", "wa", "ce", "ah", "gi"]
 		if (Su%code%)
@@ -444,6 +477,332 @@ SuInstallHome()
 	if (!BotRun(home "\Setup", "/moved `"" A_ScriptDir "`" /do " (do = "" ? "-" : do) " /oldpid " DllCall("GetCurrentProcessId") (saved = "" ? "" : " /saved `"" saved "`""), home))
 		return SuInstallStop("installed in " home ", but its Setup didn't start - start it there yourself (Start menu or " home "\Setup)", closedWatch)
 	return 1
+	}
+
+;Closes the "Open with Wizard101" watcher (it keeps the bot's files open): true if one was running
+SuCloseWatch()
+	{
+	global ErrorLevel ; (v1 globals it sets)
+	DetectHiddenWindows(true)
+	pids := WatchPids()
+	for i, pid in pids
+		{
+		;(v1: WinClose of a window that's gone meanwhile did nothing - v2 throws)
+		try WinClose("ahk_pid " pid " ahk_class AutoHotkey")
+		ErrorLevel := ProcessWaitClose(pid, 5)
+		if (ErrorLevel)
+			ErrorLevel := ProcessClose(pid)
+		}
+	return pids.Length > 0
+	}
+
+;---- the Version list ----
+
+;The other versions on GitHub into the Version list (a timer, once Setup's window is up). Offline: this folder's only,
+;and why
+SuVersionsLoad()
+	{
+	global SuRels, SuRelsErr
+	err := ""
+	SuRels := SuReleases(&err), SuRelsErr := err
+	SuVersionsFill(SuRels, "this folder's - couldn't list the others: " err)
+	}
+
+;Every release on GitHub, newest first: [{tag, name, date, pre, zipUrl, zipName}] - "" and err when they can't be
+;listed. With the saved token if there is one; the repo is public, so without it too (and again without it if GitHub
+;refuses it - an expired one)
+SuReleases(&err)
+	{
+	err := ""
+	token := UpToken()
+	rels := []
+	page := 1
+	Loop
+		{
+		resp := UpHttp(UpApi() "/repos/" UpRepo() "/releases?per_page=100&page=" page, token, "application/vnd.github+json", &status, 15000)
+		if ((status = 401 || status = 403) && token != "")
+			{
+			token := ""
+			continue
+			}
+		if (status != 200)
+			{
+			token := ""
+			err := status = 0 ? "no answer from GitHub (offline?)" : status = 403 ? "GitHub said no (403 - too many looks this hour? try again later)" : "GitHub answered " status
+			return ""
+			}
+		;(100 to a page: a full one - there may be more)
+		if (SuParseReleases(resp, rels) < 100 || page >= 20)
+			break
+		page++
+		}
+	token := ""
+	return rels
+	}
+
+;The releases in one page of GitHub's answer (resp) added to rels - drafts left out. How many the page had. Each one's
+;object starts with its own "url" (.../releases/<id>; its assets' end in /releases/assets/<id>)
+SuParseReleases(resp, rels)
+	{
+	starts := [], pos := 1
+	while (pos := RegExMatch(resp, '"url":\s*"[^"]*/releases/\d+"', &m, pos))
+		starts.Push(pos), pos += m.Len
+	for i, s in starts
+		{
+		one := SubStr(resp, s, (i < starts.Length ? starts[i + 1] : StrLen(resp) + 1) - s)
+		if (!RegExMatch(one, '"tag_name":\s*"([^"]+)"', &m) || RegExMatch(one, '"draft":\s*true'))
+			continue
+		rel := V1Obj({tag: m[1], name: m[1], date: "", pre: RegExMatch(one, '"prerelease":\s*true') > 0, zipUrl: "", zipName: ""})
+		if (RegExMatch(one, '"published_at":\s*"(\d{4}-\d\d-\d\d)T(\d\d:\d\d:\d\d)', &m))
+			rel.date := m[1] " " m[2]
+		;(as UpLatest reads them: GitHub's JSON is indented - (*CRLF) lets . run across its LF lines)
+		if (RegExMatch(one, '(*CRLF)"tag_name":.*?"name":\s*"((?:[^"\\]++|\\.)*+)"', &m) && m[1] != "")
+			rel.name := UpUnescape(m[1])
+		if (RegExMatch(one, '"url":\s*"([^"]+/releases/assets/\d+)",\s*"id":\s*\d+,\s*"node_id":\s*"[^"]*",\s*"name":\s*"([^"]+\.zip)"', &m))
+			rel.zipUrl := m[1], rel.zipName := m[2]
+		;(nothing to download - v0.01: left out)
+		if (rel.zipUrl = "")
+			continue
+		;(the first few - v0.02 to v0.06 - came before the Wiz-Maxxing.exe launcher, their exes attached one by one
+		;without it: Setup can't put one of those in, so it's only downloaded, as a pre-release is)
+		rel.early := RegExMatch(one, '"name":\s*"[^"]+\.exe"') > 0 && !RegExMatch(one, '"name":\s*"Wiz-Maxxing\.exe"')
+		rels.Push(rel)
+		}
+	return starts.Length
+	}
+
+;The Version list: this folder's version first ("this one"), then the releases (rels) newest first, the newest marked;
+;pre-releases last, to download only. why: what it says when rels isn't a list (still looking, or why not)
+SuVersionsFill(rels, why := "")
+	{
+	global SuVerList
+	mine := UpVersion()
+	SuVerList := [""]
+	items := [(mine = "" ? "this folder's" : mine) " - this one"]
+	latest := SuLatestTag()
+	if (IsObject(rels))
+		for each, wantPre in [false, true]
+			for i, rel in rels
+				if (rel.pre = wantPre && rel.tag != mine)
+					{
+					SuVerList.Push(rel)
+					items.Push(rel.tag " - " (rel.pre || rel.early ? "download only" : rel.tag = latest ? "the latest" : SubStr(rel.date, 1, 10)))
+					}
+	ddl := Su["SuVer"]
+	ddl.Delete()
+	ddl.Add(items)
+	ddl.Choose(1)
+	SuVerPick()
+	if (!IsObject(rels))
+		Su["SuVerS"].Text := why
+	}
+
+;The newest release that isn't a pre-release ("" if the list isn't there)
+SuLatestTag()
+	{
+	if (IsObject(SuRels))
+		for i, rel in SuRels
+			if (!rel.pre)
+				return rel.tag
+	return ""
+	}
+
+;What the version picked will do (the Version list, or "Install to your Programs folder" ticked or not)
+SuVerPick(*)
+	{
+	rel := SuPicked()
+	if (!IsObject(rel))
+		{
+		mine := UpVersion()
+		n := IsObject(SuVerList) ? SuVerList.Length - 1 : 0
+		Su["SuVerS"].Text := "this folder's" (mine != "" && mine = SuLatestTag() ? " (the latest)" : "") (n ? " - or pick one of " n " more from GitHub" : "")
+		return
+		}
+	if (rel.pre || rel.early)
+		{
+		Su["SuVerS"].Text := (rel.pre ? "a pre-release" : "too old to install") ": only downloaded, to your Downloads folder"
+		return
+		}
+	target := SuVerTarget()
+	have := SuVerOf(target)
+	where := SuSamePath(target, A_ScriptDir) ? "into this folder" : "into your Programs folder"
+	if (SuSamePath(target, A_ScriptDir) && FileExist(A_ScriptDir "\.git") != "")
+		Su["SuVerS"].Text := "not into a git checkout - tick the Programs folder"
+	else
+		Su["SuVerS"].Text := "downloaded, put " where (have = "" ? "" : " over " have) (SuOlder(rel, have) ? " (older: no updating by itself)" : "")
+	}
+
+;The release picked in the Version list - "" for this folder's own
+SuPicked()
+	{
+	i := Su["SuVer"].Value
+	return (IsObject(SuVerList) && i > 1 && i <= SuVerList.Length) ? SuVerList[i] : ""
+	}
+
+;Where a version picked goes: your Programs folder when "Install to your Programs folder" is ticked (and this isn't
+;it), else this folder
+SuVerTarget()
+	{
+	return (Su["SuIn"].Value && !SuSamePath(A_ScriptDir, SuHome())) ? SuHome() : A_ScriptDir
+	}
+
+;The version installed in folder dir ("" none there, or no version.txt)
+SuVerOf(dir)
+	{
+	if (!FileExist(dir "\AutoFarmer\Autofarmer.ahk"))
+		return ""
+	return Trim(V1FileRead(dir "\version.txt"), " `t`r`n")
+	}
+
+;Whether release rel is older than version have (a tag): by when they came out, when have is on GitHub too (the
+;numbers went from v0.54.0 back to v0.6.1), else by number
+SuOlder(rel, have)
+	{
+	if (have = "" || rel.tag = have)
+		return false
+	if (IsObject(SuRels) && rel.date != "")
+		for i, r in SuRels
+			if (r.tag = have && r.date != "")
+				return StrCompare(rel.date, r.date) < 0
+	return UpCompare(rel.tag, have) < 0
+	}
+
+;Puts the version picked in the Version list (rel, from GitHub) in. Downloaded, then: into your Programs folder when
+;"Install to your Programs folder" is ticked (SuInstallHome - Setup starts again from there: 1), else into this folder
+;in place of its own, as an update does (0: the rest of what's ticked goes on here). One older than what's there is
+;asked about first, and that install's updating by itself switched off - it would put the newest back within minutes;
+;the latest puts it back. A pre-release, or one from before the launcher, is only downloaded (SuDownloadOnly). -1 if it
+;couldn't (nothing else is done)
+SuInstallVersion(rel)
+	{
+	SuLogLine("== Version " rel.tag)
+	if (rel.pre || rel.early)
+		return SuDownloadOnly(rel)
+	target := SuVerTarget()
+	toHome := !SuSamePath(target, A_ScriptDir)
+	if (!toHome && FileExist(A_ScriptDir "\.git") != "")
+		return SuSay("this is a git checkout - nothing downloaded: git checkout " rel.tag " switches it, or tick `"Install to your Programs folder`" to put " rel.tag " there", -1)
+	if (rel.zipUrl = "")
+		return SuSay(rel.tag " has no zip on GitHub to download", -1)
+	;(one update at a time: not while the bot's own is downloading or putting one in - kept until Setup closes)
+	if (!UpOnlyOne(false))
+		return SuSay("the bot is updating itself right now - try again in a minute", -1)
+	have := SuVerOf(target)
+	older := SuOlder(rel, have)
+	if (older)
+		{
+		msgResult := MsgBox("Put " rel.tag " in place of the newer " have "?`n(" target ")`n`nYour settings, learned cards and routes are kept. Its updating by itself gets switched off (Settings: autoupdate 0) - it would put the newest back within minutes. Opening the bot still offers the newest: say No to stay on " rel.tag ". Picking the latest here again switches it back on.", "Wiz-Maxxing setup", 262180)
+		if (msgResult = "No")
+			return SuSay("not changed - " have " stays", -1)
+		}
+	if (WatchBotRunning())
+		{
+		msgResult := MsgBox("The bot is running. Close it to put " rel.tag " in?", "Wiz-Maxxing setup", 262180)
+		if (msgResult = "No")
+			return SuSay("the bot is running - not changed", -1)
+		}
+	autoUp := older ? "off" : rel.tag = SuLatestTag() ? "back" : ""
+	SuLogLine("downloading " rel.zipName " from GitHub...")
+	if (!UpFetch(rel, &tmp, &src))
+		return SuSay("couldn't download " rel.tag " (" A_ScriptDir "\updater.log) - nothing changed", -1)
+	if (toHome)
+		{
+		UpProgress("Off")
+		res := SuInstallHome(src, autoUp)
+		V1Do(DirDelete, tmp, 1)
+		return res
+		}
+	;(into this folder: as an update does - all or nothing, the bot closed, the watcher too, and started again)
+	closedWatch := SuCloseWatch()
+	ok := UpApply(rel, tmp, src)
+	if (closedWatch && WatchIsOn())
+		V1Run(WatchLink())
+	if (!ok)
+		return SuSay("couldn't put " rel.tag " in (" A_ScriptDir "\updater.log) - this folder is as it was", -1)
+	SuLogLine("this folder is " rel.tag " now - your settings, learned cards and routes kept")
+	if (autoUp = "off")
+		SuAutoUpdateOff(A_ScriptDir)
+	else if (autoUp = "back")
+		SuAutoUpdateBack(A_ScriptDir)
+	Su.Title := "Wizard101 bot setup " rel.tag
+	SuVersionsFill(SuRels, "this folder's")
+	return 0
+	}
+
+;A pre-release (alpha-v1: the 2018 original - an AutoHotkey v1.1 script, no exes) or one from before the Wiz-Maxxing.exe
+;launcher (v0.02 to v0.06) downloaded and unpacked in your Downloads folder (Wiz-Maxxing-<tag>), and that folder opened
+;- never installed. 0: the rest of what's ticked goes on
+SuDownloadOnly(rel)
+	{
+	global ErrorLevel ; (v1 globals it sets)
+	if (rel.zipUrl = "")
+		return SuSay(rel.tag " has no zip on GitHub to download", -1)
+	dest := SuDownloads() "\Wiz-Maxxing-" rel.tag
+	if (FileExist(dest))
+		SuLogLine("there already: " dest)
+	else
+		{
+		tmp := A_Temp "\wiz-maxxing-download"
+		V1Do(DirDelete, tmp, 1)
+		V1Do(DirCreate, tmp)
+		zip := tmp "\" rel.zipName
+		SuLogLine("downloading " rel.zipName " from GitHub...")
+		token := UpToken()
+		ok := UpDownload(rel.zipUrl, token, zip, &err)
+		token := ""
+		if (!ok)
+			{
+			V1Do(DirDelete, tmp, 1)
+			return SuSay("the download failed: " err, -1)
+			}
+		V1RunWait("powershell -NoProfile -ExecutionPolicy Bypass -Command `"try { Expand-Archive -LiteralPath '" zip "' -DestinationPath '" dest "' -Force -ErrorAction Stop } catch { exit 1 }`"", , "Hide")
+		unzipped := (ErrorLevel = 0)
+		V1Do(DirDelete, tmp, 1)
+		if (!unzipped)
+			{
+			V1Do(DirDelete, dest, 1)
+			return SuSay("the zip didn't unpack - nothing kept", -1)
+			}
+		SuLogLine("unpacked in " dest)
+		}
+	SuLogLine(rel.name " - " (rel.pre ? "a pre-release" : "from before the Wiz-Maxxing.exe launcher (v0.07): Setup can't put it in") ", never installed" (InStr(rel.tag, "alpha") ? " (an AutoHotkey v1.1 script: it runs with AutoHotkey v1.1, not the bot's v2)" : ""))
+	V1Run("explorer.exe `"" dest "`"")
+	return 0
+	}
+
+;Your Downloads folder
+SuDownloads()
+	{
+	dir := SuKnownFolder("{374DE290-123F-4565-9164-39C4925E467B}")
+	return dir != "" ? dir : EnvGet("USERPROFILE") "\Downloads"
+	}
+
+;An install's updating by itself switched off (an older version put in, SuInstallVersion): autoupdate:0 in its
+;PlayerStats.txt, what it was kept in its updater.ini [setup] for the latest to put back (SuAutoUpdateBack)
+SuAutoUpdateOff(dir)
+	{
+	stats := dir "\AutoFarmer\PlayerStats.txt"
+	was := SuStat(stats, "autoupdate")
+	if (was = "0")
+		return SuLogLine("updating by itself is off there already")
+	;(the first one kept - an older one picked twice in a row; no line: the bot's default, every 10 minutes)
+	if (IniRead(dir "\updater.ini", "setup", "autoupdate", "") = "")
+		V1Do(IniWrite, was = "" ? 10 : was, dir "\updater.ini", "setup", "autoupdate")
+	SuLogLine(SuStatSet(stats, "autoupdate", 0) ? "updating by itself switched off there (Settings: autoupdate 0), so it stays - picking the latest again switches it back on" : "couldn't write " stats " - switch updating by itself off in the bot's Settings, or it puts the newest back")
+	}
+
+;An install's updating by itself put back as it was before an older version was put in (SuAutoUpdateOff) - the latest
+;put in again. Nothing when it wasn't switched off here
+SuAutoUpdateBack(dir)
+	{
+	was := IniRead(dir "\updater.ini", "setup", "autoupdate", "")
+	if (was = "")
+		return
+	stats := dir "\AutoFarmer\PlayerStats.txt"
+	if (SuStat(stats, "autoupdate") = "0" && !SuStatSet(stats, "autoupdate", was))
+		return SuLogLine("couldn't write " stats " - switch updating by itself back on in the bot's Settings")
+	V1Do(IniDelete, dir "\updater.ini", "setup", "autoupdate")
+	SuLogLine("updating by itself switched back on there (autoupdate " was ", as it was)")
 	}
 
 ;Your PATH without folder dir (and its App Paths entry, if it's that folder's)
@@ -1062,16 +1421,20 @@ SuInstall(A_GuiEvent:="", A_GuiControl:="", Info:="", *) { ; (v1: the label SuIn
 	V1GuiSubmit(Su, false)
 	SuBusy := 1
 	Su["SuGo"].Enabled := false
-	;(first: copied to the Programs folder - Setup starts again from there and does the rest; this one goes)
-	if (SuIn)
+	;(first: copied to the Programs folder - Setup starts again from there and does the rest; this one goes. Another
+	;version picked in the Version list: downloaded and put there, or in this folder - then the rest goes on here)
+	suPick := SuPicked()
+	if (IsObject(suPick) || SuIn)
 		{
-		suHomeRes := SuInstallHome()
+		;(this folder's own put in your Programs folder: the latest switches updating by itself back on there, if
+		;an older one put in before switched it off)
+		suHomeRes := IsObject(suPick) ? SuInstallVersion(suPick) : SuInstallHome("", UpVersion() != "" && UpVersion() = SuLatestTag() ? "back" : "")
 		if (suHomeRes = 1)
 			ExitApp()
 		if (suHomeRes = -1)
 			{
 			SuLogLine("")
-			SuLogLine("Stopped: nothing else was done (see above). Untick `"Install to your Programs folder`" to set this folder up as it is.")
+			SuLogLine(IsObject(suPick) ? "Stopped: nothing else was done (see above). Pick `"" UpVersion() " - this one`" in the Version list to set this folder up as it is." : "Stopped: nothing else was done (see above). Untick `"Install to your Programs folder`" to set this folder up as it is.")
 			Su["SuGo"].Enabled := true
 			SuBusy := 0
 			return
@@ -1152,4 +1515,5 @@ SetupBlank()
 	global SuWaS := "", SuIn := "", SuInS := "", SuLogHwnd := "", SuBusy := "", SuMovedFrom := "", SuMovedDo := "", SuMovedPid := ""
 	global SuCe := "", SuCeS := ""
 	global SuMovedSaved := ""
+	global SuVer := "", SuVerS := "", SuVerList := "", SuRels := "", SuRelsErr := ""
 	}

@@ -767,6 +767,9 @@ UpDownload(assetUrl, token, file, &err)
 			err := "no answer from GitHub"
 			return false
 			}
+		;(a token GitHub refuses - an expired one - while the repo is public: once more without it)
+		if ((req.Status = 401 || req.Status = 403) && token != "")
+			return UpDownload(assetUrl, "", file, &err)
 		url := assetUrl
 		if (req.Status = 302 || req.Status = 301 || req.Status = 307)
 			{

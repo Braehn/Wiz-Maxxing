@@ -335,6 +335,18 @@ dashboard's STATISTICS and its Help > About. Needs a GitHub token once per PC
 (Setup.exe, "GitHub updates").
 Your settings, learned cards, potion routes and pictures are kept.
 updater.log (next to Wiz-Maxxing.exe) says what it did.
+Another version (Setup.exe, the Version list at the top): this folder's own,
+or any release on GitHub - no token needed - newest first. Install downloads
+the one picked and puts it in, as an update does (settings, learned cards and
+routes kept): into your Programs folder when "Install to your Programs folder"
+is ticked, else into this folder. An older one than what's there is asked
+about first, and its updating by itself is switched off (autoupdate 0), or it
+would put the newest back within minutes; opening the bot still offers the
+newest (say No to stay). Picking the latest again switches it back on. Not into
+a git checkout (git checkout <tag>). alpha-v1 - the 2018 original, an
+AutoHotkey v1.1 script - and v0.02-v0.06 (from before the Wiz-Maxxing.exe
+launcher) are only downloaded and unpacked in your Downloads folder, never
+installed.
 Collect quest items by the game's memory (Settings > WALKING, collectmem - on):
 a "Collect N <things>" goal whose things lie about the zone (Piece Of Coral in
 The Grotto, from the game's item names) - each one's place is read from the

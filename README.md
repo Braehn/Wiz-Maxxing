@@ -34,6 +34,11 @@ Setup:
    folder, so Cheat Engine attaches itself to Wizard101 and the bot's speed keys work with nothing set by hand.
    At the end it offers to move the download - the unzipped folder and the Wiz-Maxxing zip(s) beside it - to the
    Recycle Bin.
+   The **Version** list at the top installs another version instead: any release on GitHub, newest first (no token
+   needed). Install downloads it and puts it in, keeping your settings and learned cards. An older one than what's
+   installed is asked about first, and its updating by itself is switched off so it stays; picking the latest again
+   switches it back on. **alpha-v1** (the 2018 original, an AutoHotkey v1.1 script) and v0.02-v0.06 (from before the
+   Wiz-Maxxing.exe launcher) are only downloaded and unpacked in your Downloads folder.
    
 3. Start the bot from the Start menu (search "Wiz-Maxxing") or the desktop shortcut.
    If Windows says "Windows protected your PC", click **More info**, then **Run anyway**.
