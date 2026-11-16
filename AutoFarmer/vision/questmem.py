@@ -108,10 +108,12 @@ SCAN_EVERY = 60.0           # ...and between looks through .data for the quest m
 # the game's sentence for a goal's kind (Quest.lang); any other kind: PLAIN
 SENTENCE = {"BOUNTY": "BountyChat", "BOUNTYCOLLECT": "BountyCollectChat", "SCAVENGE": "ScavengeChat", "USAGE": "UsageChat"}
 PLAIN = "$GOAL_NAME$ $GOAL_TALLYTEXT2$ $GOAL_TALLYTEXT$ in $GOAL_LOCATION$"
-# a name-table key ("WizardMobs_00000720", "ZoneLocName_227109", "WC-NPCs_00000014"); anything else is words already
-# (a talk goal's NAME is the wstring 'Talk To')
-KEY = re.compile(r"^[A-Za-z][A-Za-z0-9-]*_\S.*$")
-TABLE = re.compile(r"^[A-Za-z][A-Za-z0-9_-]*$")
+# a name-table key ("WizardMobs_00000720", "ZoneLocName_227109", "WC-NPCs_00000014"; a persona NPC's first and last name
+# "Persona,First_00000025" "Persona,Last_00000020" - the tables Persona,First.lang and Persona,Last.lang: Sir Reginald
+# Baxby, Golem Court, 2026-11-16 - the goal line said the keys and the talk prompt's name never matched); anything else is
+# words already (a talk goal's NAME is the wstring 'Talk To')
+KEY = re.compile(r"^[A-Za-z][A-Za-z0-9-]*(?:, ?[A-Za-z][A-Za-z0-9-]*)*_\S.*$")
+TABLE = re.compile(r"^[A-Za-z][A-Za-z0-9_-]*(?:, ?[A-Za-z][A-Za-z0-9_-]*)*$")
 PRELOAD = ("Quest", "WizardQuestGoals", "ZoneLocName", "WizardMobs", "WizItems", "QuestTitle")
 QUESTS_CAP = 200            # quests read at most (/quests - a wizard holds a few dozen at most)
 GOALS_CAP = 40              # goals of one quest read at most

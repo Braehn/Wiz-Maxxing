@@ -93,6 +93,27 @@ class Pure(unittest.TestCase):
         self.assertEqual((q["quests"][0]["goals"][0]["type"], q["quests"][0]["goals"][0]["place"]), ("WAYPOINT", "X"))
         self.assertEqual((q["n"], q["tracked"], q["why"]), (1, None, "why"))
 
+    def test_persona_name_keys(self):
+        # (a persona NPC's names are in the tables "Persona,First" and "Persona,Last" - with a comma; 2026-11-16 the goal line
+        # said "Talk To Persona,First_00000025 Persona,Last_00000020" and Sir Reginald Baxby's prompt never matched it)
+        for key, table in (("Persona,First_00000025", "Persona,First"), ("Persona,Last_00000020", "Persona,Last"),
+                           ("Persona, First_00000012", "Persona, First"), ("WizardMobs_00000720", "WizardMobs"),
+                           ("WC-NPCs_00000014", "WC-NPCs")):
+            self.assertEqual(Q.raw_key(key), key)
+            self.assertIn(table, Q.Lang.candidates(key))
+        for words in ("Talk To", "Sir Reginald", "Baxby, Sir", "a, b"):
+            self.assertEqual(Q.raw_key(words), "")
+            self.assertEqual(Q.Lang.candidates(words), [])
+
+        class Lang:
+            def text(self, key):
+                return {"Persona,First_00000025": "Sir Reginald", "Persona,Last_00000020": "Baxby"}.get(key)
+
+        qm = Q.QuestMem.__new__(Q.QuestMem)
+        qm.lang = Lang()
+        self.assertEqual((qm.name("Persona,First_00000025"), qm.name("Persona,Last_00000020"), qm.name("Talk To")),
+                         ("Sir Reginald", "Baxby", "Talk To"))
+
 
 class FakeP:
     """made-up memory: {address: bytes}; strings at their own addresses"""
