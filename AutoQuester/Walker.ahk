@@ -4138,7 +4138,16 @@ WalkSettle()
 
 GameActive()
 	{
-	return WinActive("ahk_class " GameClass " ahk_exe " GameExe)
+	return WinActive(WkGameWT())
+	}
+
+;The game's window as a WinTitle: the client the bot plays (Autofarmer's Carry.ahk GameWT - the main picked with Alt+M,
+;carry mode's whose turn it is), else any Wizard101's (the quester alone)
+WkGameWT()
+	{
+	if (V1IsFunc("GameWT"))
+		return %"GameWT"%.Call()
+	return "ahk_class " GameClass " ahk_exe " GameExe
 	}
 
 ;How long you've left the keyboard and mouse alone (ms; the bot's own input doesn't count) - as A_TimeIdlePhysical, which
@@ -5710,7 +5719,7 @@ WalkNoteStop(args*)
 
 WalkGameFocus()
 	{
-	V1Try(WinActivate, "ahk_class " GameClass " ahk_exe " GameExe)  ; (v1: no game window - nothing, no error)
+	V1Try(WinActivate, WkGameWT())  ; (v1: no game window - nothing, no error)
 	}
 
 ;---- Is the wizard moving? A tiny grey copy of the game compared with the one before ----
@@ -5822,7 +5831,7 @@ WalkZone(fresh := false)
 	;so - 2026-11-14 14:56 - kept a loading screen believed up for 30 minutes: no arrival, no back-up, no no-arrow notice)
 	if (WkLoading && WkLoadingAt && A_TickCount - WkLoadingAt > 90000)
 		WkLoading := 0, WkLoadingAt := 0, WalkLog("the game's log never said the zone change finished (90 s) - taken as over")
-	exePath := V1Try(WinGetProcessPath, "ahk_class " GameClass " ahk_exe " GameExe)  ; (v1: blank with no game window)
+	exePath := V1Try(WinGetProcessPath, WkGameWT())  ; (v1: blank with no game window)
 	if (exePath != "")
 		{
 		SplitPath(exePath, , &binDir)

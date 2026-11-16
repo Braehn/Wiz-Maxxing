@@ -2279,7 +2279,7 @@ DashUsage()
 	now := A_TickCount
 	gamePid := 0
 	;(v1: WinGet PID with no game window - blank; v2 throws)
-	gamePid := V1Try(WinGetPID, "ahk_class " GameClass " ahk_exe " GameExe)
+	gamePid := V1Try(WinGetPID, GameWT())
 	who := V1Obj({bot: [DllCall("GetCurrentProcessId"), VisionPid], game: [gamePid]})
 	out := V1Obj()
 	for name, pids in who

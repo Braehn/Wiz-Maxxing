@@ -436,8 +436,8 @@ GameToFront(why, idle := true, force := false)
 	if (idle && UserIdle() < 3000)
 		return false
 	;(v1: nothing when the game isn't there - v2 throws)
-	V1Try(WinActivate, "ahk_class " GameClass " ahk_exe " GameExe)
-	ErrorLevel := !WinWaitActive("ahk_class " GameClass " ahk_exe " GameExe, , 1)
+	V1Try(WinActivate, GameWT())
+	ErrorLevel := !WinWaitActive(GameWT(), , 1)
 	front := GameActive()
 	if (A_TickCount - saidAt > 30000)
 		saidAt := A_TickCount, DebugLog((front ? "Wizard101 brought to the front - " : "Wizard101 couldn't be brought to the front (Windows wouldn't let it) - ") why)
@@ -740,7 +740,7 @@ GameTrayStep()
 		return
 		}
 	stWin := 0
-	try stWin := WinExist("ahk_class " GameClass " ahk_exe " GameExe)
+	try stWin := WinExist(GameWT())
 	if (!stWin)
 		{
 		GameTrayXGate(0)
@@ -1354,11 +1354,12 @@ UpdateGameRect()
 	hwnd := V1Try(WinGetID, "A")
 	proc := V1Try(WinGetProcessName, "ahk_id " hwnd)
 	cls := V1Try(WinGetClass, "ahk_id " hwnd)
-	if (proc != GameExe) || (cls != GameClass)
+	;(another client in front - not the main picked (Alt+M) or the one whose turn it is in carry mode: Carry.ahk GamePid)
+	if (proc != GameExe) || (cls != GameClass) || (GamePid() && V1Try(WinGetPID, "ahk_id " hwnd) != GamePid())
 		{
 		;Active window isn't the game (e.g. one of our popups, or the game's short-lived D3DProxyWindow),
-		;use the top-most real Wizard101 window instead
-		gameHwnd := V1Try(WinGetID, "ahk_class " GameClass " ahk_exe " GameExe)
+		;use the top-most real Wizard101 window instead (the picked client's)
+		gameHwnd := V1Try(WinGetID, GameWT())
 		if (!gameHwnd)
 			{
 			;Game not open: keep the last known position rather than measuring some other window
@@ -3544,7 +3545,8 @@ FindEnchant()
 ;characters.txt for this character and blind VisionCards' "another client's wizard" check (it compares the two) - "" then
 RoundBattleMem(&sch, &x, &y)
 	{
-	sch := "", x := "", y := ""
+	global RoundMemName ; (v1 globals it sets)
+	sch := "", x := "", y := "", RoundMemName := ""
 	if (!V1IsFunc("VisionMemOneClient") || !VisionMemOneClient.Call())
 		return
 	rbmB := V1IsFunc("NavBattle") ? NavBattle.Call() : ""
@@ -3553,6 +3555,8 @@ RoundBattleMem(&sch, &x, &y)
 	rbmS := StrLower(Trim(rbmB.me.school))
 	if (BadgeNumber(rbmS))
 		sch := rbmS
+	;(your wizard's name as this client's memory has it - carry mode's own name for the round: Carry.ahk CarryNoteMe)
+	RoundMemName := Trim(rbmB.me.name)
 	if (Stat("memclicks") = 1 && V1IsFunc("NavPlatePx") && NavPlatePx.Call(rbmB.me, &rbmX, &rbmY))
 		x := rbmX, y := rbmY
 	}
@@ -4000,7 +4004,7 @@ StatsAuto()
 	;(cheap checks first: this runs on every pass out of battle)
 	if (!StatsWanted && SrBattleSchool = "")
 		return
-	if (UserIdle() < 5000 || afkVar || loopmode || loremode || !WinActive("ahk_class " GameClass " ahk_exe " GameExe))
+	if (UserIdle() < 5000 || afkVar || loopmode || loremode || !WinActive(GameWT()))
 		return
 	;The school of the wizard logged in now: the last battle's if that was this character (it may have
 	;switched since), else the one noted for it before
@@ -4172,7 +4176,7 @@ LogMirrorSnap(every := 0, kind := "")
 LogMirrorGameShown()
 	{
 	;(v1: no such window - blank; v2 throws)
-	g := V1Try(WinGetID, "ahk_class " GameClass " ahk_exe " GameExe)
+	g := V1Try(WinGetID, GameWT())
 	if (!g || DllCall("IsIconic", "Ptr", g) || GameW <= 0 || GameH <= 0)
 		return false
 	me := DllCall("GetCurrentProcessId")
@@ -4477,7 +4481,7 @@ if (GameTrayBlocked("buy potions"))
 if (BattlesOnlyNo("run to buy potions", true))
 	return
 ;(v1: nothing when the game isn't there - v2 throws)
-V1Try(WinActivate, "ahk_class " GameClass " ahk_exe " GameExe)
+V1Try(WinActivate, GameWT())
 Sleep(500)
 ;(the mouse back where it was afterwards - mousereturn)
 mouseOwn := MouseGrab()
@@ -4705,7 +4709,7 @@ global PlanWait := ""
 ;(v1.0.0, TODO.md goal 3: the cards this look found where the game's memory has them - Find with memclicks, {"dir\title": 1}:
 ;their re-finds by picture skipped -, your school as the game's memory has it this round (RoundStart - "" not read), your
 ;plate taken from the memory this round (memclicks: no picture found it))
-global FoundByMem := V1Obj(), RoundMemSchool := "", PlateMem := 0
+global FoundByMem := V1Obj(), RoundMemSchool := "", PlateMem := 0, RoundMemName := ""
 ;(v1.8.0: the round's read of the hand out of date - a discard since -; DiscardSpent's count of the worn deck's Sharpen and
 ;Potent cards (asked once a battle), its keys off for the battle (a right-click that didn't take) and this round's
 ;right-clicks)
@@ -5171,8 +5175,8 @@ Loop
 			roundnumber := ""
 			} else
 				{
-				;(carry mode: the main's own pass isn't a round of the carry's battle - Carry.ahk)
-				if (!CarryMainTurn())
+				;(carry mode: the main's pass (carrymain: Passes) isn't a round of its battle - each wizard counts its own: Carry.ahk)
+				if (!CarryMainPassing())
 					roundnumber := V1N(roundnumber) + 1
 				}
 		Goto("RoundStart")
@@ -5317,9 +5321,10 @@ global playerY := 0
 global player := 0
 global PlateMem := 0
 ;(the battle from the game's memory, read once now - your school, and with memclicks:1 your plate: RoundBattleMem)
-global RoundMemSchool := ""
+global RoundMemSchool := "", RoundMemName := ""
 RoundBattleMem(&rbmSchool, &rbmX, &rbmY)
 RoundMemSchool := rbmSchool
+CarryNoteMe(RoundMemName, rbmSchool)
 
 ;(the game's log read now: a battle's first round names its wizards only as the Pass button comes up - the loop's last
 ;read, at most every 500 ms, can be from before; only what's new is read)
@@ -5590,7 +5595,9 @@ BoostSearch()
 ;hitter can be an ally; the game's memory's is this client's own for sure - v1.0.0)
 if (RoundMemSchool != "" || PlateByName || !PlayerPlates2())
 	{
-	StatsNoteSchool(school)
+	;(not in carry mode: the character logged in last, by the game's log, is either client's - both write it: Carry.ahk)
+	if (!CarryOn)
+		StatsNoteSchool(school)
 	;(and the party's told it: Party.ahk)
 	if (BadgeNumber(school))
 		PartyMySchool := school
@@ -6435,7 +6442,7 @@ AutofarmerBlank()
 	global LearnHitFails := "", RcOn := "", Tray := "", LearnAll := "", KeysDown := "", HeldW := "", LastBeat := "", BlPhase := "", BlPhaseAt := ""
 	global BlDuel := "", SeenOut := "", SpeedNow := "", PicError := "", PicMeasuredSize := "", PicMeasureSize := "", PotionResting := "", DgRun := ""
 	global MouseHomeSet := "", MouseHomeX := "", MouseHomeY := "", ManualX := "", ManualY := "", trap4 := ""
-	global FoundByMem := "", RoundMemSchool := "", PlateMem := "", HandStale := "", DeckSharp := "", SpentOff := "", SpentLook := ""
+	global FoundByMem := "", RoundMemSchool := "", PlateMem := "", RoundMemName := "", HandStale := "", DeckSharp := "", SpentOff := "", SpentLook := ""
 	;(v2-only: Wizard101 in the tray - Settings: traygame: GameTrayHide - the window, its process, minimized then, the
 	;bot on then, when, and the window the X's hotkey is for)
 	global GameInTray := 0, GameTrayHwnd := 0, GameTrayPid := 0, GameTrayMin := 0, GameTrayBotWas := 0, GameTrayAt := 0

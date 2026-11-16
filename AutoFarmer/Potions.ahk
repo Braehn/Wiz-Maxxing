@@ -2028,7 +2028,7 @@ PotionRecordStart()
 		msgResult := MsgBox("The bot will mark your spot (Page Down) and take you to " PotionStartName() ".`n`nThen walk to the potion seller (Hilda Brewer) with the KEYBOARD only, press X to talk, click Fill All with GOLD (and close the window), and press " HkText("record") ".`n`nUse the mount you'll farm with. The bot recalls you back afterwards.", "Record potion buying", 65)
 	if (msgResult = "Cancel")
 		return
-	try WinActivate("ahk_class " GameClass " ahk_exe " GameExe)  ; (v1: no game window - nothing; v2 throws)
+	try WinActivate(GameWT())  ; (v1: no game window - nothing; v2 throws)
 	Sleep(500)
 	PotionRecording := 1
 	;(Wizard101 sent to the tray while the box was up - Settings: traygame: GameTrayNo let it, no recording yet - its
@@ -2053,7 +2053,7 @@ PotionRecordStart()
 				PotionRecording := 0
 				return
 				}
-			try WinActivate("ahk_class " GameClass " ahk_exe " GameExe)  ; (v1: no game window - nothing; v2 throws)
+			try WinActivate(GameWT())  ; (v1: no game window - nothing; v2 throws)
 			Sleep(500)
 			}
 		}
@@ -2135,7 +2135,7 @@ PotionRecordStart()
 			if (msgResult = "No")
 				{
 				DebugLog("Potions: buying not saved (" missing ")")
-				try WinActivate("ahk_class " GameClass " ahk_exe " GameExe)  ; (v1: no game window - nothing; v2 throws)
+				try WinActivate(GameWT())  ; (v1: no game window - nothing; v2 throws)
 				PotionWalkFresh()
 				return
 				}
@@ -2152,12 +2152,12 @@ PotionRecordStart()
 		{
 		PotionOff().Delete(who), PotionOff().Delete("anyone")
 		msgResult := MsgBox("Saved the buying at this wizard's Mark in " commons (prompt = "" ? "" : " (by " prompt ")") ".`n`nOut of potions, the bot recalls here, buys, and walks on from here. Keep the Mark here (don't Page Down anywhere else)." (prompt = "" ? "`n`n(No `"Press X`" prompt was read here, so a run can't check it's at the seller - better to record standing where her prompt shows.)" : ""), "Record potion buying", 64)
-		try WinActivate("ahk_class " GameClass " ahk_exe " GameExe)  ; (v1: no game window - nothing; v2 throws)
+		try WinActivate(GameWT())  ; (v1: no game window - nothing; v2 throws)
 		PotionWalkFresh()
 		return
 		}
 	msgResult := MsgBox("Saved the route from " commons ".`n`nThe bot now recalls you to where you were (Page Up).", "Record potion buying", 64)
-	try WinActivate("ahk_class " GameClass " ahk_exe " GameExe)  ; (v1: no game window - nothing; v2 throws)
+	try WinActivate(GameWT())  ; (v1: no game window - nothing; v2 throws)
 	Sleep(500)
 	PotionRecall()
 	}

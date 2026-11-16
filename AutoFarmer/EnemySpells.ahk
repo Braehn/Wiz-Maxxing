@@ -207,6 +207,9 @@ BattleTeam()
 ;party.ini) - for the character logged in now -, else the party name typed in (Party...); "" none
 OwnName()
 	{
+	;(carry mode - two clients writing the one log: the wizard whose round it is, by its own client's memory - Carry.ahk)
+	if (V1IsFunc("CarryOwnName") && (onCarry := CarryOwnName.Call()) != "")
+		return onCarry
 	cid := StatsCharID()
 	if (BlMe != "" && (BlMeChar = "" || cid = "" || BlMeChar = cid))
 		return BlMe

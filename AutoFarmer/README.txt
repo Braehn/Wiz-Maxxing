@@ -2142,20 +2142,50 @@ instance of wizard101. Dual mode is only to be used when you're playing on
 two accounts. For better consistency close everything but the two instances
 of Wizard101.
 
+The main Wizard101 client (Alt+M - new, not tried in the game yet):
+With two or more Wizard101 windows open, click into the one the bot should
+play and press Alt+M. From then on every window the bot finds, brings up,
+measures or clicks is that one's, and the vision helper reads its memory;
+the other clients are left alone (a reconnect closes and restarts only that
+one). Alt+M in it again: no main, the window in front as before. It's kept
+while that client runs (dashboard.ini [main]). If its game closes, nothing
+else is played meanwhile; a Wizard101 started after that (the reconnect's,
+or yours) becomes the main. The key can be changed on the dashboard's Keys
+tab.
+
 Carry mode (two clients - new, not tried in the game yet):
-For levelling one wizard with a strong one doing the fighting, both on this
+For levelling one wizard with a strong one fighting alongside, both on this
 PC. Log both accounts in, put the strong wizard (the "carry") on the main
-wizard's mount, click the MAIN wizard's window, then press Alt+K. From then
-on the main quests, walks, drinks and shops as ever; in each battle round it
-passes at once, the bot brings the carry's window up, plays its round the
-usual way and brings the main's window back. After a battle the carry's
-window comes up for a few seconds to press X at its mount's prompt. Out of
-battle nothing else touches the carry. Each wizard's hand, health and place
-are read from its own client's memory (the vision helper keeps a reader for
-each). Alt+K again switches it off; it's taken up again when the bot starts
-while both clients are still open. A client closing switches it off (said in
-debug.log, and a Discord alert if those are on). Not with Dual mode, and not
-with a third client open. Not handled yet: the carry being disconnected (its
+wizard's mount, press Alt+M in the MAIN wizard's window (or just click it),
+then press Alt+K. From then on the main quests, walks, drinks and shops as
+ever. Each battle round the main plays first, then the bot brings the carry's
+window up, plays its round the usual way and brings the main's window back.
+What the main does is Settings > TWO CLIENTS ON ONE PC (carrymain):
+  Plays its own hand (the default) - played as the bot plays any wizard: its
+    own cards, deck and school.
+  Blader - its blades and traps go on the carry (the party's Blader, the
+    carry as the hitter), and it hits only for a kill or with nothing else
+    to do.
+  Healer - heals whichever of the two is lowest under "Heal under this %",
+    else boosts the carry as a Blader.
+  Passes - passes at once and the carry fights alone (as before).
+Each wizard's battle is its own: the blades and traps it cast, its planned
+hit, its deck, its round count and its name plate are kept aside while the
+other plays. Each wizard's name is read from its own client's memory (both
+clients write the one game log, so the log can't tell them apart). As a
+Blader or Healer the main hits in a battle's first round - the carry's name
+is read in the round it first plays. The carry doesn't count the main's
+blades in its kill check yet, so it may hit a round sooner than it needs to.
+After a battle the carry's window comes up for a few seconds to press X at
+its mount's prompt. Out of battle nothing else touches the carry. Each
+wizard's hand, health and place are read from its own client's memory (the
+vision helper keeps a reader for each). Alt+K again switches it off; it's
+taken up again when the bot starts while both clients are still open. A
+client closing switches it off (said in debug.log, and a Discord alert if
+those are on). Not with Dual mode, and not with a third client open. With a
+party across PCs too (Settings > PARTY), the main walks with the party as
+ever, but in battles a Blader or Healer main boosts the carry only, not the
+other PCs' wizards. Not handled yet: the carry being disconnected (its
 RECONNECT is yours to click), potions for the carry.
 
 Command mode:

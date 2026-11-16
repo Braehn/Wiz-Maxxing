@@ -101,7 +101,7 @@ ReconnectInit()
 	;(a saved login the game turned down before - this run of the bot or an earlier one: not typed till it's saved again)
 	if (RcBadStored())
 		RcLogMsg("the saved login was turned down by the game before - it won't be typed until it's saved again (tray menu: Set Wizard101 login...)")
-	ErrorLevel := ProcessExist(GameExe)
+	ErrorLevel := GameRunning()
 	RcPid := ErrorLevel
 	RcSetClient(RcFindClient())
 	;Replay the end of the game's log (quietly) to see where things stand
@@ -154,7 +154,7 @@ ReconnectCheck()
 	if (nowMs - RcProcAt >= 2000)
 		{
 		RcProcAt := nowMs
-		ErrorLevel := ProcessExist(GameExe)
+		ErrorLevel := GameRunning()
 		gamePid := ErrorLevel
 		if (gamePid && gamePid != RcPid)
 			{
@@ -619,7 +619,7 @@ RcHungCheck()
 		RcLoadAt := 0
 		return
 		}
-	ErrorLevel := ProcessExist(GameExe)
+	ErrorLevel := GameRunning()
 	if (!ErrorLevel || ErrorLevel != rcHungPid)
 		return
 	RcCloseGame()
@@ -742,7 +742,7 @@ RcGone()
 	;Things may have changed while the question was up: the game started some other way, or
 	;auto-reconnect switched off in the tray menu. (The hung game still going away: looked at again next time, not
 	;asked about again)
-	ErrorLevel := ProcessExist(GameExe)
+	ErrorLevel := GameRunning()
 	if (ErrorLevel && RcHungAsked)
 		return true
 	if (ErrorLevel || !RcOn || RcState != "gone")
@@ -803,7 +803,7 @@ RcStartStep()
 		return true
 	RcLookAt := nowMs
 	;(v1: no game window - blank)
-	gameWin := V1Try(WinGetID, "ahk_class " GameClass " ahk_exe " GameExe)
+	gameWin := V1Try(WinGetID, GameWT())
 	if (!gameWin)
 		return true
 	if (V1IsFunc("UpdateGameRect"))
@@ -1369,13 +1369,15 @@ RcCloseGame()
 	{
 	global ErrorLevel, RcPid ; (v1 globals it sets)
 	;(v1: no window - nothing; v2 throws)
-	try WinClose("ahk_class " GameClass " ahk_exe " GameExe)
-	ErrorLevel := ProcessWaitClose(GameExe, 15)
+	try WinClose(GameWT())
+	;(the picked client only - Carry.ahk GamePid: another Wizard101 running beside it is never closed)
+	rcProc := GamePid() ? GamePid() : GameExe
+	ErrorLevel := ProcessWaitClose(rcProc, 15)
 	if (ErrorLevel)
 		{
-		ErrorLevel := ProcessClose(GameExe)
+		ErrorLevel := ProcessClose(rcProc)
 		;(a hung game takes a moment to go even when forced)
-		ErrorLevel := ProcessWaitClose(GameExe, 10)
+		ErrorLevel := ProcessWaitClose(rcProc, 10)
 		}
 	RcPid := 0
 	}
@@ -1386,7 +1388,7 @@ RcClick(px, py, what)
 	{
 	global RcClickAt, RcLastBg ; (v1 globals it sets)
 	;(v1: no game window - blank)
-	gameWin := V1Try(WinGetID, "ahk_class " GameClass " ahk_exe " GameExe)
+	gameWin := V1Try(WinGetID, GameWT())
 	if (!gameWin)
 		return false
 	RcClickAt := A_TickCount
@@ -1410,7 +1412,7 @@ RcFrontClick(pattern, area, what, fuzzy := "")
 	{
 	global RcClickAt, RcLastBg, RcFrontOk, ErrorLevel ; (v1 globals it sets)
 	;(v1: no window - blank; WinActivate of a window that's gone: nothing)
-	gameWin := V1Try(WinGetID, "ahk_class " GameClass " ahk_exe " GameExe)
+	gameWin := V1Try(WinGetID, GameWT())
 	if (!gameWin)
 		return false
 	RcClickAt := A_TickCount, RcLastBg := 0, RcFrontOk := 0
@@ -1489,7 +1491,7 @@ RcFrontClick(pattern, area, what, fuzzy := "")
 
 RcGameActive()
 	{
-	return WinActive("ahk_class " GameClass " ahk_exe " GameExe)
+	return WinActive(GameWT())
 	}
 
 ;Is that screen point on the game window itself (not on another window over it)?
@@ -1528,7 +1530,7 @@ RcFindWord(pattern, area, fuzzy := "", lineMax := 0)
 	;Only words on the game itself: OCR reads the screen, and another window over the game could show
 	;the same word
 	;(v1: no window - blank)
-	gameWin := V1Try(WinGetID, "ahk_class " GameClass " ahk_exe " GameExe)
+	gameWin := V1Try(WinGetID, GameWT())
 	if (!gameWin)
 		return ""
 	;For the log if it isn't found: how many words it read, and what window is over the middle
@@ -1621,7 +1623,7 @@ RcChars(win, text, backspaces := 0)
 RcFindClient()
 	{
 	;(v1: no game window - blank)
-	exePath := V1Try(WinGetProcessPath, "ahk_class " GameClass " ahk_exe " GameExe)
+	exePath := V1Try(WinGetProcessPath, GameWT())
 	if (exePath != "")
 		return exePath
 	if (RcExe != "")

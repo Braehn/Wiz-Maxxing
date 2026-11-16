@@ -2066,8 +2066,8 @@ QsSnap(step)
 QsActivateGame()
 	{
 	global ErrorLevel ; (v1 globals it sets)
-	V1Try(WinActivate, "ahk_class " GameClass " ahk_exe " GameExe)  ; (v1: no window - nothing; v2 throws)
-	ErrorLevel := !WinWaitActive("ahk_class " GameClass " ahk_exe " GameExe, , 2)
+	V1Try(WinActivate, GameWT())  ; (v1: no window - nothing; v2 throws)
+	ErrorLevel := !WinWaitActive(GameWT(), , 2)
 	Sleep(800)
 	}
 ;QS-INPUT-END

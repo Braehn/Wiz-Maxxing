@@ -1419,7 +1419,9 @@ class AhkParity(unittest.TestCase):
         # (v1.8.1: the overlay's key only with Wizard101 in front - Windows+4 stays your other programs' while the bot
         # runs; every other action's context as it was)
         self.assertTrue([ln for ln in code if 'id: "overlay"' in ln and 'ctx: "front"' in ln])
-        self.assertEqual(len([ln for ln in code if 'ctx: "front"' in ln]), 1)
+        # (and 2026-11-15's main client key, Alt+M - pressed in the Wizard101 window it picks)
+        self.assertEqual(sorted(re.search(r'id: "(\w+)"', ln).group(1) for ln in code if 'ctx: "front"' in ln),
+                         ['main', 'overlay'])
         for act in ('bot', 'walk'):
             self.assertTrue([ln for ln in code if 'id: "%s"' % act in ln and 'ctx: "game"' in ln], act)
         text = '\n'.join(code)

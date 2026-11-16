@@ -236,6 +236,9 @@ PartyHitHold()
 ;"blader" or "healer"
 PartyBattleSet()
 	{
+	;(carry mode: the carry hits, the main's part is carrymain's - Carry.ahk)
+	if (V1IsFunc("CarryBattlePart") && (pbsCarry := CarryBattlePart.Call()) != "")
+		return pbsCarry
 	k := (PartyMySchool != "" && Stats.Has(PartyMySchool ".partybattle")) ? PartyMySchool ".partybattle" : "partybattle"
 	r := Stats.Has(k) ? Stats[k] : 1
 	return r = 2 ? "blader" : r = 3 ? "healer" : "hitter"
@@ -273,9 +276,12 @@ PartyBattleRole()
 		BattleRole := want, HammerName := "the plate picked with " HkText("boost")
 		return
 		}
-	if (PartyRoleSet() = "off")
+	;(carry mode: the two wizards on this PC are the party - the carry the hitter: Carry.ahk CarryHitter)
+	if (PartyRoleSet() = "off" && !CarryOn)
 		return PartyRoleNote("this wizard's a " want ", but the party's off (Settings, PARTY) - it hits")
 	h := PartyHitter()
+	if (!IsObject(h) && CarryOn)
+		return PartyRoleNote("this wizard's a " want " for the carry, but the carry's name isn't read yet (its first round still to come) or it isn't on your side - it hits")
 	if (!IsObject(h))
 		return PartyRoleNote("this wizard's a " want ", but no party hitter is on your side of this battle (heard from in the last 5 s, its wizard's name known) - it hits")
 	ReadSidePlates()
@@ -317,6 +323,9 @@ PartyHitter()
 		if (phK != "" && phK = phMe)
 			MySlot := phS
 		}
+	;(carry mode: the carry on this PC is the hitter - by its name, its client's memory's: Carry.ahk)
+	if (CarryOn && V1IsFunc("CarryHitter"))
+		return CarryHitter.Call(phSlots, phTwice)
 	phAll := []
 	if (IsObject(PartyLeader))
 		phAll.Push(V1Obj({m: PartyLeader, lead: 1}))
