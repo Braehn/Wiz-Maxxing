@@ -1125,8 +1125,9 @@ changes not saved yet kept; it opens at that size the next time.
 	  the most health -, blades, bubble, aura, then
 	  the biggest hit it can cast - as always), hit first (the biggest hit it
 	  can cast as soon as it has one; boosts only in rounds it has none -
-	  quick on weak mobs), or boost first on a boss you picked (Alt+1) and
-	  hit first otherwise. Boosts before each hit (0 = all it has; more
+	  quick on weak mobs), or boost first in a boss battle - a boss you
+	  picked (Alt+1), or one the game's memory shows among the enemies -
+	  and hit first otherwise. Boosts before each hit (0 = all it has; more
 	  while no hit can go - none it can pay for, or pips saved for a
 	  bigger one), the kill
 	  check and its margin, which kinds of cards it plays at all (blades,

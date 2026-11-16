@@ -1812,6 +1812,8 @@ UseBlade(&title, &blade, &Use1, &Use2, &dir)
 			{
 			ClickAt(hammerX, hammerY, 200)
 			}
+		if (!BladeWentOut(title))
+			return false
 		boosts++
 		if (ubSrc = "")
 			Use1 := 1
@@ -1845,6 +1847,8 @@ UseBlade(&title, &blade, &Use1, &Use2, &dir)
 				{
 				ClickAt(hammerX, hammerY, 200)
 				}
+			if (!BladeWentOut(title))
+				return false
 			boosts++
 			;(an enchanted copy takes the sharpened cast's flag while it's free)
 			if (ubSrc != "")
@@ -1865,6 +1869,19 @@ UseBlade(&title, &blade, &Use1, &Use2, &dir)
 				{
 				return false
 				}
+	}
+
+;(v1.14.1 - CastWentOut's TODO: a blade's cast checked as a hit's is) Did the blade just clicked onto its plate go out?
+;Not: said, the mouse to the middle - nothing counted (its casts this battle, on you, the round's boosts), so the round
+;goes on to its next card and the blade's tried again later. Terri on PC_B, 2026-11-15: two clicks in a battle that cast
+;nothing - the game's battle records show no blade of hers - were counted as both its casts, and she never bladed again
+BladeWentOut(title)
+	{
+	if (CastWentOut())
+		return true
+	DebugLog("  " title ": the card didn't go out (the Pass button's still up) - not counted as cast")
+	CenterMouse()
+	return false
 	}
 
 UseTrap(&title, &trap, &Use1, &Use2, &dir)
@@ -3545,8 +3562,8 @@ FindEnchant()
 ;characters.txt for this character and blind VisionCards' "another client's wizard" check (it compares the two) - "" then
 RoundBattleMem(&sch, &x, &y)
 	{
-	global RoundMemName ; (v1 globals it sets)
-	sch := "", x := "", y := "", RoundMemName := ""
+	global RoundMemName, RoundMemBoss ; (v1 globals it sets)
+	sch := "", x := "", y := "", RoundMemName := "", RoundMemBoss := 0
 	if (!V1IsFunc("VisionMemOneClient") || !VisionMemOneClient.Call())
 		return
 	rbmB := V1IsFunc("NavBattle") ? NavBattle.Call() : ""
@@ -3555,8 +3572,14 @@ RoundBattleMem(&sch, &x, &y)
 	rbmS := StrLower(Trim(rbmB.me.school))
 	if (BadgeNumber(rbmS))
 		sch := rbmS
-	;(your wizard's name as this client's memory has it - carry mode's own name for the round: Carry.ahk CarryNoteMe)
+	;(your wizard's name as this client's memory has it - carry mode's own name for the round: Carry.ahk CarryNoteMe; and
+	;OwnName's when none's learned: EnemySpells.ahk OwnMemName)
 	RoundMemName := Trim(rbmB.me.name)
+	;(v1.14.1: a boss among the enemies - the game's boss flag or its title Boss, as Decks.ahk DeckMobKind has it: card
+	;logic 3's boss battle, Settings.ahk CardBossBattle)
+	for rbmI, rbmF in rbmB.foes
+		if (rbmF.boss = 1 || rbmF.title = "Boss")
+			RoundMemBoss := 1
 	if (Stat("memclicks") = 1 && V1IsFunc("NavPlatePx") && NavPlatePx.Call(rbmB.me, &rbmX, &rbmY))
 		x := rbmX, y := rbmY
 	}
@@ -4709,7 +4732,7 @@ global PlanWait := ""
 ;(v1.0.0, TODO.md goal 3: the cards this look found where the game's memory has them - Find with memclicks, {"dir\title": 1}:
 ;their re-finds by picture skipped -, your school as the game's memory has it this round (RoundStart - "" not read), your
 ;plate taken from the memory this round (memclicks: no picture found it))
-global FoundByMem := V1Obj(), RoundMemSchool := "", PlateMem := 0, RoundMemName := ""
+global FoundByMem := V1Obj(), RoundMemSchool := "", PlateMem := 0, RoundMemName := "", RoundMemBoss := 0
 ;(v1.8.0: the round's read of the hand out of date - a discard since -; DiscardSpent's count of the worn deck's Sharpen and
 ;Potent cards (asked once a battle), its keys off for the battle (a right-click that didn't take) and this round's
 ;right-clicks)
@@ -5321,7 +5344,7 @@ global playerY := 0
 global player := 0
 global PlateMem := 0
 ;(the battle from the game's memory, read once now - your school, and with memclicks:1 your plate: RoundBattleMem)
-global RoundMemSchool := "", RoundMemName := ""
+global RoundMemSchool := "", RoundMemName := "", RoundMemBoss := 0
 RoundBattleMem(&rbmSchool, &rbmX, &rbmY)
 RoundMemSchool := rbmSchool
 CarryNoteMe(RoundMemName, rbmSchool)
@@ -5334,6 +5357,14 @@ global PlateByName := 0
 if (PlayerPlateByName(&pbnX, &pbnY))
 	{
 	playerX := pbnX, playerY := pbnY, PlateByName := 1, player := 1
+	}
+;(v1.14.1, memclicks:1: more than one of you in the battle and yours not found by its name - where the game's memory has
+;your plate, before the name pictures: they find whichever of your side's plates comes first. Terri on PC_B, 2026-11-15:
+;her plate was the friend's in slot 4, its balance badge by it - her heals and the kill check's own-blades count went there)
+else if (rbmX != "" && BattleTeam() >= 2)
+	{
+	playerX := rbmX, playerY := rbmY, player := 1, PlateMem := 1
+	DebugLog("  your name plate: a battle with " BattleTeam() " of you, yours not found by its name - where the game's memory has it, " playerX - GameLeft "," playerY - GameTop " (memclicks)")
 	}
 else
 	{
@@ -6442,7 +6473,7 @@ AutofarmerBlank()
 	global LearnHitFails := "", RcOn := "", Tray := "", LearnAll := "", KeysDown := "", HeldW := "", LastBeat := "", BlPhase := "", BlPhaseAt := ""
 	global BlDuel := "", SeenOut := "", SpeedNow := "", PicError := "", PicMeasuredSize := "", PicMeasureSize := "", PotionResting := "", DgRun := ""
 	global MouseHomeSet := "", MouseHomeX := "", MouseHomeY := "", ManualX := "", ManualY := "", trap4 := ""
-	global FoundByMem := "", RoundMemSchool := "", PlateMem := "", RoundMemName := "", HandStale := "", DeckSharp := "", SpentOff := "", SpentLook := ""
+	global FoundByMem := "", RoundMemSchool := "", PlateMem := "", RoundMemName := "", RoundMemBoss := "", HandStale := "", DeckSharp := "", SpentOff := "", SpentLook := ""
 	;(v2-only: Wizard101 in the tray - Settings: traygame: GameTrayHide - the window, its process, minimized then, the
 	;bot on then, when, and the window the X's hotkey is for)
 	global GameInTray := 0, GameTrayHwnd := 0, GameTrayPid := 0, GameTrayMin := 0, GameTrayBotWas := 0, GameTrayAt := 0

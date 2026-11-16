@@ -204,7 +204,8 @@ BattleTeam()
 	}
 
 ;Your own wizard's name: learned from a battle with no other wizard on your side (this run, else the last one kept in
-;party.ini) - for the character logged in now -, else the party name typed in (Party...); "" none
+;party.ini) - for the character logged in now -, else the party name typed in (Party...), else this client's memory's
+;(OwnMemName); "" none
 OwnName()
 	{
 	;(carry mode - two clients writing the one log: the wizard whose round it is, by its own client's memory - Carry.ahk)
@@ -218,7 +219,37 @@ OwnName()
 	nChar := IniRead(A_ScriptDir "\party.ini", "me", "char", "")
 	if (Trim(n) = "" || (nChar != "" && cid != "" && nChar != cid))
 		n := IniRead(A_ScriptDir "\party.ini", "party", "name", "")
-	return Trim(n)
+	n := Trim(n)
+	return (n != "") ? n : OwnMemName()
+	}
+
+;(v1.14.1) Your wizard's name as the game's log has it on your side (BlNames slots 4-7), by this client's memory's name
+;for it (Autofarmer.ahk RoundBattleMem - read only while one game runs): no name learned or typed in - a wizard that only
+;ever fights with a friend never had a battle alone to learn its name from (Terri's on PC_B, 2026-11-15: its plate then
+;went by the name pictures, which found the friend's plate first). The log's name, the memory's the same or starting with
+;it - the same first; "" none, or two alike
+OwnMemName()
+	{
+	global RoundMemName
+	if (!IsSet(RoundMemName) || RoundMemName = "" || !IsObject(BlNames) || !V1IsFunc("WalkLetters"))
+		return ""
+	omMe := WalkLetters.Call(RoundMemName), omHit := ""
+	if (StrLen(omMe) < 3)
+		return ""
+	Loop 4
+		{
+		if (!BlNames.Has(A_Index + 3))
+			continue
+		omK := WalkLetters.Call(BlNames[A_Index + 3])
+		if (StrLen(omK) < 3 || (omK != omMe && InStr(omMe, omK) != 1))
+			continue
+		if (omK = omMe)
+			return Trim(BlNames[A_Index + 3])
+		if (omHit != "")
+			return ""
+		omHit := Trim(BlNames[A_Index + 3])
+		}
+	return omHit
 	}
 
 ;Your plate when more than one wizard is on your side: the name pictures (player.png...) would find whichever of your

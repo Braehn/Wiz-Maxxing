@@ -137,7 +137,7 @@ CfgList()
 	list.Push(V1Obj({key: "|"}))
 	list.Push(V1Obj({key: "-", label: "HOW IT PLAYS ITS CARDS"}))
 	list.Push(V1Obj({key: "cardlogic", label: "Card logic", kind: "pick", def: 1, picks: ["Boost first, then hit", "Hit first (fast)", "Boss: boost first - mobs: hit first"]
-		, help: "Boost first: traps on the boss, blades, the bubble and aura, then the biggest hit it can cast. Hit first: the biggest hit it can cast as soon as it has one, boosting only in rounds it has none (quick on weak mobs). Boss/mobs: boost first once you've picked a boss ({key:boss}), else hit first."}))
+		, help: "Boost first: traps on the boss, blades, the bubble and aura, then the biggest hit it can cast. Hit first: the biggest hit it can cast as soon as it has one, boosting only in rounds it has none (quick on weak mobs). Boss/mobs: boost first in a boss battle - a boss you've picked ({key:boss}), or one the game's memory shows among the enemies - else hit first."}))
 	list.Push(V1Obj({key: "boostmax", label: "Boosts before each hit (0 = all it has)", kind: "num", lo: 0, hi: 20, def: 0
 		, help: "Boosting first: at most this many boost cards (blades, traps, bubble, aura) go before a hit it can cast. 0 = every one it has."}))
 	list.Push(V1Obj({key: "healthocr", label: "Kill check: hit at once if that kills", kind: "check", def: 1
@@ -1327,11 +1327,25 @@ MouseLockOnError(e, *)
 
 ;---- How it plays its cards ----
 
-;Hit first this round, before any boost? (cardlogic: 2 = hit first, 3 = hit first unless a boss is picked)
+;Hit first this round, before any boost? (cardlogic: 2 = hit first, 3 = hit first unless it's a boss battle)
 CardHitFirst()
 	{
 	cardWay := Stat("cardlogic")
-	return (cardWay = 2 || (cardWay = 3 && BossChoosen != 1))
+	return (cardWay = 2 || (cardWay = 3 && !CardBossBattle()))
+	}
+
+;(cardlogic 3) A boss in this battle: your Alt+1 pick, or (v1.14.1) a boss among the enemies by the game's memory - its boss
+;flag or title, read this round (Autofarmer.ahk RoundBattleMem), or the decks' boss for the battle (Decks.ahk DeckFoe).
+;Only the Alt+1 pick counted before: Terri on PC_B, 2026-11-15, cast Tempest first every round against Luska Charmbeak,
+;a rank 12 boss, her blades and Sharpen still in hand
+CardBossBattle()
+	{
+	global RoundMemBoss, DeckFoe
+	if (BossChoosen = 1)
+		return true
+	if (IsSet(RoundMemBoss) && RoundMemBoss = 1)
+		return true
+	return IsSet(DeckFoe) && IsObject(DeckFoe) && DeckFoe.kind = "boss"
 	}
 
 ;May a boost card go this round? Not once boostmax of them have gone since the last hit while a hit can be
