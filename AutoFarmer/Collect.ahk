@@ -33,6 +33,9 @@ global UsLastCount, UsD, UsNearCount, UsFails
 ;walked through it since when; the notice given for this goal; X at a talk goal's NPC from here: [ticks]; when the walker's own
 ;talk logic was last handed the NPC)
 global UsVols, UsVolsZone, UsVolsAt, UsAtFrom, UsThrough, UsNoted, UsTalkXs, UsHandAt
+;(a fight goal's item: its prompt last looked at - CollectItemStep; a use goal's things near a prompt met outside its own step, the
+;goal they were read for and when - UseOwnPromptNear)
+global CiPromptAt, CiXn, UopnThings, UopnGoal, UopnAt
 
 ;The zone's quest items by the game's memory, for goal line goal: [{name, x, y, z, dist, quest, gid, key, template, src, kind}]
 ;nearest first (quest: the goal names it; key the thing's display key, template its template, src "mem" the game's memory's or
@@ -81,7 +84,7 @@ CollectKeyKind(key)
 CollectItemStep(goal)
 	{
 	global CiGid, CiSkip, CiFrom, CiOnAt, CiStillAt, CiXAt, CiStepAt, CiAskAt, CiItems, CiLine, CiLineAt, CiTries, CiStillX ; (v1 globals it sets)
-	global CiStillY ; (v1 globals it sets)
+	global CiStillY, CiPromptAt, CiXn, WkLastX ; (v1 globals it sets)
 	if ((Stats.Has("collectmem") && !Stats["collectmem"]) || !VisionOn)
 		{
 		CiGid := ""
@@ -134,7 +137,7 @@ CollectItemStep(goal)
 		}
 	if (it.gid != CiGid)
 		{
-		CiGid := it.gid, CiFrom := A_TickCount, CiTries := 0, CiOnAt := 0, CiXAt := 0, CiStillAt := 0
+		CiGid := it.gid, CiFrom := A_TickCount, CiTries := 0, CiOnAt := 0, CiXAt := 0, CiStillAt := 0, CiXn := 0
 		WalkLog("collect: " it.name " " Round(it.dist) " away (the game's memory, at " Round(it.x) ", " Round(it.y) ") - walking to it")
 		}
 	;(a minute on one without getting it - out of reach, or not one to pick up: another one first, this one again in 3
@@ -153,6 +156,38 @@ CollectItemStep(goal)
 		return false
 		}
 	d := Sqrt((nav.x - it.x) ** 2 + (nav.y - it.y) ** 2)
+	;By it - within 300 at its height: its prompt read every 0.7 s and X'd if it's the item's own - one naming it (WalkUseNames)
+	;or by UseOwnPrompt's rule (the goal's verb or the plain "Interact", nothing else the game names nearer) - never a teleport's,
+	;a shop's, an NPC's chatter, nor one with Crowns on it; every 4 s at most. A thing the wizard can't stand on - a pile of rocks
+	;with a body of its own, a mount under the wizard - is never within 45 of its middle: 2026-11-17 "Collect Well Stones in
+	;Savannah (0 of 3)", the wizard on its mount by a pile, "WELL STONES - Press X to Interact" up, no X. The walker's own look
+	;X's a prompt once a minute by its title (Walker.ahk WalkPromptFree) - all six piles carry the same one. Not in the quiet time
+	;after a dialogue (WkQuietUntil - as the walker's own X); X'd twice and still there: another one first, this one again in 3
+	;minutes (the minute on an item, above, as ever)
+	if (it.src != "file" && d <= 300 && (nav.z = "" || it.z = "" || Abs(nav.z - it.z) < 150) && A_TickCount - V1N(CiPromptAt) >= 700
+		&& (!CiXAt || A_TickCount - CiXAt > 4000) && A_TickCount >= V1N(WkQuietUntil))
+		{
+		CiPromptAt := A_TickCount
+		if (InteractPrompt() = "press" && !RegExMatch(WkPromptDest " " WkPromptText, "i)teleport") && !WalkPromptCrowns()
+			&& !RegExMatch(WkPromptVerb, "i)^(talk|speak|chat|shop|trade|buy|sell|browse|craft|learn|train|ride|mount|board|join|enter)")
+			&& (WalkUseNames(WkPromptDest, goal) || UseOwnPrompt(V1Obj({x: nav.x, y: nav.y}), d, goal, it, CiItems)))
+			{
+			ReleaseKeys()
+			if (V1N(CiXn) >= 2)
+				{
+				CiSkip[it.gid] := A_TickCount + 180000, CiGid := ""
+				WalkLog("collect: X twice at " it.name "'s prompt and it's still there - another one first")
+				return true
+				}
+			CiXAt := A_TickCount, CiXn := V1N(CiXn) + 1
+			WalkLog("collect: X at " it.name "'s prompt ('" SubStr(WkPromptDest, 1, 30) "' - to " (WkPromptVerb = "" ? "?" : WkPromptVerb) ", " Round(d) " off)")
+			PressKey("x")
+			WkLastX := A_TickCount
+			SetStatus("collecting - X at " it.name)
+			Sleep(300)
+			return true
+			}
+		}
 	;Standing on it (at its height - not under it on a ledge): picked up on contact - still there after 1.5 s: X pressed
 	;(again after 4 s)
 	if (d <= 45 && (nav.z = "" || Abs(nav.z - it.z) < 120))
@@ -637,7 +672,7 @@ UseStep(goal)
 		if (!UsPromptAt || A_TickCount - UsPromptAt >= 700)
 			{
 			UsPromptAt := A_TickCount
-			if (InteractPrompt() = "press" && WalkUseNames(WkPromptDest, goal) && !UseTriedNear(usKey, usUsed > 0))
+			if (InteractPrompt() = "press" && (WalkUseNames(WkPromptDest, goal) || UseOwnPromptNear(goal, UsThings)) && !UseTriedNear(usKey, usUsed > 0))
 				return UseX("", "its prompt, met looking about", usKey)
 			}
 		return UseNothing(usLeft, "thing it names", goal, usUsed, usOut)
@@ -707,39 +742,102 @@ UseStep(goal)
 	return true
 	}
 
-;Is the "Press X" prompt up now (InteractPrompt's - WkPromptDest, WkPromptVerb, WkPromptText) the thing's own (UsIt), its title
-;misread? Its verb the goal's ("Press X to Collect" for "Collect Dulin's Hammer in Nastrond"), no Crowns on it, no teleport
-;(unless the thing is one), not a talk / shop prompt, and no other thing the game names (UsThings: not a mob, not another of
-;the goal's) within 400 of the wizard and nearer than the thing (me: {x, y}, d: the wizard's distance to it). Never the
-;quest line's words alone: that line sits over every prompt while the quest is tracked
-UseOwnPrompt(me, d, goal)
+;Could the "Press X" prompt up now (InteractPrompt's - WkPromptDest, WkPromptVerb, WkPromptText) be a goal thing's own, by its words
+;alone? Its verb the goal's ("Press X to Collect" for "Collect Dulin's Hammer in Nastrond") or the game's plain "Interact" (2026-11-17
+;"Collect Well Stones in Savannah": "WELL STONES - Press X to Interact" - the goal's verb never on it, so a misread title was never
+;X'd), no Crowns on it (Walker.ahk WalkPromptCrowns), no teleport (unless the thing is one - name: its name), no place's name for a
+;title ("TO NEMEAN ROCK": a teleport stone's) nor a World Gate's, not a talk / shop / ride prompt. Never the quest line's words
+;alone: that line sits over every prompt while the quest is tracked
+UseOwnPromptText(goal, name := "")
 	{
-	if (!IsObject(UsIt) || !IsObject(me) || me.x = "" || me.y = "" || d = "" || StrLen(WkPromptDest) < 3)
+	if (StrLen(WkPromptDest) < 3 || WalkPromptCrowns())
 		return false
-	if (RegExMatch(WkPromptText, "i)cr[o0]wn"))
-		return false
-	if (RegExMatch(WkPromptDest " " WkPromptText, "i)teleport") && !InStr(WalkLetters(UsIt.name), "TELEPORT"))
+	if (RegExMatch(WkPromptDest " " WkPromptText, "i)teleport") && !InStr(WalkLetters(name), "TELEPORT"))
 		return false
 	if (WkPromptVerb != "" && RegExMatch(WkPromptVerb, "i)^(talk|speak|chat|shop|trade|buy|sell|browse|craft|learn|train|ride|mount|board|join|enter)"))
 		return false
+	;(a title that's where it goes - a teleport stone's "TO NEMEAN ROCK", its own word "Teleport" not on the panel - or a World Gate's
+	;read as a plain prompt: never)
+	if (RegExMatch(WkPromptText, "m)^\s*TO\s+[A-Z]") || RegExMatch(WkPromptText, "i)w[o0]rld\s*gate|spiral"))
+		return false
 	;(the goal's verb on the prompt: read after "Press X ... to", else its letters "TO<verb>" in the prompt - the OCR can put "Press"
 	;after "to Collect" (2026-11-14 17:24: "...DTNTRSCORTOCOLLECTPRESS", no verb read). The quest line over the prompt starts with
-	;the verb, never "to" before it)
-	if (!RegExMatch(Trim(goal), "^([A-Za-z]{3,})", &uopG))
+	;the verb, never "to" before it. Or "Interact", the game's word on any object that has no verb of its own)
+	if (!RegExMatch(Trim(goal), "^([A-Za-z]{3,})", &uotG))
 		return false
-	if (!(WkPromptVerb != "" && WkPromptVerb = uopG[1]) && !InStr(WkPromptDest, "TO" StrUpper(uopG[1])))
+	return ((WkPromptVerb != "" && (WkPromptVerb = uotG[1] || WkPromptVerb = "Interact")) || InStr(WkPromptDest, "TO" StrUpper(uotG[1]))
+		|| InStr(WkPromptDest, "TOINTERACT") || InStr(WalkLetters(WkPromptText), "TOINTERACT")) ? true : false
+	}
+
+;Is the "Press X" prompt up now the thing's own (it: UsIt when not given), its title misread? Its words could be (UseOwnPromptText),
+;and no other thing the game names (things: UsThings when not given - not a mob, not another of the goal's) within 400 of the wizard
+;and nearer than the thing (me: {x, y}, d: the wizard's distance to it)
+UseOwnPrompt(me, d, goal, it := "", things := "")
+	{
+	uopIt := IsObject(it) ? it : UsIt
+	uopThings := IsObject(things) ? things : IsObject(UsThings) ? UsThings : []
+	if (!IsObject(uopIt) || !IsObject(me) || me.x = "" || me.y = "" || d = "" || !UseOwnPromptText(goal, uopIt.name))
 		return false
-	for i, uopT in (IsObject(UsThings) ? UsThings : [])
+	for i, uopT in uopThings
 		{
 		if (uopT.kind = "mob" || uopT.quest || uopT.x = "" || uopT.y = "")
 			continue
-		if (UseT(uopT) = UseT(UsIt) && (uopT.x - UsIt.x) ** 2 + (uopT.y - UsIt.y) ** 2 <= 160000)
+		if (UseT(uopT) = UseT(uopIt) && (uopT.x - uopIt.x) ** 2 + (uopT.y - uopIt.y) ** 2 <= 160000)
 			continue
 		uopD := Sqrt((me.x - uopT.x) ** 2 + (me.y - uopT.y) ** 2)
 		if (uopD <= 400 && uopD < d + 50)
 			return false
 		}
 	return true
+	}
+
+;A use goal's prompt met outside UseStep's walk to a thing - waiting at the goal (Walker.ahk WalkPromptWanted: the wait's X, the
+;walker's look), before use mode began, or looking about with nothing to go for: is it the own prompt (UseOwnPrompt) of the nearest of
+;the goal's things standing there now - the game's memory's (things: UsThings when given, else /items far, read again every 3 s at
+;most - asked only once the prompt's own words could be a thing's: UseOwnPromptText) - within 300 of the wizard (the game's memory's
+;last reading - WkNavLast) on the same floor? Not when that nearest one was used, is left for a while or was tried twice for this
+;goal: its prompt isn't one to X, nor is it the next one's. A zone file's spot within 300 is one used or picked up already (the
+;memory holds all within ~6.7k): never what a prompt is by. A misread title "to Interact" by Well Stones (2026-11-17) was "not the
+;quest's" there, by the name alone. goal: the goal line
+UseOwnPromptNear(goal, things := "")
+	{
+	global UopnThings, UopnGoal, UopnAt ; (v1 globals it sets)
+	if (goal = "" || !IsObject(WkNavLast) || WkNavLast.x = "" || WkNavLast.y = "" || (Stats.Has("collectmem") && !Stats["collectmem"]) || !VisionOn)
+		return false
+	if (!UseOwnPromptText(goal))
+		return false
+	if (IsObject(things))
+		uonAll := things
+	else
+		{
+		if (!IsObject(UopnThings) || UopnGoal != goal || A_TickCount - V1N(UopnAt) > 3000)
+			{
+			uonGot := CollectItems(goal, true)
+			UopnThings := IsObject(uonGot) ? uonGot : [], UopnGoal := goal, UopnAt := A_TickCount
+			}
+		uonAll := UopnThings
+		}
+	uonBest := "", uonD := ""
+	for i, uonX in uonAll
+		{
+		if (!uonX.quest || uonX.src = "file" || uonX.kind = "npc" || uonX.kind = "mob" || uonX.x = "" || uonX.y = "")
+			continue
+		if (uonX.z != "" && WkNavLast.z != "" && Abs(uonX.z - WkNavLast.z) >= 150)
+			continue
+		uonXd := Sqrt((WkNavLast.x - uonX.x) ** 2 + (WkNavLast.y - uonX.y) ** 2)
+		if (uonD = "" || uonXd < uonD)
+			uonBest := uonX, uonD := uonXd
+		}
+	if (!IsObject(uonBest) || uonD > 300)
+		return false
+	;(this goal's records - UseBegin's key, use mode having run for it: the nearest used, or tried twice)
+	uonKey := SubStr(UsGoalWas, 1, 4) = "use:" ? UsGoalWas : ""
+	if (uonKey != "" && ((IsObject(UsDone) && UsDone.Has(uonKey) && UseIn(UsDone[uonKey], uonBest))
+		|| UseFails(uonKey, UseT(uonBest), uonBest.x, uonBest.y) >= 2))
+		return false
+	if (IsObject(UsSkip) && UseSkipped(uonBest))
+		return false
+	return UseOwnPrompt(V1Obj({x: WkNavLast.x, y: WkNavLast.y}), uonD, goal, uonBest, uonAll)
 	}
 
 ;The zone's volumes (the helper's /volumes - its volumes.xml: a quest's places, doors' teleports): [{name, x, y, z, r}] - asked
@@ -1019,4 +1117,5 @@ CollectBlank()
 	global UsBareAt := "", UsNoneFrom := "", UsPromptAt := "", UsPrompt := "", UsStillAt := "", UsStillX := "", UsStillY := "", UsTries := ""
 	global UsStepAt := "", UsCountAt := "", UsGoalWas := "", UsLastCount := "", UsD := "", UsNearCount := "", UsFails := "", UsVols := ""
 	global UsVolsZone := "", UsVolsAt := "", UsAtFrom := "", UsThrough := "", UsNoted := "", UsTalkXs := "", UsHandAt := ""
+	global CiPromptAt := "", CiXn := "", UopnThings := "", UopnGoal := "", UopnAt := ""
 	}

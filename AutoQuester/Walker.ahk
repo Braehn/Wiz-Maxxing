@@ -2877,7 +2877,10 @@ WalkPromptWanted(key, d)
 			return WalkUseNames(key)
 		if (pwMode = "go")
 			return false
-		return !InStr(key, "TELEPORT")
+		;(collecting a fight goal's things: every prompt but a teleporter's, an NPC's chatter or a shop's - as below away from it - and
+		;never one with Crowns on it)
+		return !InStr(key, "TELEPORT") && !RegExMatch(WkPromptVerb, "i)^(talk|speak|chat|shop|trade|buy|sell|browse|craft|learn|train)")
+			&& !WalkPromptCrowns()
 		}
 	;(close to the goal: by the game's memory - the goal in this zone - within TalkReach on the same floor, a talk goal's only
 	;with its NPC's name on it (2026-10-25 11:28:49: X at a vendor's prompt by Edith Benchley, 3000 units "near" on the arrow's
@@ -2904,13 +2907,39 @@ WalkPromptWanted(key, d)
 	if (goal != "" && CollectGoal(goal))
 		{
 		pwKind := WalkGoalKind(goal)
+		;(its name on the prompt - or, the title misread, the own prompt of one of the goal's things right by the wizard: AutoFarmer's
+		;Collect.ahk UseOwnPromptNear - "Press X to Interact" by Well Stones, 2026-11-17)
 		if (pwKind = "use")
-			return WalkUseNames(key, goal)
+			return WalkUseNames(key, goal) || (key = WkPromptDest && V1IsFunc("UseOwnPromptNear") && %"UseOwnPromptNear"%.Call(goal))
 		if (pwKind = "fight" && !InStr(key, "TELEPORT") && !RegExMatch(WkPromptVerb, "i)^(talk|speak|chat|shop|trade|buy|sell|browse|craft|learn|train)"))
 			return true
 		}
 	g := WalkLetters(goal)
 	return (StrLen(key) >= 4 && g != "" && InStr(g, key))
+	}
+
+;Crowns on the prompt up now (InteractPrompt's WkPromptText, "cr[o0]wn" anywhere in it): never an X there. Only the quest's own line
+;over the panel doesn't count, when the goal itself names a crown ("Collect Crown Shards in ...": that line sits over every prompt
+;while the quest is tracked) - a line of it read whole, with no figure on it but its count: a price always has its figure
+WalkPromptCrowns()
+	{
+	if (!RegExMatch(WkPromptText, "i)cr[o0]wn"))
+		return false
+	if (WkGoalLine = "" || !RegExMatch(WkGoalLine, "i)cr[o0]wn"))
+		return true
+	pcCut := "i)\(?\s*\d+\s*(?:of|/)\s*\d+\s*\)?"
+	pcGoal := WalkLetters(RegExReplace(WkGoalLine, pcCut))
+	Loop Parse, WkPromptText, "`n", "`r"
+		{
+		if (!RegExMatch(A_LoopField, "i)cr[o0]wn"))
+			continue
+		pcLine := RegExReplace(A_LoopField, pcCut)
+		pcL := WalkLetters(pcLine)
+		if (!RegExMatch(pcLine, "\d") && StrLen(pcL) >= 8 && InStr(pcGoal, pcL))
+			continue
+		return true
+		}
+	return false
 	}
 
 ;Does the prompt (key: its name's letters - WkPromptDest) name the thing the goal has the wizard use - or the NPC a talk goal
