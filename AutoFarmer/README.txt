@@ -291,6 +291,17 @@ minutes): the game's brought forward all the same, setting or not - and after a
 reconnect it's left in front - else the bot can't walk and the game logs out
 for inactivity.
 
+Run Wizard101 at High priority (gamehigh:1 - Settings): each Wizard101 the bot
+sees (both, with carry mode) is set to High priority in Windows once, as
+Task Manager's Details tab does with Set priority > High. Opening a menu, a
+card or an enchant the game hasn't shown for a while (the spellbook, the
+backpack, a card click) makes it build it there and then while you wait, and
+that freeze is shorter at High priority. A priority you set yourself afterwards
+is left as it is while the bot runs - a restart of the bot sets it to High
+again, so switch this off to keep your own; it's never Realtime. debug.log says
+"Wizard101 (pid N) at High priority now". Off: the games it raised go back to
+Normal.
+
 You playing: while you use the keyboard or mouse yourself, the bot waits - no
 battle rounds, no walking, no potions; a walking key it held is let go at once.
 It carries on 3 s after you stop (handsoff in PlayerStats.txt; 0 = it never

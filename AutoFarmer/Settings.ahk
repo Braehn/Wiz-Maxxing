@@ -45,6 +45,8 @@ CfgList()
 		, help: "While the bot has the mouse - a battle round, a click, a mouse turn while walking, a potion, login or quick sell click - your mouse can't move the pointer, and over Wizard101 its buttons and wheel do nothing (what you do with it then doesn't count as you playing). The keyboard always stays free: {key:bot} stops the bot and frees the mouse, and with Wait for me on any key leaves the round to you. Freed at once when Wizard101 isn't the window in front (Alt+Tab), and if nothing's renewed it for 15 s. Off: your mouse always works - moving it makes the bot wait for you, as Wait for me says."}))
 	list.Push(V1Obj({key: "gamefront", label: "Bring Wizard101 to the front when needed", kind: "check", def: 0
 		, help: "When the quest arrow shows (walking) or a battle round is up and Wizard101 isn't the window in front, the bot brings it to the front - walking, only once you've left the keyboard and mouse alone 3 s. Off: click into it yourself. Also the dashboard's Bot menu: Bring Wizard101 to the front."}))
+	list.Push(V1Obj({key: "gamehigh", label: "Run Wizard101 at High priority", kind: "check", def: 1
+		, help: "Each Wizard101 the bot sees (both, with carry mode) is set to High priority in Windows once - as Task Manager's Details tab does with Set priority, High. The game builds a menu, card or enchant it hasn't shown for a while (the spellbook, the backpack, a card click) while you wait, and that freeze is shorter at High priority. A priority you set yourself afterwards is left as it is while the bot runs (a restart of the bot sets it to High again - switch this off to keep your own). Never Realtime. Off: the games it raised go back to Normal."}))
 	list.Push(V1Obj({key: "traybot", label: "Put the bot's window in the tray (untried)", kind: "check", def: 0
 		, help: "New, not tried in the game yet. On: the dashboard's X (Alt+F4 in it too) and its minimise button put it in the tray instead - the bot plays on. Double-click the tray icon, or {key:dash}, to bring it back - the tray menu's Exit, or {key:quit}, stops the bot. Off: its X stops the bot, as before."}))
 	list.Push(V1Obj({key: "traygame", label: "Put Wizard101 in the tray (untried)", kind: "check", def: 0
@@ -261,7 +263,7 @@ CfgSimpleKeys()
 	if (!IsObject(keys))
 		{
 		keys := V1Obj()
-		for each, k in ["handsoffon", "mouselock", "gamefront", "traybot", "traygame", "healat", "potionat", "potionwalk", "fleeon", "quicksell", "enemyspells", "defendat", "battlesonly", "mobavoid", "mousesteer", "speedhack"
+		for each, k in ["handsoffon", "mouselock", "gamefront", "gamehigh", "traybot", "traygame", "healat", "potionat", "potionwalk", "fleeon", "quicksell", "enemyspells", "defendat", "battlesonly", "mobavoid", "mousesteer", "speedhack"
 			, "cardlogic", "healthocr", "drawenchant", "alertson", "partyrole", "partybattle", "carrymain", "overlay"]
 			keys[k] := 1
 		}
@@ -786,6 +788,10 @@ CfgApply(pairs, source, note := "")
 	;traygame off: a Wizard101 in the tray shown again - Autofarmer.ahk TrayWinTick)
 	if (V1IsFunc("TrayWinTick"))
 		TrayWinTick.Call()
+	;(Run Wizard101 at High priority switched: the games raised, or put back to Normal, at once - Autofarmer.ahk
+	;GamePriorityTick)
+	if (V1IsFunc("GamePriorityTick"))
+		GamePriorityTick.Call()
 	;(the dashboard's menu bar: its ticks - Dashboard.ahk)
 	if (V1IsFunc("DashMenuTicks"))
 		DashMenuTicks.Call()

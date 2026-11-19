@@ -444,6 +444,96 @@ GameToFront(why, idle := true, force := false)
 	return front
 	}
 
+;---- Wizard101 at High priority (Settings: gamehigh - THE MOUSE AND WAITS) ----
+
+;"Run Wizard101 at High priority" (Settings: gamehigh, on unless it's 0). A menu, card or enchant the game hasn't shown
+;for a while is built there and then while you wait (2026-11-18: its own log, "TIMING Event DisplayCharStats took 138 ms"
+;opening the spellbook), and the user found those freezes much shorter with the game at High priority (Task Manager)
+GameHighOn()
+	{
+	try
+		return (IsObject(Stats) && Stats.Has("gamehigh") && Stats["gamehigh"] = 0) ? 0 : 1
+	catch
+		return 1
+	}
+
+;Windows' priority class of a process (0x80 High, 0x20 Normal, 0x8000 Above normal, ...): 0 if it can't be read
+GamePriorityOf(pid)
+	{
+	gpoH := DllCall("OpenProcess", "UInt", 0x1000, "Int", 0, "UInt", pid, "Ptr")  ; (PROCESS_QUERY_LIMITED_INFORMATION)
+	if (!gpoH)
+		return 0
+	gpoC := DllCall("GetPriorityClass", "Ptr", gpoH, "UInt")
+	DllCall("CloseHandle", "Ptr", gpoH)
+	return gpoC
+	}
+
+;Every Wizard101 running (GameExe - two with carry mode, one in the tray too) set to High priority once, when it's first
+;seen: one that can't be set is said once; a priority you set yourself afterwards is left as you set it while this run
+;lasts (raised / failed are this run's - a restart of the bot raises every game it sees again: the help says so). gamehigh off:
+;the ones it raised (still at High) back to Normal. Every 5 s (the timer at the start) and at once from Settings.ahk
+;CfgApply. Never Realtime. Returns how many it raised this time
+GamePriorityTick()
+	{
+	static raised := Map(), failed := Map()
+	gpOn := GameHighOn(), gpPids := Map(), gpN := 0
+	gpDhw := A_DetectHiddenWindows
+	try
+		{
+		if (gpFirst := ProcessExist(GameExe))
+			gpPids[gpFirst] := 1
+		;(a game in the tray - Settings: traygame - has only hidden windows)
+		DetectHiddenWindows(true)
+		for each, gpHwnd in WinGetList("ahk_exe " GameExe)
+			try gpPids[WinGetPID(gpHwnd)] := 1
+		}
+	catch
+		gpN := 0
+	finally
+		DetectHiddenWindows(gpDhw)
+	;(games gone: forgotten - a pid Windows hands out again is a new game)
+	for each, gpMap in [raised, failed]
+		{
+		gpGone := []
+		for gpPid in gpMap
+			if (!gpPids.Has(gpPid))
+				gpGone.Push(gpPid)
+		for each, gpPid in gpGone
+			gpMap.Delete(gpPid)
+		}
+	for gpPid in gpPids
+		{
+		if (gpOn && !raised.Has(gpPid) && !failed.Has(gpPid))
+			{
+			gpWas := GamePriorityOf(gpPid)
+			try
+				ProcessSetPriority("High", gpPid)
+			if (GamePriorityOf(gpPid) = 0x80)
+				{
+				raised[gpPid] := 1, gpN += 1
+				DebugLog("Wizard101 (pid " gpPid ") at High priority now (Settings: gamehigh)" (gpWas = 0x80 ? " - it was already" : " - a menu or card it hasn't shown for a while loads faster"))
+				}
+			else
+				{
+				failed[gpPid] := 1
+				DebugLog("Wizard101 (pid " gpPid ") couldn't be set to High priority (Settings: gamehigh) - it's at " Format("0x{:X}", GamePriorityOf(gpPid)) "; Task Manager's Details tab can")
+				}
+			}
+		else if (!gpOn && raised.Has(gpPid))
+			{
+			raised.Delete(gpPid)
+			;(only one still at High - one you've set to another since is yours)
+			if (GamePriorityOf(gpPid) = 0x80)
+				{
+				try
+					ProcessSetPriority("Normal", gpPid)
+				DebugLog("Wizard101 (pid " gpPid ") back to Normal priority (Settings: gamehigh off)")
+				}
+			}
+		}
+	return gpN
+	}
+
 ;---- The bot's window and Wizard101 in the tray (Settings: traybot, traygame - THE MOUSE AND WAITS) ----
 
 ;"Put the bot's window in the tray" (Settings: traybot, off unless 1): the dashboard's X and minimize button put it in
@@ -4904,6 +4994,9 @@ BrecHello()
 SetTimer(PartyTimer,500)
 ;(the Network tab - Network.ahk: this bot's state to the others on your home network, theirs and commands back)
 SetTimer(NetTick,2000)
+;(Wizard101 at High priority - Settings: gamehigh: each game raised once, as it's first seen - GamePriorityTick)
+GamePriorityTick()
+SetTimer(GamePriorityTick,5000)
 OnExit(VisionOnExit)
 ;(the overlay over the game - the map and the log see-through over Wizard101: Overlay.ahk; Settings: overlay, off by default)
 OverlayInit()
