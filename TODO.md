@@ -58,6 +58,10 @@ Done: quick sell when the backpack's full.
 
 Done: AutoPetTrainer's mouse let go between rounds, and Esc closes it.
 
+## 7. Every feature at every screen size
+Each feature verified one by one at several monitor resolutions before it counts as working - the pictures, the OCR and the click spots all depend on the window's size and UI scale.
+- [ ] Go through every feature (battles: round start, the hand, pips, plates, the kill check, Pass / Flee / Draw; walking and the quest arrow; reconnect; potions; quick sell; decks; party; the dashboard and overlay) and verify each functions at multiple resolutions: at least 1920x1080, 1920x1200, 2560x1440 and a windowed size; full screen and windowed; started with the game minimized, then restored; an RDP session at another size than the PC's own screen. Note each result per size. Why: 2026-11-20 a minimized full-screen game read as 160x28 and the bot kept the wrong pictures for 10 minutes; 2026-11-21 08:06 the same game was 1920x1200 for one battle and 1920x1080 otherwise, and with the hand unread from memory it passed rounds it could have won
+
 ## Not in LIVE_CHECKS yet
 What the game must still show, with no step for it:
 - Window names (`python vision\bagmem.py --tree --all --out <name>.txt`, each one open): a friend's Teleport button, its Yes / No and the refusal; the pet game (can its moves be read?); the hatchery (its level rule, gold cost, Crowns controls); the snack bag (where memory keeps it, each snack's fields)
