@@ -2277,7 +2277,7 @@ PlateHealth(nx, ny)
 OwnHealthLow(quiet := false)
 	{
 	global
-	local pct, limit, bestN, cur, most, r, ohlSrc := ""
+	local pct, limit, bestN, cur, most, r, ohlSrc := "", ohlPlate := 0
 	limit := StatOr("healat", 40)
 	if (OwnHpCur != "" && OwnHpRound = roundnumber && V1Lt(V1Ago(OwnHpAt), 15000) && OwnHpWin = WinExist("A"))
 		{
@@ -2285,11 +2285,14 @@ OwnHealthLow(quiet := false)
 		Goto("OwnHealthLowRead")
 		}
 	r := OwnMemHealth()
-	if (!IsObject(r))
-		r := PlateHealth(playerX, playerY)
+	;(the plate only when it was found this round: asked every round now - the round's own look below - with no plate at
+	;UI 0.856, where no cut player.png matches; a stale or 0,0 plate isn't read)
+	if (!IsObject(r) && player == 1 && playerX != "" && !(playerX = 0 && playerY = 0))
+		r := PlateHealth(playerX, playerY), ohlPlate := 1
 	if (!IsObject(r))
 		{
-		DebugLog("  own health: couldn't read it for sure" (VisionPlateWhy != "" ? " (by shape: " SubStr(VisionPlateWhy, 1, 80) ")" : ""))
+		;(the plate's shape reading's why only when your plate was read now - not a reading left from another plate or round)
+		DebugLog("  own health: couldn't read it for sure" (ohlPlate && VisionPlateWhy != "" ? " (by shape: " SubStr(VisionPlateWhy, 1, 80) ")" : (ohlPlate ? "" : " (the game's memory not read, your plate not found)")))
 		return false
 		}
 	cur := r.cur, most := r.max, bestN := r.votes, ohlSrc := (V1At(r, "src") != "") ? " - " r.src : ""
@@ -5723,6 +5726,12 @@ PipsNow := PipsRead()
 DebugLog("  pips=" PipsNow PipsNote)
 DebugLog("  player=" player " at " V1Sub(playerX, GameLeft) "," V1Sub(playerY, GameTop) (PlateMem ? " (the game's memory)" : "") " school=" school (RoundMemSchool != "" ? " (the game's memory)" : "") " | hitter=" hitschool " at " V1Sub(hammerX, GameLeft) "," V1Sub(hammerY, GameTop) " | enchant=" enchant
 	. (PartySupport() ? " | " BattleRole ": the boosts to " HammerName " (" (HammerSchool = "" ? "school not known" : HammerSchool) ")" : ""))
+;Your own health, every round - the game's memory first, your plate when it was found (OwnHealthLow): logged, and your most
+;health noted for the potions out of battle. 2026-11-21 08:09-08:23: at UI 0.856 no plate was ever found, so the health the
+;memory had every round (136, 349, 39, 117 of 3525) was never read - the potion check counted 100% for want of the most,
+;never drank, and the wizard walked from knockout to knockout (5 in 9 minutes)
+if (OwnHpRound != roundnumber)
+	OwnHealthLow(true)
 ;The blades and traps of every school the hits need - a Balance Hydra's fire, ice and storm (KillCalc.ahk BoostSearch: the
 ;game's memory, read-only, says what's in hand; without it, your school's as before)
 BoostSearch()
@@ -5876,10 +5885,12 @@ if (hitter != 0) && (DualBattle != 1) && (!PlayerTookRound) && (Stat("healthocr"
 ;first (a hit that ends the battle went first, above)
 ;(worked out every round the bot plays - the dashboard's list kept up even after you played one; defending only while
 ;the bot's record of the battle is its own)
-if (hitter != 0) && (playerX != "")
+;(your plate found, or your health read this round anyway - the game's memory, above: the danger worked out and shown. Not in
+;dual mode, whose round number is always blank. Defending only with the plate - a heal or Tower Shield clicks it)
+if (hitter != 0) && (playerX != "" || (roundnumber != "" && OwnHpRound = roundnumber))
 	{
 	EnemyPhaseDone := BlPhaseAt
-	if (EnemyDanger() && !PlayerTookRound && EnemyDefend())
+	if (EnemyDanger() && !PlayerTookRound && playerX != "" && EnemyDefend())
 	{
 		Goto("EndRound")
 	}

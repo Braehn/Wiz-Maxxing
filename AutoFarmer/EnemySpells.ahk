@@ -396,7 +396,8 @@ EnemyDanger()
 	if (!edSlots.Length)
 		return false
 	;(your health: read this round already - the heal check - or now, quietly)
-	if (!(OwnHpCur != "" && OwnHpRound = roundnumber && A_TickCount - OwnHpAt < 20000 && OwnHpWin = WinExist("A")) && playerX != "" && !(playerX = 0 && playerY = 0))
+	;(no plate needed: OwnHealthLow reads the game's memory first and the plate only when it was found)
+	if (!(OwnHpCur != "" && OwnHpRound = roundnumber && A_TickCount - OwnHpAt < 20000 && OwnHpWin = WinExist("A")))
 		OwnHealthLow(true)
 	edHealth := (OwnHpCur != "" && OwnHpRound = roundnumber && OwnHpWin = WinExist("A")) ? OwnHpCur : ""
 	;(a low reading only 2 of its 4 reads agreed on - 775 read as 75 - isn't trusted: as for a heal)
@@ -491,7 +492,13 @@ EnemyDefend()
 ;at the quest goal (KoNote)
 BattleDefeated(how)
 	{
+	global PotionKoAt ; (Potions.ahk's - PotionCheck takes an unread globe just after a knockout as 1 health)
 	DebugLog("Defeated: the wizard was knocked out of the battle (the game's log: " how ")")
+	;(with one game window only: two write the one log, and the other's knockout isn't this wizard's. Stamped when the line is
+	;read - a knockout of yours while the bot was off is read when it's on again: at worst one potion drunk, and only with the
+	;globe not read)
+	if (!CarryOn && (!V1IsFunc("VisionGameClients") || VisionGameClients.Call() <= 1))
+		PotionKoAt := A_TickCount
 	KoNote()
 	}
 

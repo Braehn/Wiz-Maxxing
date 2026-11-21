@@ -366,8 +366,10 @@ class TrayWiring(unittest.TestCase):
         self.assertLess(heal.index('if (GameInTray)'), heal.index('StatsSet('))
         self.assertNotRegex(heal, r'GameInTray\s*:=')
         pot = code_of(os.path.join(AF, 'Potions.ahk'))
-        self.assertRegex(self.fn(pot, 'PotionCheck'),
-                         r'hp := PotionHealth\(\)\s*if \(hp = "" \|\| GameInTray\)\s*return')
+        # (between them only the knockout's 1 health - itself not with the game in the tray, and nothing sent: 2026-11-21)
+        pcb = self.fn(pot, 'PotionCheck')
+        self.assertRegex(pcb, r'hp := PotionHealth\(\)\s*(?:if \(hp = "" && [^\n]*&& !GameInTray\)\s*\{\s*hp := 1, '
+                              r'PotionKoAt := 0, pcGuess := 1\s*DebugLog\([^\n]*\)\s*\}\s*)?if \(hp = "" \|\| GameInTray\)\s*return')
         drink = self.fn(pot, 'PotionDrink')
         self.assertTrue(first_is_guard(drink, ' false'))
         self.assertLess(drink.index('GameInTray'), drink.index('PotionPressHeld('))
@@ -393,9 +395,11 @@ class TrayWiring(unittest.TestCase):
         self.assertEqual(rep.count('Click()'), 1)
         # (a hide in the drink's wait: no "none left" booked, no run - whether one was drunk isn't known. Between the hide
         # check and "none left" booked: only the game's own count saying there are potions - then no run either)
+        # (a drink that took may be followed by up to 2 more while under the limit - each PotionDrink looks at GameInTray
+        # first, and the loop stops on it: 2026-11-21)
         self.assertRegex(self.fn(pot, 'PotionCheck'),
-                         r'if \(PotionDrink\(hp\)\)\s*\{\s*PotionNoneAt := 0\s*return\s*\}\s*if \(GameInTray\)\s*'
-                         r'return\s*if \(V1IsNum\(PotionDrinkHave\) && PotionDrinkHave >= 1\)\s*\{[^{}]*\{[^{}]*\}[^{}]*'
+                         r'if \(PotionDrink\(hp\)\)\s*\{\s*PotionNoneAt := 0\s*(?:Loop 2\s*\{[^{}]*\}\s*)?return\s*\}\s*if \(GameInTray\)\s*'
+                         r'return\s*(?:if \(pcGuess\)\s*return\s*)?if \(V1IsNum\(PotionDrinkHave\) && PotionDrinkHave >= 1\)\s*\{[^{}]*\{[^{}]*\}[^{}]*'
                          r'return\s*\}\s*PotionNoneAt := A_TickCount')
         for name in ('PotionCheck', 'PotionDrink', 'PotionRun', 'PotionTeleport', 'PotionRunWalk', 'PotionReplay'):
             self.assertNotRegex(self.fn(pot, name), r'GameInTray\s*:=', name)

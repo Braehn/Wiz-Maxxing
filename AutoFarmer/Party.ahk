@@ -569,7 +569,9 @@ PartyHealAlly()
 	if (OwnHpRound != roundnumber && playerX != "")
 		OwnHealthLow(true)
 	;(v1: a blank count of reads compared as text - not >= 3)
-	if (OwnHpRound = roundnumber && OwnHpPct != "" && OwnHpPct <= PartyLowPct && V1Ge(OwnHpVotes, 3))
+	;(only with your plate found - your own heal clicks it: your health is read every round now, the game's memory with no
+	;plate too, and lower than the ally's with no plate it held the ally's heal for one that can't go - review 2026-11-21)
+	if (OwnHpRound = roundnumber && OwnHpPct != "" && OwnHpPct <= PartyLowPct && V1Ge(OwnHpVotes, 3) && player == 1 && playerX != "")
 		return false
 	DebugLog("  healer: " PartyLowName " at " PartyLowPct "% (under " limit "%) - a heal on " PartyLowName)
 	for each, hcard in ["heal1", "heal2"]

@@ -89,6 +89,9 @@ global PotionDrinkHave
 ;Since when the game has counted potions while the drink didn't take (0 not now - a drink that took, or none counted), and
 ;when that was last said in an alert (PotionStuckAlert)
 global PotionStuckSince, PotionStuckSaidAt
+;When the wizard was last knocked out of a battle (EnemySpells.ahk BattleDefeated; 0 / blank: not since, or already taken as
+;1 health) - PotionCheck: the game leaves a knocked-out wizard at 1 health, so a globe not read just after one is taken so
+global PotionKoAt
 
 ;Called out of battle from the main loop (every few seconds at most): low health -> drink, none -> run
 PotionCheck()
@@ -96,17 +99,27 @@ PotionCheck()
 	;(when battles only last said there are none left - not bought: once in 10 minutes)
 	static boSaidAt := 0
 	global PotionNextCheck, PotionResting, PotionNoneAt, PotionRestFrom, PotionFailUntil ; (v1 globals it sets)
-	global PotionStuckSince ; (v2-only: the port tools don't know it)
+	global PotionStuckSince, PotionKoAt ; (v2-only: the port tools don't know it)
 	;(not while a dungeon run is being recorded: you're playing it - Dungeons.ahk)
 	;(v1: PotionNextCheck blank at first - the tick isn't < a blank, compared as text)
 	if (V1Lt(A_TickCount, PotionNextCheck) || PotionRecording || DgRecording || !VisionOn || !GameActive())
 		return
-	PotionNextCheck := A_TickCount + 4000
+	PotionNextCheck := A_TickCount + 4000, pcGuess := 0
 	hp := PotionHealth()
+	;(the globe not read within a minute of a knockout: the game left the wizard at 1 health - 2026-11-21 MSG_UpdateHealth
+	;1/3525 after each - taken so once, else it walked on into the next battle)
+	if (hp = "" && V1IsNum(PotionKoAt) && PotionKoAt > 0 && A_TickCount - PotionKoAt < 60000 && !GameInTray)
+		{
+		hp := 1, PotionKoAt := 0, pcGuess := 1
+		DebugLog("Potions: health not read off the globe - knocked out under a minute ago: taken as 1")
+		}
 	;(Wizard101 gone to the tray during the look - Settings: traygame: nothing more - Ctrl+O and a run's keys would go
 	;to the window in front)
 	if (hp = "" || GameInTray)
 		return
+	;(health seen since a knockout - read off the globe, or taken as 1 above: that knockout is done with, never guessed from
+	;again - review 2026-11-21: a globe missed 15 s later, after the drinks, would have been taken as 1 and drunk on)
+	PotionKoAt := 0
 	most := PotionMost()
 	;(v1: most blank - PotionMaxHp never set - compared as text: hp is more)
 	if (V1Gt(hp, most))
@@ -134,11 +147,29 @@ PotionCheck()
 		if (PotionDrink(hp))
 			{
 			PotionNoneAt := 0
+			;(still under the limit - a knocked-out wizard has 1 health and a potion gives back about a quarter: drunk again
+			;now, 3 at most in all, with no walking between - 2026-11-21 the wizard walked into its next battles at 349 and
+			;117 of 3525 and was knocked out in round 1 or 2. A drink that doesn't take stops it: the next look, 4 s on, as before)
+			Loop 2
+				{
+				pcHp := PotionHealth()
+				;(nor once you're playing or a battle is on by the game's log - the main loop's checks before PotionCheck)
+				BattleLogRead()
+				if (pcHp = "" || GameInTray || !BotOn || PlayerActing() || BattleLogInBattle() || 100 * pcHp / most >= limit)
+					break
+				DebugLog("Potions: health " pcHp "/" most " (" Round(100 * pcHp / most) "%) - still under " limit "%: drinking another")
+				if (!PotionDrink(pcHp))
+					break
+				}
 			return
 			}
 		;(Wizard101 gone to the tray during the drink's wait - Settings: traygame: whether one was drunk isn't known -
 		;nothing booked, no run: looked at again once it's back)
 		if (GameInTray)
+			return
+		;(a drink on the knockout's 1 health - the globe not read: whether it took isn't known, PotionDrink tells by the globe:
+		;nothing booked - no rest, no run - looked at again 4 s on, as for a globe not read. Review 2026-11-21)
+		if (pcGuess)
 			return
 		;(potions there by the game's own count - the drink just didn't take: no run to buy more. Resting (no walking) till
 		;it does or health is back, the drink tried again 30 s on)
@@ -2222,5 +2253,5 @@ PotionsBlank()
 	global PotionRecStop := "", PotionRecT0 := "", PotionRecDown := "", PotionHook := "", PotionMarkZone := "", PotionMarkAt := ""
 	global PotionMarkOff := "", PotionRecAtMark := "", PotionRecRestart := "", PotionShopLeft := "", PotionResting := "", PotionNoneAt := ""
 	global PotionRestFrom := "", GameLeft := "", GameW := "", UiScale := "", GameTop := "", GameH := ""
-	global PotionDrinkHave := "", PotionStuckSince := "", PotionStuckSaidAt := ""
+	global PotionDrinkHave := "", PotionStuckSince := "", PotionStuckSaidAt := "", PotionKoAt := ""
 	}
