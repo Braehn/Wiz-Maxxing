@@ -599,9 +599,14 @@ LearnCards(picFix := 1)
 	;(a card learned at another UI size was cut into a new folder for this size: a picture set from now on)
 	if (InStr(FileExist(here), "D"))
 		LearnSetDir(true)
-	;(the cards as the game's memory has them - read, not guessed - laid on the boxes: LearnMemHand)
+	;(the cards as the game's memory has them - read, not guessed - laid on the boxes: LearnMemHand; and the boxes it paired as
+	;a false picture match this look - LearnRelearnBoxes: only those learned as the new card, below)
 	mem := LearnMemHand(answer)
+	relearnBoxes := LearnRelearnBoxes()
 	placed := 0, fresh := 0, greyNew := 0, relook := 0, setsBefore := PicSets.Length, boxes := 0, notCards := 0, noPips := 0, onHand := 0, enchNew := 0
+	;(the game's names of the new cards learned this look - with the game's hand laid on the boxes, a copy is told by its name,
+	;not by its picture: below)
+	memNew := V1Obj()
 	Loop Parse, answer, "`n", "`r"
 		{
 		f := StrSplit(A_LoopField, "|")
@@ -618,6 +623,14 @@ LearnCards(picFix := 1)
 		;(v1: fields 13 and 14 read without a length check - one that isn't there blank, and blank + 0 blank)
 		card := V1Obj({left: f[2] + 0, top: f[3] + 0, known: f[6], grey: f[8] + 0, type: f[9], pips: f[11], same: V1Add(V1At(f, 13), 0)
 			, isCard: (f.Length >= 16 && f[15] = 1), tc: (f.Length >= 16 && f[16] = 1), mem: (IsObject(mem) && mem.Has(boxes)) ? mem[boxes] : ""})
+		;(a box LearnMemHand paired with the game's card though its picture is a learned card the game names otherwise - a false
+		;picture match, the box where the game has its card: no name - learned as the new card it is, never seen again as the
+		;other (not rewritten as it - LearnSeenAgain), nor its name given to a hit slot below. 2026-11-21: Balanceblade's picture
+		;named every Bladestorm, which was never learned)
+		;(LearnMemHand's own pairing, not worked out again here: a slot can change hands in this loop - LearnBoostPicFix - and a
+		;box it paired as usual mustn't be taken for one. Review 2026-11-21)
+		if (IsObject(card.mem) && card.known != "" && relearnBoxes.Has(boxes))
+			card.known := "", card.relearn := relearnBoxes[boxes]
 		;(the game's name of the card on a hit slot's picture - your own cut one too: its heads are read off the game's hand
 		;by it - KillCalc.ahk HitHeads; the newest wins)
 		if (IsObject(card.mem) && RegExMatch(card.known, "^(\w+)/(hit[1-4]|wand)$", &lcSg) && lcSg[1] = hitschool)
@@ -636,8 +649,10 @@ LearnCards(picFix := 1)
 			placed += LearnSeenAgain(card)
 		else if (card.grey)
 			greyNew++
-		;(another copy of a new card further left: learned with that one)
-		else if (card.same)
+		;(another copy of a new card further left: learned with that one. With the game's hand on the boxes, a copy is one the game
+		;names as a card learned this look - not a picture alike: 2026-11-21 a Bladestorm was taken for a copy of the Balanceblade
+		;left of it (the two blades' discs alike) and never learned; two Bladestorms are still learned once)
+		else if (IsObject(card.mem) ? memNew.Has(LearnMemGame(card.mem)) : card.same)
 			continue
 		;(learned only where the helper says it's a card, and with your pips read - unread, the hand may not be
 		;where it's looked for; the game's memory has its pips itself)
@@ -655,8 +670,18 @@ LearnCards(picFix := 1)
 		;(two new cards a round at most: each takes about half a second - four from the game's memory: no OCR)
 		else if (fresh < 2 || (IsObject(card.mem) && fresh < 4))
 			{
-			fresh++
-			placed += LearnNew(card)
+			;(a false picture match whose card the game names as a learned one by now - a card seen again earlier in this look
+			;got the game's name: no second record of it. Review 2026-11-21)
+			if (V1At(card, "relearn") = "" || !LearnGameKnown(LearnMemGame(card.mem)))
+				{
+				fresh++
+				if (IsObject(card.mem))
+					memNew[LearnMemGame(card.mem)] := 1
+				;(a false picture match learned as the game's card: one of its 3 tries this run - LearnMemHand)
+				if (V1At(card, "relearn") != "")
+					LearnRelearnCount(card.relearn, 1)
+				placed += LearnNew(card)
+				}
 			}
 		;(a blade, trap or Tower Shield the game names here whose slot's picture never finds it: the card's own put there -
 		;LearnBoostPicFix)
@@ -1152,6 +1177,38 @@ LearnSeenAgain(card)
 
 ;---- The hand from the game's memory ----
 
+;How many times a box with learned card id's picture that the game names otherwise was learned as the game's card this run
+;(key: "<id>|<the game's name>"; add: one more - LearnCards, when it learns it). LearnMemHand pairs such a box 3 times at most
+LearnRelearnCount(key, add := 0)
+	{
+	static tries := V1Obj()
+	if (add)
+		tries[key] := V1N(V1At(tries, key)) + add
+	return V1N(V1At(tries, key))
+	}
+
+;The boxes LearnMemHand paired as a false picture match in its last look - {n (its /hand card line, as its answer keys them):
+;"<learned id>|<the game's name>"}; set: LearnMemHand's new (empty) map, at its start - LearnCards learns only those as new cards
+LearnRelearnBoxes(set := "")
+	{
+	static boxes := V1Obj()
+	if (IsObject(set))
+		boxes := set
+	return boxes
+	}
+
+;A learned card of your school (or in a shared slot - resources\) that the game names name already (flag game=): LearnMemHand
+;doesn't learn a box as that card again - another record of it would be a duplicate
+LearnGameKnown(name)
+	{
+	if (name = "" || !IsObject(LearnedCards))
+		return false
+	for i, c in LearnedCards
+		if ((c.sch = hitschool || InStr(c.slot, "resources\") = 1) && LearnFlag(c, "game") = name)
+			return true
+	return false
+	}
+
 ;The cards as the game's memory has them (Vision.ahk VisionCards - read-only: names, kinds, numbers, pips; nothing
 ;guessed) laid on the helper's /hand answer: {n: the game's card} for its n-th card line - or "" when they can't be: no
 ;memory read this round (the game not read, not settled within 1.5 s: debug.log says why), not as many cards as the
@@ -1160,6 +1217,10 @@ LearnSeenAgain(card)
 LearnMemHand(answer)
 	{
 	static saidOff := V1Obj()
+	;(a box's false picture match paired anyway - said once a learned card and game card)
+	static saidRelearn := V1Obj()
+	;(this look's boxes paired as a false picture match - emptied first, before any return: LearnRelearnBoxes)
+	lmhRel := V1Obj(), LearnRelearnBoxes(lmhRel)
 	;(this pass's answer if it's 3 s old at most - PipsRead's: FindCards' VisionForget clears it when the hand changed)
 	lmhHand := VisionCards(1500, 3000)
 	if (!IsObject(lmhHand))
@@ -1177,7 +1238,7 @@ LearnMemHand(answer)
 		lmhN += 1
 		if (lmhF.Length >= 15 && lmhF[15] = "0")
 			continue
-		lmhBoxes.Push(V1Obj({n: lmhN, known: lmhF[6]}))
+		lmhBoxes.Push(V1Obj({n: lmhN, known: lmhF[6], x: lmhF[2] + lmhF[4] / 2, y: lmhF[3] + lmhF[5] / 2}))
 		}
 	if (lmhBoxes.Length != lmhHand.cards.Length)
 		{
@@ -1194,9 +1255,26 @@ LearnMemHand(answer)
 		;the rest of the hand; said once a card)
 		if (lmhWas != "" && lmhWas != LearnMemGame(lmhM))
 			{
-			if (!saidOff.Has(lmhC.id))
-				saidOff[lmhC.id] := 1, DebugLog("  the hand from the game's memory: box " lmhI " is learned card " lmhC.id " (" lmhWas " in the game), the game has " LearnMemGame(lmhM) " there - that box left out (said once)")
-			continue
+			;(unless the game's memory has its card where this box is - within Px(10), one game window (with two the memory can
+			;be the other's hand): the pairing is sure and the picture matched another card - Balanceblade's learned picture on
+			;every Bladestorm, 2026-11-21 (the two blades' discs alike): paired, its name taken off (LearnCards learns it as the
+			;new card it is). Only while no learned card is the game's card already - its own picture is then there to name it,
+			;and another record of it would be a duplicate - and 3 times a learned card and game card at most this run (counted
+			;when LearnCards learns it: LearnRelearnCount - a copy with other art never loops)
+			lmhKey := lmhC.id "|" LearnMemGame(lmhM)
+			if (VisionMemOneClient() && VisionCardPx(lmhHand, lmhM, &lmhX, &lmhY) && Max(Abs(lmhX - lmhB.x), Abs(lmhY - lmhB.y)) <= Px(10)
+				&& LearnRelearnCount(lmhKey) < 3 && !LearnGameKnown(LearnMemGame(lmhM)))
+				{
+				if (!saidRelearn.Has(lmhKey))
+					saidRelearn[lmhKey] := 1, DebugLog("  the hand from the game's memory: box " lmhI " looks like learned card " lmhC.id " (" lmhWas ") by its picture, but the game has " LearnMemGame(lmhM) " where that box is (" Max(Abs(lmhX - lmhB.x), Abs(lmhY - lmhB.y)) " px off) - a false picture match: learned as the new card it is")
+				lmhB.known := "", lmhRel[lmhB.n] := lmhKey
+				}
+			else
+				{
+				if (!saidOff.Has(lmhC.id))
+					saidOff[lmhC.id] := 1, DebugLog("  the hand from the game's memory: box " lmhI " is learned card " lmhC.id " (" lmhWas " in the game), the game has " LearnMemGame(lmhM) " there - that box left out (said once)")
+				continue
+				}
 			}
 		lmhOut[lmhB.n] := lmhM, lmhB.m := lmhM
 		lmhNames .= (lmhNames = "" ? "" : ", ") LearnMemGame(lmhM) (lmhM.ench != "" ? " (" lmhM.ench ")" : "")
