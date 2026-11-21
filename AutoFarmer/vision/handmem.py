@@ -152,15 +152,21 @@ class Image:
         r0, rdata = self.secs[".rdata"]
         self.rdata_q = np.frombuffer(rdata[:len(rdata) // 8 * 8], dtype=np.uint64)
 
-    def strings(self, s):
-        """addresses in .rdata of the NUL-terminated string s (preceded by a NUL)"""
+    def strings(self, s, loose=False):
+        """addresses in .rdata of the NUL-terminated string s (preceded by a NUL). loose: only its copies that aren't -
+        s right after other bytes (a constant before it with no NUL between, or the tail of a longer string the linker
+        pooled it into), the C string at each address still s"""
         r0, rdata = self.secs[".rdata"]
-        out, needle, i = [], b"\0" + s.encode() + b"\0", 0
+        out, i = [], 0
+        needle = s.encode() + b"\0" if loose else b"\0" + s.encode() + b"\0"
         while True:
             i = rdata.find(needle, i)
             if i < 0:
                 return out
-            out.append(r0 + i + 1)
+            if not loose:
+                out.append(r0 + i + 1)
+            elif i == 0 or rdata[i - 1] != 0:
+                out.append(r0 + i)
             i += 1
 
     def code_at(self, addr, n):
@@ -183,28 +189,47 @@ class Image:
         return t0 + i
 
     def get_types(self, name):
-        """[(GetType function, static Type** or None, [vtables])] for class name"""
-        import numpy as np
-        out = []
-        for sa in self.strings(name):
-            for la in self.lea_at[self.lea_tgt == sa]:
-                la = int(la)
-                fn = self.func_start(la)
-                if fn is None or la - fn > 0x80:
-                    continue
-                code = self.code_at(la, 0x40)
-                static = None
-                k = code.find(b"\x48\x89\x05", 7)          # the first mov [rip+x], rax after the LEA: the cached Type*
-                if 0 <= k < 0x30:
-                    static = la + k + 7 + struct.unpack_from("<i", code, k + 3)[0]
-                entry = {fn} | {int(a) for a in self.jmp_at[self.jmp_tgt == fn]}
-                vts = []
-                r0 = self.secs[".rdata"][0]
-                for e in entry:
-                    for qi in np.flatnonzero(self.rdata_q == np.uint64(e)):
-                        vts.append(r0 + int(qi) * 8)
-                out.append((fn, static, sorted(vts)))
+        """[(GetType function, static Type** or None, [vtables])] for class name (find_types)"""
+        return find_types(self, name)
+
+
+def types_at(img, addrs, lim=0x80):
+    """[(GetType function, static Type** or None, [vtables])] for the copies of a class name at addrs in .rdata: each
+    function that LEAs one within lim bytes of its start (questmem's GetTypes: more), the Type* it caches there (the
+    first mov [rip+x], rax after the LEA) and the vtables whose slot 0 is it, or an E9 jump to it"""
+    import numpy as np
+    out = []
+    for sa in addrs:
+        for la in img.lea_at[img.lea_tgt == sa]:
+            la = int(la)
+            fn = img.func_start(la)
+            if fn is None or la - fn > lim:
+                continue
+            code = img.code_at(la, 0x40)
+            static = None
+            k = code.find(b"\x48\x89\x05", 7)          # the first mov [rip+x], rax after the LEA: the cached Type*
+            if 0 <= k < 0x30:
+                static = la + k + 7 + struct.unpack_from("<i", code, k + 3)[0]
+            entry = {fn} | {int(a) for a in img.jmp_at[img.jmp_tgt == fn]}
+            vts = []
+            r0 = img.secs[".rdata"][0]
+            for e in entry:
+                for qi in np.flatnonzero(img.rdata_q == np.uint64(e)):
+                    vts.append(r0 + int(qi) * 8)
+            out.append((fn, static, sorted(vts)))
+    return out
+
+
+def find_types(img, name, lim=0x80):
+    """types_at for class name: its name as a string of its own (a NUL before it) first; when no GetType with its Type*
+    and a vtable is found so, its copies right after other bytes too (img.strings loose). Build 6AFBB954-37B4000
+    (2026-11-20): the only copy of "CombatPlanningPhaseWindow" its GetType loads came right after two bytes of a
+    constant, "(@" - the NUL-led copy is another, loaded by nothing - and the hand, the backpack, the decks and the GUI
+    root went unread from the game's patch on"""
+    out = types_at(img, img.strings(name), lim)
+    if any(st is not None and vts for _fn, st, vts in out):
         return out
+    return out + types_at(img, img.strings(name, loose=True), lim)
 
 
 # lea r8/r9(d), [base + disp8/disp32]: REX 0x44/0x45/0x4C/0x4D, 8D, modrm mod 1|2
@@ -292,7 +317,7 @@ def read_enum(img, first, prop, cls, log=None):
     [rsp+30h], esi - ebx in build 6AF1C8A0-3B69000, 2026-11-12: any 32-bit register taken). {} when it can't be read"""
     import numpy as np
     try:
-        at0 = img.strings(first)
+        at0 = img.strings(first) or img.strings(first, loose=True)    # (a copy right after other bytes: find_types)
         if not at0:
             return {}
         r0, rdata = img.secs[".rdata"]

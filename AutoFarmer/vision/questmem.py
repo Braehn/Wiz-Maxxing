@@ -124,25 +124,9 @@ QUEST_SKIP = ("m_id", "m_title")    # (read already: not among its other propert
 # ============================================================================ reflection (handmem's, a longer prologue)
 def get_types(img, name, lim=GET_TYPE_LIM):
     """handmem.Image.get_types with the name's LEA allowed up to lim bytes into GetType: [(GetType function, static
-    Type** or None, [vtables])]"""
-    import numpy as np
-    out = []
-    for sa in img.strings(name):
-        for la in img.lea_at[img.lea_tgt == sa]:
-            la = int(la)
-            fn = img.func_start(la)
-            if fn is None or la - fn > lim:
-                continue
-            code = img.code_at(la, 0x40)
-            static = None
-            k = code.find(b"\x48\x89\x05", 7)          # the first mov [rip+x], rax after the LEA: the cached Type*
-            if 0 <= k < 0x30:
-                static = la + k + 7 + struct.unpack_from("<i", code, k + 3)[0]
-            entry = {fn} | {int(a) for a in img.jmp_at[img.jmp_tgt == fn]}
-            r0 = img.secs[".rdata"][0]
-            vts = sorted(r0 + int(qi) * 8 for e in entry for qi in np.flatnonzero(img.rdata_q == np.uint64(e)))
-            out.append((fn, static, vts))
-    return out
+    Type** or None, [vtables])] - handmem.find_types (a copy of the name right after other bytes too, when the NUL-led
+    ones lead to no GetType)"""
+    return H.find_types(img, name, lim)
 
 
 def class_props(img, name):
@@ -161,7 +145,7 @@ def read_enum_run(img, gt, first, prop):
     just after - mov dword [rsp|rbp+d8], imm32, or a register kept at 0 (mov [rsp|rbp+d8], esi), the same slot d8 for
     every option (the most stored; WizGoalData's [rbp-50h] - its [rbp-4Ch] holds a bit, 1/2/4). {} when not read"""
     import numpy as np
-    at0 = img.strings(first)
+    at0 = img.strings(first) or img.strings(first, loose=True)    # (a copy right after other bytes: H.find_types)
     if not at0 or gt is None:
         return {}
     r0, rdata = img.secs[".rdata"]

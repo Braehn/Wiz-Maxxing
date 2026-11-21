@@ -240,6 +240,37 @@ PicSetForSize()
 	return 1
 	}
 
+;The game's window another size than when last looked (the main loop, after UpdateGameRect), one it was played at before
+;(generated\scales.txt) and nothing on screen has told the size since - okSize: the main loop's PicSetOkSize, the size the
+;set in use last matched at; PicCutOkSize, PicMeasuredSize: its cut picture matched / the UI measured: that size's set, as
+;at the start. Out of a battle nothing else would: a small UI size's made spellbook is too see-through to pick a set by
+;(PicTooThin - 8% at 0.856). 2026-11-20 20:51: the bot started beside a full-screen Wizard101, minimized, kept the main set
+;(UI 1) for 10 minutes at 1920x1080 (0.856). start: the start's own size, the set chosen for it there - only noted (the
+;start calls it so; with no such call the first look counts as the start's). True if switched: those size marks then
+;vouched for the set it left, not this one - PicCutOkSize and PicMeasuredSize emptied here, the main loop's PicSetOkSize
+;there (else, back at a size the left set was seen at, this set would be kept there and the main loop's look for another
+;set held off for 10 minutes)
+PicSizeKept(okSize := "", start := false)
+	{
+	static seenSize := ""
+	global PicCutOkSize, PicMeasuredSize ; (v1 globals it sets)
+	size := GameW "x" GameH
+	if (start || seenSize = "" || size = seenSize)
+		{
+		seenSize := size
+		return false
+		}
+	seenSize := size
+	if (okSize = size || PicCutOkSize = size || PicMeasuredSize = size || !IsObject(PicSets) || !IsObject(V1At(PicSets, PicSet)))
+		return false
+	want := PicScaleFor(size)
+	if (want = "" || V1Lt(V1Abs(V1Sub(PicSets[PicSet].scale, want)), 0.002))   ; (v1: scales.txt's text compared as v1 did)
+		return false
+	UsePicSet(PicSetForSize(), "the window is " size " now - nothing on screen to tell the size by yet: the size this window was last played at (generated\scales.txt: " size "=" want ")")
+	PicCutOkSize := "", PicMeasuredSize := ""
+	return true
+	}
+
 ;A round's Pass button was just found with the set in use: remembered for this window size (written only when it
 ;changes) - only once the UI size was measured at this size (DetectUiScale): a made set's Pass button, mostly
 ;see-through, matches at a size a little off too

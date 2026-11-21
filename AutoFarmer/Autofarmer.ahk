@@ -1467,9 +1467,12 @@ UpdateGameRect()
 	DllCall("ClientToScreen", "Ptr", hwnd, "Ptr", pt.Ptr)
 	w := NumGet(rect, 8, "Int")
 	h := NumGet(rect, 12, "Int")
-	if (w <= 0 || h <= 0)
+	;Minimized, keep the last known position - IsIconic too: a minimized window with a title bar still has a client area
+	;(2026-11-20 20:51: a full-screen Wizard101 - minimized whenever another window takes the focus - read 160x28 at
+	;-32000,-32000 as the bot started, so it chose its pictures for a 160x28 window, the main set at UI 1, and never saw
+	;the 1920x1080 game's spellbook - UI 0.856 - out of a battle)
+	if (w <= 0 || h <= 0 || DllCall("IsIconic", "Ptr", hwnd))
 		{
-		;Minimized, keep the last known position
 		return
 		}
 	GameLeft := NumGet(pt, 0, "Int")
@@ -4936,6 +4939,9 @@ LoadPicSets()
 ;(nothing to tell the size by yet: the set this window size was last played at, else the main one)
 if (!DetectPicSet())
 	UsePicSet(PicSetForSize(), "nothing on screen to tell the size by yet: " (PicScaleFor(GameW "x" GameH) != "" ? "the size this window was last played at (generated\scales.txt: " GameW "x" GameH "=" PicScaleFor(GameW "x" GameH) ")" : "no size remembered for " GameW "x" GameH " - the main set"))
+;(the size the set was chosen for: the main loop's PicSizeKept goes from it - not from wherever the window is by its first
+;look, the bot started off and the window resized meanwhile)
+PicSizeKept("", true)
 LastBeat := 0
 SeenOut := 0
 
@@ -5086,6 +5092,11 @@ Loop
 	;(carry mode - two clients: taken up again from the last run, both clients still there - Carry.ahk)
 	CarryTick()
 	UpdateGameRect()
+	;(the window another size now, one it was played at before and nothing on screen has told the size since: that size's
+	;pictures, as at the start - PicScale.ahk PicSizeKept. Switched: the size the left set last matched at no longer
+	;vouches for the set in use)
+	if (PicSizeKept(PicSetOkSize))
+		PicSetOkSize := ""
 	if (A_TickCount - LastBeat > 10000)
 		{
 		LastBeat := A_TickCount
