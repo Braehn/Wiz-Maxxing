@@ -919,8 +919,12 @@ WalkStep()
 		{
 		;(by the game's memory the goal's id says: a new one is the next goal at once, the same one isn't - whatever the arrow's
 		;number does: it's along the game's path, and jumps by its nodes right by the goal. 2026-10-25 11:29:00 "next goal
-		;(distance 23)" with the goal as it was, a shop holding the wizard; 11:33:34 6 from 1, standing still)
-		memSame := (WkNavOk && WkTalkGoal != "" && WkNavObj.goalid != "") ? (WkNavObj.goalid "|" = WkTalkGoal "|") : ""
+		;(distance 23)" with the goal as it was, a shop holding the wizard; 11:33:34 6 from 1, standing still. A goal the game
+		;shows no way to has an id too - CollectGoalId: 2026-11-22 08:51 Lapin Wingtamer's dialogue gave "Collect Pegasus Chow
+		;(0 of 5)", no arrow, no place - talk mode never ended, collect mode never came, NEEDS YOU "No quest arrow" till you
+		;touched the keyboard 7 minutes on; 08:44 "Use Strange Plant (0 of 3)" the same)
+		memGoal := CollectGoalId()
+		memSame := (WkTalkGoal != "" && memGoal != "") ? (memGoal "|" = WkTalkGoal "|") : ""
 		if (memSame != "")
 			WkFar := memSame ? 0 : 2
 		else
@@ -4373,7 +4377,7 @@ CollectNoPlace()
 	if (WkGoalFrom = "the game")
 		{
 		cnpOcr := WalkGoalOcr()
-		if (cnpOcr = "" || WalkDialogOpen() || !(CollectGoal(cnpOcr) || WalkLineShares(text, cnpOcr)))
+		if (cnpOcr = "" || WalkDialogOpen() || !(CollectGoal(cnpOcr) || WalkLineShares(text, cnpOcr) || CollectCountTail(text, cnpOcr)))
 			return false
 		}
 	if (IsObject(WkCollect) && !WkCollect.gaveUp && !CollectGoalChanged(text))
@@ -4707,6 +4711,16 @@ WalkLineShares(a, b)
 CollectGoal(text)
 	{
 	return RegExMatch(text, "i)\(\s*\d+\s*(of|/)\s*\d+\s*\)|\b\d+\s*/\s*\d+\b|\b(collect|defeat|gather|recover|retrieve|obtain|destroy|hunt|catch|kill|harvest|loot|acquire)\b")
+	}
+
+;The goal line on screen with only its count's end readable (CollectNoPlace: the line there, not covered): text - the
+;memory's - has a count "(0 of 5)" and the OCR ends in "of" + a digit or two (or what they're misread as) + ")". At a small UI
+;(0.856, 1920 wide) the game's outlined quest text reads as nothing like its words at any zoom: 2026-11-22 "Collect Pegasus
+;Chow in Pegasus Place (0 of 5)" read "'Cil%9 Of 3)" (1x), "'CoJlzcr ill Of 3)" (2x), "COJlzci lill ?hcz (O of 3)" (3x) -
+;no collect mode, NEEDS YOU "No quest arrow" for 3 hours; the "of N)" at its end came through every time
+CollectCountTail(text, ocr)
+	{
+	return RegExMatch(text, "i)\(\s*\d+\s*of\s*\d+\s*\)") && RegExMatch(ocr, "i)\bof\s*[0-9OoIlSsBZz]{1,2}\s*\)") ? true : false
 	}
 
 ;The count in a goal line ("(2 of 5)", "2/5"): the first number, "" if there's none
