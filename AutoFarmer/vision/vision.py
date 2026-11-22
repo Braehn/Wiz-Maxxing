@@ -228,9 +228,14 @@ Requests (all GET, answers are plain text lines, "ERR <why>" on a problem):
                                              game: the bot checks it's on top) saved as a JPEG (half size when wider
                                              than 1600) - the log's OneDrive copy; that folder's oldest snap_*.jpg
                                              beyond keep removed: "ok|<file>" or "ERR <why>" (nowhere else: 400)
-  /caught                                 -> the mob that started a battle (asked at its first round), off the mobs
+  /caught[?began=stamp&mobs=gid,gid]      -> the mob that started a battle (asked at its first round), off the mobs
                                              read lately (while walking with mob avoidance on): the one nearest the
-                                             wizard, looked back to where it set off towards him (noticed him):
+                                             wizard - of the battle's mobs (mobs: the game's log's AddNewParticipant
+                                             ids), in the last reading from before it began (began: the log's
+                                             "MSG_Duel received N" line's MM/DD/YY HH:MM:SS - the moment they met;
+                                             the game walking him onto his sigil after it and the duel circle's
+                                             readings left out); none given, in the last reading -, looked back to
+                                             where it set off towards him (its run, not its own walk):
                                              caught|name|how far he was then|degrees off its facing then|came (1: it
                                              came for him, 0: he walked into it)|seconds before|quest (1: the helper
                                              took it as the quest's - not avoided)|walking (1: it was walking the
@@ -3672,47 +3677,87 @@ def motion_feed(t, mobs, me):
 
 
 MOTION_SAID = {'at': 0.0}
-CAUGHT_FRESH = 20.0     # the last reading at most this old (s) when a battle's first round is up
+CAUGHT_FRESH = 20.0     # (no start given - an older bot) the last reading at most this old (s) when the first round is up
 CAUGHT_NEAR = 450.0     # the mob that started it: the nearest, at most this far from the wizard in the last reading
+CAUGHT_NEAR_BATTLE = 1500.0  # (the battle's mobs given) the nearest of them at most this far in the last reading before
+#                              it - up to CAUGHT_BEFORE before: the wizard walks 900 a second, a mob runs at him
+CAUGHT_CUT = 0.25       # (its start given) readings from this long before its log line's second on left out: the game
+#                         starts walking him onto his sigil as it writes the line (2026-11-21 17:18: 0.07 s before it)
+CAUGHT_BEFORE = 3.0     # (its start given) the last reading kept at most this long before that second - else none
 CAUGHT_GAP = 2.0        # readings further apart than this (s) aren't followed back across
+CAUGHT_RUN = 150.0      # a mob coming for him runs: a step slower than this (units / s) is its own walk - not followed back
+CAUGHT_CAME_MAX = 4.0   # its run followed back at most this long (s)
 
 
-def caught_line(now=None):
+def caught_line(now=None, began=None, battle=None):
     """/caught (see the top): which mob started the battle, and how far and how far off its facing the wizard was
-    when it set off towards him - its steps followed back while each went his way"""
+    when it set off towards him - its run followed back while each step went his way (CAUGHT_CAME_MAX at most, no
+    slower than CAUGHT_RUN: a mob walking its rounds his way isn't coming for him yet).
+    began: the second the battle began (epoch s) - the game's log's "MSG_Duel received N", written the moment the mob
+    and the wizard meet: only the readings from before it (less CAUGHT_CUT) - the walker reads on till the first round,
+    and after it the game walks the wizard and the mobs onto the circle's sigils, 600 from its middle, 1150 or so apart
+    (2026-11-21 not one of 16 catches was taken); the last kept CAUGHT_BEFORE before it at most. battle: the battle's
+    mobs' global ids (the log's AddNewParticipant lines): the mob is the nearest of those - not of every mob read -, and
+    the battle the quest's if any of them is. None given (an older bot): the nearest mob in the last reading, as before"""
     trail = list(MOB_TRAIL)
     now = time.time() if now is None else now
-    if not trail or now - trail[-1][0] > CAUGHT_FRESH:
-        return 'none (no mobs read lately - they are read while walking with mob avoidance on)'
+    # (the battle's mobs but not its start - its stamp unreadable: the circle's readings can't be told apart - none)
+    if began is None and battle:
+        return "none (the battle's start couldn't be read)"
+    if began is None:
+        if not trail or now - trail[-1][0] > CAUGHT_FRESH:
+            return 'none (no mobs read lately - they are read while walking with mob avoidance on)'
+    else:
+        trail = [e for e in trail if e[0] < began - CAUGHT_CUT]
+        if not trail or began - trail[-1][0] > CAUGHT_BEFORE:
+            return ('none (no mobs read just before the battle began - they are read while walking with mob avoidance '
+                    'on; not while you play, the bot waits or turns, or the game is behind another window)')
+    cands = set(battle) if battle else None
+    if cands:
+        # (the last reading before the battle with any of its mobs in it - from there back)
+        j = len(trail) - 1
+        while j >= 0 and not cands.intersection(trail[j][2]):
+            j -= 1
+        if j < 0 or (began if began is not None else now) - trail[j][0] > (CAUGHT_BEFORE if began is not None else CAUGHT_FRESH):
+            return "none (the battle's mobs weren't among the mobs read just before it began)"
+        trail = trail[:j + 1]
     _, me, mobs = trail[-1]
-    near = sorted((math.hypot(v[1] - me[0], v[2] - me[1]), g) for g, v in mobs.items() if abs(v[3] - me[2]) <= 200)
+    pool = mobs.items() if not cands else [(g, mobs[g]) for g in cands if g in mobs]
+    near = sorted((math.hypot(v[1] - me[0], v[2] - me[1]), g) for g, v in pool if abs(v[3] - me[2]) <= 200)
     if not near:
-        return 'none (no mob near)'
+        return 'none (no mob near)' if not cands else "none (the battle's mobs were on another floor)"
     d, gid = near[0]
-    if d > CAUGHT_NEAR:
-        return f'none (the nearest mob was {d:.0f} away)'
+    if d > (CAUGHT_NEAR_BATTLE if cands else CAUGHT_NEAR):
+        return (f'none (the nearest mob was {d:.0f} away)' if not cands else
+                f"none (the nearest of the battle's mobs was {d:.0f} away {began - trail[-1][0]:.1f} s before it began)"
+                if began is not None else f"none (the nearest of the battle's mobs was {d:.0f} away)")
     k, came = len(trail) - 1, False
-    # (standing in the battle already - neither moving: back to where they last moved)
+    # (standing still - neither moving: back to where they last moved)
     while (k > 0 and gid in trail[k - 1][2] and trail[k][0] - trail[k - 1][0] <= CAUGHT_GAP
            and math.dist(trail[k][1][:2], trail[k - 1][1][:2]) < 4
            and math.dist(trail[k][2][gid][1:3], trail[k - 1][2][gid][1:3]) < 4):
         k -= 1
+    k_end = k
     while k > 0:
         prev, cur = trail[k - 1], trail[k]
-        if gid not in prev[2] or cur[0] - prev[0] > CAUGHT_GAP:
+        dt = cur[0] - prev[0]
+        if gid not in prev[2] or dt > CAUGHT_GAP or dt <= 0 or trail[k_end][0] - prev[0] > CAUGHT_CAME_MAX:
             break
         a, b = prev[2][gid], cur[2][gid]
         sx, sy = b[1] - a[1], b[2] - a[2]
         step = math.hypot(sx, sy)
         tx, ty = prev[1][0] - a[1], prev[1][1] - a[2]
-        if step < 4 or (sx * tx + sy * ty) / (step * (math.hypot(tx, ty) or 1.0)) < 0.7:
+        if step < 4 or step / dt < CAUGHT_RUN or (sx * tx + sy * ty) / (step * (math.hypot(tx, ty) or 1.0)) < 0.7:
             break
         came, k = True, k - 1
-    # (where it stood when it noticed him: the reading before its first step his way - it turns to him first)
-    if came and k > 0 and gid in trail[k - 1][2] and trail[k][0] - trail[k - 1][0] <= CAUGHT_GAP:
-        k -= 1
+    # (trail[k]: where it stood when it set off his way - the reading before its first step. Its facing from the reading
+    # before that when there is one: a run begun between two readings makes trail[k] the first of the run, the mob
+    # turned to him already - a catch from the side or behind read as one in front)
     t0, me0, mobs0 = trail[k]
     name, x, y, _, yaw = mobs0[gid]
+    if (k > 0 and gid in trail[k - 1][2] and trail[k][0] - trail[k - 1][0] <= CAUGHT_GAP
+            and trail[k - 1][2][gid][4] is not None):
+        yaw = trail[k - 1][2][gid][4]
     dist = math.hypot(me0[0] - x, me0[1] - y)
     walked = caught_walking(trail, k, gid)
     off = ''
@@ -3720,11 +3765,41 @@ def caught_line(now=None):
         c = ((me0[0] - x) * -math.sin(yaw) + (me0[1] - y) * -math.cos(yaw)) / dist
         off = f'{math.degrees(math.acos(max(-1.0, min(1.0, c)))):.0f}'
     # (and whether the helper took it as the quest's - the last /nav's own split, by the game's memory's goal: its name, its
-    # kind, or one by a fight goal - left off the avoid list: the walker went into it for the quest)
+    # kind, or one by a fight goal - left off the avoid list: the walker went into it for the quest. The battle's mobs
+    # given: any of them - a boss's battle is the quest's though its add was nearer. Its start given: the last /nav's split
+    # whenever it was - no /nav after the battle began till you leave the battle to the bot, the split's still the one
+    # from it)
     qs = MOBS_SHOWN.get('quest') or set()
-    quest = 1 if gid in qs and now - (MOBS_SHOWN.get('at') or 0) <= CAUGHT_FRESH else 0
+    quest = 1 if ((gid in qs or (cands and cands & qs))
+                  and (began is not None or now - (MOBS_SHOWN.get('at') or 0) <= CAUGHT_FRESH)) else 0
     return (f"caught|{name.replace('|', ' ')}|{dist:.0f}|{off}|{1 if came else 0}|{now - t0:.1f}|{quest}|"
             + ('' if walked is None else str(int(walked))))
+
+
+def caught_began(v, now=None):
+    """/caught's began - the game's log line's "MM/DD/YY HH:MM:SS" (local time) the battle began at - as epoch seconds;
+    None missing, not that, or not in the last 10 minutes"""
+    now = time.time() if now is None else now
+    try:
+        st = time.strptime(str(v or '').strip(), '%m/%d/%y %H:%M:%S')
+    except (ValueError, OverflowError):
+        return None
+    # (the hour the clocks go back comes twice: both readings of it tried - the one in the window)
+    got = []
+    for dst in (-1, 0, 1):
+        try:
+            s = time.mktime(tuple(st[:8]) + (dst,))
+        except (ValueError, OverflowError):
+            continue
+        if now - 600.0 <= s <= now + 5.0:
+            got.append(s)
+    return max(got) if got else None
+
+
+def caught_ids(v):
+    """/caught's mobs (the battle's mobs' global ids, commas between) as ints - None none given"""
+    ids = [int(x) for x in str(v or '').split(',') if x.strip().isdigit()][:16]
+    return ids or None
 
 
 def caught_walking(trail, k, gid):
@@ -4943,7 +5018,11 @@ class Handler(BaseHTTPRequestHandler):
                 except Exception as e:
                     return self.reply('ERR ' + repr(e))
             if u.path == '/caught':
-                return self.reply(caught_line())
+                # (a start sent but unreadable: none - not the old answer off the duel circle's readings)
+                began = caught_began(q.get('began', ''))
+                if began is None and q.get('began', '') != '':
+                    return self.reply("none (the battle's start couldn't be read: " + q.get('began', '')[:40] + ")")
+                return self.reply(caught_line(began=began, battle=caught_ids(q.get('mobs', ''))))
             if u.path == '/duels':
                 nm = nav_reader()
                 r, why = nm.read(path=False)

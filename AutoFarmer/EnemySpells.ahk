@@ -110,8 +110,10 @@ BattleLogLine(blLine)
 	{
 	global BlFled, BlPhase, BlPhaseAt, BlDuel, BlNames, BlCasts, BlRound, BlSub, BlMe, BlMeChar ; (v1 globals it sets)
 	global BlOutDuel ; (v2-only: the port tools don't know it)
-	if (!InStr(blLine, "Combat") && !InStr(blLine, "Subcircle"))
+	if (!InStr(blLine, "Combat") && !InStr(blLine, "Subcircle") && !InStr(blLine, "AddNewParticipant") && !InStr(blLine, "MSG_Duel received") && !InStr(blLine, "MSG_EndDuel"))
 		return
+	;(a battle's start: its mobs and when you entered it - for the mob that started it, Vision.ahk CaughtLog)
+	BattleLogStart(blLine)
 	if (InStr(blLine, "MSG_CombatFlee"))
 		BlFled := 1
 	;(out of the battle - fled, or defeated: no phase line follows. Taken out with no flee before it: defeated - the
@@ -191,6 +193,95 @@ BattleLogLine(blLine)
 		if (blSlot <= 3 && IsObject(BlNames) && BlNames.Has(blSlot) && VisionOn)
 			VisionGet("/enemyseen?name=" NavUri(BlNames[blSlot]) "&spell=" NavUri(blM[3]) "&round=" blRnd, 600, true)
 		}
+	}
+
+;A battle's start by the game's log, for the mob that started it (Vision.ahk CaughtLog), per duel number: when it formed
+;("MSG_Duel received N", twice - written the moment a mob and the wizard meet: 2026-11-21 17:17:10 the wizard's memory
+;track stopped that same tenth of a second, then the game walked him onto his sigil and added him 3-4 s later) - the
+;line's own MM/DD/YY HH:MM:SS too (the bot reads the log late while it turns the wizard: seconds), and when you last
+;played before it (PlayerActedAt) -, its mobs
+;in the order the game adds them - their global ids, the "AddNewParticipant player:" line right after each
+;"MSG_CombatAdd(<template>)" -, whether another wizard was in it before you ("MSG_CombatAdd(Non-local Player)" before
+;yours: his battle, joined), when you were added, and your sigil ("Local Player Entering Combat at (x, y, z)": your seat
+;on the circle, 600 from its middle - the same spot every battle there, not where you were caught). The bot's clock as
+;it read each line (every half second). A duel over (its match's result, you taken out of it, its end) or quiet 15 s with
+;you not in it starts afresh at its next line: the game reuses a circle's duel number
+BattleLogStart(blLine)
+	{
+	global BlStarts, BlAddPend ; (v1 globals it sets)
+	if (!IsObject(BlStarts))
+		BlStarts := Map()
+	if (RegExMatch(blLine, "AddNewParticipant player:(\d+)", &bsM))
+		{
+		if (BlAddPend != "" && BlStarts.Has(BlAddPend))
+			BlStarts[BlAddPend].gids.Push(bsM[1])
+		BlAddPend := ""
+		return
+		}
+	if (!RegExMatch(blLine, "Duel (?:received )?(\d+):", &bsN))
+		return
+	bsD := bsN[1], bsS := BlStarts.Has(bsD) ? BlStarts[bsD] : ""
+	bsAfresh := !IsObject(bsS) || bsS.over || (!bsS.me && A_TickCount - bsS.last > 15000)
+	;(the duel formed - the mob and the wizard met, or another player's battle nearby)
+	if (InStr(blLine, "MSG_Duel received " bsD ":"))
+		{
+		if (bsAfresh)
+			bsS := BattleLogStartNew(bsD, A_TickCount, SubStr(blLine, 1, 17))
+		bsS.last := A_TickCount
+		return
+		}
+	if (RegExMatch(blLine, "Duel \d+: MSG_CombatAdd\((.+?)\)", &bsM))
+		{
+		;(its forming not read - the bot started after it, or the line missed: its start not known)
+		if (bsAfresh)
+			bsS := BattleLogStartNew(bsD, 0)
+		bsS.last := A_TickCount, BlAddPend := ""
+		;(a mob's add - a template's name, as vision\battlerec.py's TEMPLATE_RX: ZF-Zebra-Warrior-Male-R10-1 -: its global
+		;id on the next line; "Local Player" yours; anything else another wizard's)
+		if (bsM[1] = "Local Player")
+			bsS.me := 1, bsS.addAt := A_TickCount
+		else if (RegExMatch(bsM[1], "^[A-Za-z0-9][A-Za-z0-9_.\-]*[-_][A-Za-z0-9_.\-]*$"))
+			BlAddPend := bsD
+		else if (!bsS.me)
+			bsS.wizBefore := 1
+		return
+		}
+	if (!IsObject(bsS))
+		return
+	if (RegExMatch(blLine, "Duel \d+: Local Player Entering Combat at \(([-\d.]+), ([-\d.]+), ([-\d.]+)\)", &bsM))
+		{
+		bsS.enterAt := A_TickCount, bsS.enterPos := bsM[1] "," bsM[2] "," bsM[3], bsS.last := A_TickCount
+		return
+		}
+	if (RegExMatch(blLine, "Duel \d+: (?:MSG_CombatMatchResult|MSG_CombatRemove\(Local Player\)|MSG_EndDuel)"))
+		bsS.over := 1
+	}
+
+;A new duel for BattleLogStart (formed at duelAt, its log line's stamp - 0 and "" not read), a few kept: other players'
+;battles nearby are in the log too
+BattleLogStartNew(bsD, duelAt, stamp := "")
+	{
+	global BlStarts ; (v1 globals it sets)
+	if (BlStarts.Count >= 20)
+		for bsK, bsV in BlStarts.Clone()
+			if (A_TickCount - bsV.last > 600000)
+				BlStarts.Delete(bsK)
+	bsNew := {gids: [], wizBefore: 0, me: 0, duelAt: duelAt, duelStamp: stamp, actedAt: IsSet(PlayerActedAt) ? PlayerActedAt : ""
+		, addAt: 0, enterAt: 0, enterPos: "", over: 0, last: A_TickCount}
+	BlStarts[bsD] := bsNew
+	return bsNew
+	}
+
+;The battle you were added to last by the game's log (BattleLogStart's: {gids, wizBefore, me, duelAt, duelStamp, actedAt,
+;addAt, enterAt, enterPos, over, last}) - added at most withinMs ago; "" none
+BattleLogLastStart(withinMs := 60000)
+	{
+	bls := ""
+	if (IsObject(BlStarts))
+		for blsK, blsV in BlStarts
+			if (blsV.me && blsV.addAt && A_TickCount - blsV.addAt < withinMs && (!IsObject(bls) || blsV.addAt > bls.addAt))
+				bls := blsV
+	return bls
 	}
 
 ;How many wizards are on your side of this battle (the game's log; 0 not known)
@@ -649,7 +740,7 @@ EnemySpellsBlank()
 	{
 	global KoGoal := "", KoTimes := "", KoStopGoal := ""
 	global BlPos := "", BlHead := "", BlDuel := "", BlNames := "", BlSub := "", BlCasts := "", BlRound := "", BlReadAt := "", BlPhase := ""
-	global BlOutDuel := ""
+	global BlOutDuel := "", BlStarts := "", BlAddPend := ""
 	global BlPhaseAt := "", BlFled := "", BlMe := "", BlMeChar := "", OwnHpCur := "", OwnHpMax := "", OwnHpAt := "", OwnHpVotes := "", OwnHpWin := ""
 	global EnemyLethal := "", EnemyLethalRound := "", heal1 := "", heal2 := "", hitschool := "", tower := "", absorb := ""
 	}

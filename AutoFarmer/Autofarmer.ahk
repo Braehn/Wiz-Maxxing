@@ -224,7 +224,7 @@ return
 PlayerActing()
 	{
 	static logged := 0
-	global PlayerActive ; (v1 globals it sets)
+	global PlayerActive, PlayerActedAt ; (v1 globals it sets)
 	secs := Stats.Has("handsoff") ? Stats["handsoff"] : 3
 	acting := (HandsOffOn() && secs > 0 && UserIdle() < secs * 1000)
 	;(the bot's own hotkeys aren't you playing: the key itself, and for Alt+1 / Alt+2 / Windows+3 the click
@@ -260,6 +260,9 @@ PlayerActing()
 			WalkReset.Call()
 		}
 	PlayerActive := acting
+	;(when you last were: Vision.ahk CaughtLog - a battle begun while you played is your doing)
+	if (acting)
+		PlayerActedAt := A_TickCount
 	;(the battle recorder told who plays - only on a change: BattleRec.ahk)
 	if (V1IsFunc("BrecWho"))
 		BrecWho.Call(acting)
@@ -4770,7 +4773,7 @@ global PipSaveBare := 0, PipSaveTarget := "", PipSaveLastPips := -1, PipSaveStal
 ;You're at the keyboard and mouse right now (PlayerActing): the bot waits. PlayerTookRound: you played (part
 ;of) a round of this battle - the bot's record of blades/traps may be wrong, so no kill check till it ends.
 ;RoundLeft: the bot left the round that's up to you (seeing it again isn't a new round)
-global PlayerActive := 0, PlayerTookRound := 0, RoundLeft := 0, RoundAgain := 0
+global PlayerActive := 0, PlayerActedAt := "", PlayerTookRound := 0, RoundLeft := 0, RoundAgain := 0
 ;"Play for me" (the dashboard's button - green while on -, the tray menu): every check for you off - nothing waits for you or keeps its
 ;hands off the mouse for you (UserIdle, Walker.ahk). Off at every start: the bot takes control only once you've said so
 global PlayForMe := 0
@@ -6573,7 +6576,7 @@ AutofarmerBlank()
 	global on := "", BotOn := "", BotStandby := "", BotEverOn := "", BotGameSeenAt := "", PotionManual := "", Stats := "", EnemyHP := ""
 	global BossSlot := "", HealthStatus := "", AppliedBlades := "", BossTraps := "", AuraRounds := "", EnchantedHits := "", PipSaveFor := ""
 	global PipSaveRounds := "", PipSaveGaveUp := "", OwnHpPct := "", OwnHpRound := "", PipSaveBare := "", PipSaveTarget := "", PipSaveLastPips := ""
-	global PipSaveStall := "", PipOrbs := "", PlayerActive := "", PlayerTookRound := "", RoundLeft := "", RoundAgain := "", PlayForMe := ""
+	global PipSaveStall := "", PipOrbs := "", PlayerActive := "", PlayerActedAt := "", PlayerTookRound := "", RoundLeft := "", RoundAgain := "", PlayForMe := ""
 	global MobWalkMs := "", EnemyPhaseDone := "", PlateDuel := "", BookSeenAt := "", PassSeenAt := "", PassNudgeAt := "", PassNudges := ""
 	global PassNudgeSaidAt := "", PassHover := "", PassHoverSaidAt := "", PipsNow := "", PipsNote := "", BoostRun := "", BossMax := ""
 	global DualBattle := "", BattleRole := "", HammerSchool := "", HammerName := "", HammerSlot := "", ManualSchool := "", HammerGroup := ""

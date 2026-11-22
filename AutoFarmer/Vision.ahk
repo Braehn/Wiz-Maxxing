@@ -1565,15 +1565,51 @@ NavPetList(v)
 
 ;A battle's first round: the mob that started it, off the mobs the helper read lately (while walking with mob
 ;avoidance on) - how far away you were and how far off its facing when it noticed you, into debug.log, to measure the
-;mobs' real sight against the mobshape / mobradius settings
+;mobs' real sight against the mobshape / mobradius settings. The battle's start by the game's log goes along
+;(EnemySpells.ahk BattleLogStart): the second its duel formed (the mob and you met - the log line's own stamp) and its
+;mobs - the helper looks only at those, in its readings from before it: the walker reads on till the first round, and by then the
+;game has walked you and the mobs onto the circle's sigils, 1150 or so apart - 2026-11-21 not one of 16 catches was
+;taken (MobGrow never ran). A battle another wizard was in before you, or whose forming the log didn't show (one already
+;going, the bot started after it), isn't counted
 CaughtLog()
 	{
 	if (!VisionOn)
 		return
-	a := VisionGet("/caught", 600, true)
+	clS := BattleLogLastStart(60000)
+	if (!IsObject(clS))
+		{
+		DebugLog("  Caught: who started the battle not known - your joining it isn't in the game's log")
+		return
+		}
+	;(his battle, joined - no mob caught you; carry mode: the other wizard is your carry, the one log both clients'. Its
+	;forming not read, or long before you were added: one already going)
+	if (clS.wizBefore && !(IsSet(CarryOn) && CarryOn))
+		{
+		DebugLog("  Caught: not counted - you joined a battle another wizard was already in")
+		return
+		}
+	if (!clS.duelAt || clS.duelStamp = "" || clS.addAt - clS.duelAt > 10000)
+		{
+		DebugLog("  Caught: not counted - the battle's start isn't in the game's log (one already going, or the bot started after it)")
+		return
+		}
+	clIds := ""
+	for each, clG in clS.gids
+		clIds .= (clIds = "" ? "" : ",") clG
+	clArgs := "?began=" NavUri(clS.duelStamp) (clIds != "" ? "&mobs=" clIds : "")
+	;(you at the keyboard or mouse from 5 s before it began - as BattleLogStart noted it then: your doing - till its first
+	;round: you took it over - who walked into what, and what the walker was up to, can't be told then. The round waits
+	;for you to stop, so you're not playing by the time it's up: PlayerActing)
+	clPlay := (clS.actedAt != "" && clS.actedAt >= clS.duelAt - 5000) || (PlayerActedAt != "" && PlayerActedAt > clS.duelAt)
+	a := VisionGet("/caught" clArgs, 600, true)
 	f := StrSplit(Trim(a, " `r`n"), "|")
 	if (V1At(f, 1) != "caught" || f.Length < 6)   ; (v1: an empty answer's first field read blank)
+		{
+		;(why not, in the log: the helper's "none (...)", or no answer)
+		clWhy := Trim(RegExReplace(a, "\s+", " "))
+		DebugLog("  Caught: who started the battle not known - " (clWhy != "" ? SubStr(clWhy, 1, 160) : "no answer from the helper" (VisionErr != "" ? " (" VisionErr ")" : "")))
 		return
+		}
 	s := MobShape()
 	if (s.wide >= 360)
 		where := (V1Le(f[3], s.range) ? "inside" : "outside") " the circle set (" s.range " all round)"
@@ -1586,17 +1622,18 @@ CaughtLog()
 	clWalk := V1At(f, 8) = "1" ? ", walking" : V1At(f, 8) = "0" ? ", standing" : ""
 	DebugLog("  Caught by " f[2] clWalk ": " (f[5] = 1 ? "it came for you from " f[3] " away" : "you walked into it (" f[3] " away)")
 		. (f[4] != "" ? ", " f[4] " degrees off where it faced" : "") " (" f[6] " s before) - " where)
-	MobGrow(f, s)
+	MobGrow(f, s, clPlay)
 	}
 
 ;Caught by a mob the quest doesn't want (mobgrow, on unless 0): the reach the route keeps out of made bigger, so mobs
 ;are kept further off from now on - the shape's front (mobradius) when it caught the wizard in front of it (or all round:
 ;a circle, its facing unknown), its reach all round (mobbody) when from the side or behind - to where it caught him from
-;and 25 more, 20 more at the least; 1500 at most (all round past the front: the front raised too). Left as it is when the battle was
+;and 25 more, 20 more at the least and 200 at the most a catch; 1500 at most (all round past the front: the front raised
+;too). Left as it is when the battle was
 ;the quest's - collecting, a mob the helper took as the quest's (/caught's quest field: by the game's memory's goal), a mob
-;named in the goal line, X pressed in the last 15 s (the goal's boss), a dungeon run that fights every battle - or you were
-;playing. f: /caught's fields; s: MobShape()
-MobGrow(f, s)
+;named in the goal line, X pressed in the last 15 s (the goal's boss), a dungeon run (its recorded fights) - or you were
+;playing (playing: you were around the battle's start - CaughtLog). f: /caught's fields; s: MobShape()
+MobGrow(f, s, playing := 0)
 	{
 	global MobWalkMs ; (v1 globals it sets)
 	if (Stat("mobgrow") = 0 || (Stats.Has("mobavoid") && !Stats["mobavoid"]))
@@ -1604,8 +1641,8 @@ MobGrow(f, s)
 	mgName := f[2], mgDist := V1Round(f[3]), mgOff := f[4]   ; (v1: Round of a blank or text was 0)
 	;(collecting: walking into mobs is the point - but not on the way to a quest item lying about: Collect.ahk)
 	mgWhy := (WkArrived = 7 && CiGid = "") ? "collecting" : (WkLastX && A_TickCount - WkLastX < 15000) ? "X was just pressed - the goal's battle?"
-		: (IsObject(DgRun) && !DgRun.avoid) ? "a dungeon run" : (V1IsFunc("PuzzleFighting") && %"PuzzleFighting"%.Call(mgName)) ? "a puzzle's fight - the way's guards"
-		: PlayerActive ? "you were playing" : ""
+		: IsObject(DgRun) ? "a dungeon run - its fights walked into on purpose" : (V1IsFunc("PuzzleFighting") && %"PuzzleFighting"%.Call(mgName)) ? "a puzzle's fight - the way's guards"
+		: (PlayerActive || playing) ? "you were playing" : ""
 	;(the quest's mob by the helper's own verdict - the game's memory's goal: its name, its kind, or one by a fight goal -
 	;left off the avoid list: /caught's 7th field; an older helper's has none)
 	if (mgWhy = "" && V1At(f, 7) = 1)   ; (v1: an older helper's 6 fields - the 7th blank)
@@ -1627,7 +1664,11 @@ MobGrow(f, s)
 	mgFront := s.wide >= 360 || mgOff = "" || V1Le(mgOff, s.wide / 2)
 	mgSet := mgFront ? "mobradius" : "mobbody"
 	mgWas := mgFront ? s.range : s.body
-	mgTo := Min(1500, Max(mgWas + 20, mgDist + 25))
+	;(200 more at the most a catch: a reading off - a mob walking its rounds his way - can't take it to 1500 at once. You
+	;walked into it - it didn't come for you, f[5] - 20 more only: how far it was a moment before isn't how far it sees)
+	mgTo := Min(1500, Max(mgWas + 20, Min(mgDist + 25, mgWas + 200)))
+	if (V1At(f, 5) != 1)
+		mgTo := Min(1500, mgWas + 20)
 	mgWhat := mgFront ? "how far they notice you" : "their reach all round"
 	if (mgTo <= mgWas)
 		{
