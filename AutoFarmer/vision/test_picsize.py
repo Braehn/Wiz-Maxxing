@@ -19,6 +19,7 @@ class PicSize(unittest.TestCase):
     def setUpClass(cls):
         cls.af = code_of(os.path.join(AF, 'Autofarmer.ahk'))
         cls.ps = code_of(os.path.join(AF, 'PicScale.ahk'))
+        cls.gr = code_of(os.path.join(AF, '..', 'GameRect.ahk'))
 
     def fn(self, code, name):
         b = body(code, name)
@@ -26,12 +27,45 @@ class PicSize(unittest.TestCase):
         return b
 
     def test_minimized_kept(self):
-        """a minimized game window: nothing measured (its client area isn't 0 x 0 with a title bar)"""
+        """a minimized game window: nothing measured (its client area isn't 0 x 0 with a title bar) - nor one with no
+        client area (GameClientRect false: w or h 0)"""
         u = self.fn(self.af, 'UpdateGameRect')
-        m = re.search(r'if \(w <= 0 \|\| h <= 0 \|\| DllCall\("IsIconic", "Ptr", hwnd\)\)\s*\{\s*return\s*\}', u)
+        m = re.search(r'if \(DllCall\("IsIconic", "Ptr", hwnd\) \|\| !GameClientRect\(hwnd, &x, &y, &w, &h\)\)\s*\{\s*return\s*\}', u)
         self.assertIsNotNone(m)
-        self.assertLess(m.start(), u.index('GameLeft := NumGet(pt, 0, "Int")'))
-        self.assertLess(u.index('DllCall("GetClientRect", "Ptr", hwnd'), m.start())
+        self.assertLess(m.start(), u.index('GameLeft := x'))
+        self.assertNotIn('GetClientRect', u)
+        g = self.fn(self.gr, 'GameClientRect')
+        self.assertRegex(g, r'if \(w <= 0 \|\| h <= 0\)\s*return false')
+
+    def test_full_screen_bigger_than_its_screen(self):
+        """2026-11-21: a full-screen Wizard101 1920x1200 on a 1920x1080 screen (the remote desktop's size changed after
+        it started) draws for 1920x1080 - only the part on its screen is the game's; a window with a title bar (windowed)
+        or one not at its screen's top left measured whole, as before"""
+        g = self.fn(self.gr, 'GameClientRect')
+        cap = g.index('if ((DllCall("GetWindowLong", "Ptr", hwnd, "Int", -16, "Int") & 0xC00000) = 0xC00000)\n\t\treturn true')
+        mon = g.index('DllCall("MonitorFromWindow", "Ptr", hwnd, "UInt", 2, "Ptr")')
+        self.assertLess(cap, mon)
+        self.assertRegex(g, r'mL := NumGet\(mi, 4, "Int"\), mT := NumGet\(mi, 8, "Int"\), mR := NumGet\(mi, 12, "Int"\), '
+                            r'mB := NumGet\(mi, 16, "Int"\)')
+        self.assertIn('if (x != mL || y != mT || (w <= mR - mL && h <= mB - mT))\n\t\treturn true', g)
+        self.assertIn('w := Min(w, mR - mL), h := Min(h, mB - mT)', g)
+        # (said once per size, the log line keeping the caller's ErrorLevel - UpdateGameRect runs between a search and
+        # its check in places; the size said kept in a global with no initializer - an #Included file's top lines aren't
+        # run - and emptied once Autofarmer's debug.log is started: said in that run's own log)
+        self.assertRegex(g, r'if \(!IsSet\(GameRectSaid\) \|\| gcSize != GameRectSaid\)[\s\S]*local gcKeep := V1Thread\(\)[\s\S]*%"DebugLog"%\(')
+        self.assertRegex(self.gr, r'(?m)^global GameRectSaid$')
+        self.assertNotIn('restarting Wizard101', self.gr)
+        rot = self.af.index(r'V1Do(FileMove, A_ScriptDir "\debug.log", A_ScriptDir "\debug.previous.log", 1)')
+        self.assertLess(self.af.index('local gtBack := WatchTrayBack(A_ScriptDir, 500)\nUpdateGameRect()'), rot)
+        self.assertLess(rot, self.af.index('GameRectSaid := ""'))
+        # (the bot, the stats reader and the walker on its own all measure the game by it)
+        sr = code_of(os.path.join(AF, 'StatsReader.ahk'))
+        self.assertIn('GameClientRect(hwnd, &GameLeft, &GameTop, &GameW, &GameH)', sr)
+        aq = code_of(os.path.join(AF, '..', 'AutoQuester', 'AutoQuester.ahk'))
+        self.assertIn('if (!GameClientRect(hwnd, &x, &y, &w, &h))', body(aq, 'UpdateGameRect'))
+        for src in (self.af, sr, aq):
+            self.assertIn(r'#Include "%A_ScriptDir%\..\GameRect.ahk"', src)
+            self.assertNotIn('GetClientRect", "Ptr", hwnd', src)
 
     def test_main_loop(self):
         """right after the main loop's UpdateGameRect, with its PicSetOkSize - before the heartbeat line and any search;

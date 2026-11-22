@@ -61,19 +61,16 @@ UpdateGameRect()
 	hwnd := V1Try(WinGetID, "ahk_class " GameClass " ahk_exe " GameExe)  ; (v1: blank with no game window)
 	if (!hwnd)
 		return false
-	rect := Buffer(16, 0)
-	pt := Buffer(8, 0)
-	DllCall("GetClientRect", "Ptr", hwnd, "Ptr", rect.Ptr)
-	DllCall("ClientToScreen", "Ptr", hwnd, "Ptr", pt.Ptr)
-	w := NumGet(rect, 8, "Int"), h := NumGet(rect, 12, "Int")
-	if (w <= 0 || h <= 0)
+	;(the client area - a full-screen one bigger than its screen only the part on it, the part the game draws: GameRect.ahk)
+	if (!GameClientRect(hwnd, &x, &y, &w, &h))
 		return false
-	GameLeft := NumGet(pt, 0, "Int"), GameTop := NumGet(pt, 4, "Int"), GameW := w, GameH := h
+	GameLeft := x, GameTop := y, GameW := w, GameH := h
 	return true
 	}
 
 #Include "%A_ScriptDir%\Walker.ahk"
 #Include "%A_ScriptDir%\ArrowReader.ahk"
+#Include "%A_ScriptDir%\..\GameRect.ahk"
 #Include "%A_ScriptDir%\..\V1Compat.ahk" ; (v2 port: the v1 behaviours it keeps)
 
 ;(v1's hotkey and label bodies, as functions: assume-global, as v1 ran them)
@@ -85,6 +82,7 @@ ToggleWalk()
 ;##############################################
 ToggleWalk(A_ThisMenuItem:="", A_ThisMenuItemPos:="", MyMenu:="", *) { ; (v1: the label ToggleWalk - a menu item too)
 global
+local v1Keep := V1Thread() ; (v1: each thread had its own ErrorLevel)
 WalkToggle()
 if (Walking)
 	SetTimer(WalkLoop,-1)

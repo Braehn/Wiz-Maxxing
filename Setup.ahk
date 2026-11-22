@@ -503,6 +503,7 @@ SuCloseWatch()
 SuVersionsLoad()
 	{
 	global SuRels, SuRelsErr
+	local v1Keep := V1Thread() ; (v1: each thread had its own ErrorLevel)
 	err := ""
 	SuRels := SuReleases(&err), SuRelsErr := err
 	SuVersionsFill(SuRels, "this folder's - couldn't list the others: " err)
@@ -610,6 +611,7 @@ SuLatestTag()
 ;What the version picked will do (the Version list, or "Install to your Programs folder" ticked or not)
 SuVerPick(*)
 	{
+	local v1Keep := V1Thread() ; (v1: each thread had its own ErrorLevel)
 	rel := SuPicked()
 	if (!IsObject(rel))
 		{
@@ -1416,6 +1418,7 @@ SuShort(path)
 ;###############  v1's labels, as functions  ###############
 SuInstall(A_GuiEvent:="", A_GuiControl:="", Info:="", *) { ; (v1: the label SuInstall - the Install button's, and gosub)
 	global
+	local v1Keep := V1Thread() ; (v1: each thread had its own ErrorLevel)
 	if (SuBusy)
 		return
 	V1GuiSubmit(Su, false)

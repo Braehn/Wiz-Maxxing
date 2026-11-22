@@ -2662,6 +2662,7 @@ DashGuiClose(*) { ; (v1: a label - its code ran in the global scope)
 ;(v1: A_EventInfo 1 - minimized; v2's MinMax -1)
 DashGuiSize(thisGui:="", MinMax:="", A_GuiWidth:="", A_GuiHeight:="") { ; (v1: a label - its code ran in the global scope)
 	global
+	local v1Keep := V1Thread() ; (v1: each thread had its own ErrorLevel)
 	if (MinMax = -1)
 		{
 		;(Settings: traybot - minimized: into the tray instead, the bot plays on - DashToTray)

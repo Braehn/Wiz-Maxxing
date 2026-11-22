@@ -63,9 +63,8 @@ V1Try(WinActivate, "ahk_id " hwnd)  ; (v1: the window gone meanwhile - nothing, 
 ErrorLevel := !WinWaitActive("ahk_id " hwnd, , 3)
 if (ErrorLevel)
 	Fail("Couldn't bring Wizard101 to the front.")
-rect := Buffer(16, 0), pt := Buffer(8, 0)
-DllCall("GetClientRect", "Ptr", hwnd, "Ptr", rect.Ptr), DllCall("ClientToScreen", "Ptr", hwnd, "Ptr", pt.Ptr)
-GameLeft := NumGet(pt, 0, "Int"), GameTop := NumGet(pt, 4, "Int"), GameW := NumGet(rect, 8, "Int"), GameH := NumGet(rect, 12, "Int")
+;(the client area - a full-screen one bigger than its screen only the part on it, the part the game draws: GameRect.ahk)
+GameClientRect(hwnd, &GameLeft, &GameTop, &GameW, &GameH)
 GameRight := GameLeft + GameW, GameBottom := GameTop + GameH, ScreenX := GameLeft + GameW // 2, ScreenY := GameTop + GameH // 2
 Sleep(300)
 
@@ -134,6 +133,7 @@ PicPath(rel)
 #Include "%A_ScriptDir%\Ocr.ahk"
 #Include "%A_ScriptDir%\PicScale.ahk"
 #Include "%A_ScriptDir%\StatsRead.ahk"
+#Include "%A_ScriptDir%\..\GameRect.ahk"
 #Include "%A_ScriptDir%\..\V1Compat.ahk" ; (v2 port: the v1 behaviours it keeps)
 
 ;(v2 port, CONVENTIONS.md "Blank start": v1 started every variable blank; v2 leaves it unset and throws on

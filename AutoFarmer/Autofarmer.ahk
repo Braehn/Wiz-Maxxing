@@ -476,6 +476,9 @@ GamePriorityOf(pid)
 GamePriorityTick()
 	{
 	static raised := Map(), failed := Map()
+	;(a timer: its DebugLog sets ErrorLevel - 2026-11-21 16:18 without this, its "at High priority now" landed between the
+	;round start's Pass search and its check, and a Pass that wasn't there was "found" with no position)
+	local v1Keep := V1Thread() ; (v1: each thread had its own ErrorLevel)
 	gpOn := GameHighOn(), gpPids := Map(), gpN := 0
 	gpDhw := A_DetectHiddenWindows
 	try
@@ -1461,22 +1464,18 @@ UpdateGameRect()
 		{
 		return
 		}
-	rect := Buffer(16, 0)
-	pt := Buffer(8, 0)
-	DllCall("GetClientRect", "Ptr", hwnd, "Ptr", rect.Ptr)
-	DllCall("ClientToScreen", "Ptr", hwnd, "Ptr", pt.Ptr)
-	w := NumGet(rect, 8, "Int")
-	h := NumGet(rect, 12, "Int")
+	;(the client area - a full-screen one bigger than its screen only the part on it, the part the game draws:
+	;GameRect.ahk GameClientRect)
 	;Minimized, keep the last known position - IsIconic too: a minimized window with a title bar still has a client area
 	;(2026-11-20 20:51: a full-screen Wizard101 - minimized whenever another window takes the focus - read 160x28 at
 	;-32000,-32000 as the bot started, so it chose its pictures for a 160x28 window, the main set at UI 1, and never saw
 	;the 1920x1080 game's spellbook - UI 0.856 - out of a battle)
-	if (w <= 0 || h <= 0 || DllCall("IsIconic", "Ptr", hwnd))
+	if (DllCall("IsIconic", "Ptr", hwnd) || !GameClientRect(hwnd, &x, &y, &w, &h))
 		{
 		return
 		}
-	GameLeft := NumGet(pt, 0, "Int")
-	GameTop := NumGet(pt, 4, "Int")
+	GameLeft := x
+	GameTop := y
 	GameW := w
 	GameH := h
 	GameRight := GameLeft + w
@@ -2657,6 +2656,14 @@ PassButtonAt(&x, &y)
 			if (ErrorLevel = 0)
 				pbErr := 0, PassHover := 1
 			}
+		}
+	;(a Pass found always has its position - ImageSearch blanks x, y only when it finds nothing. One "found" without it
+	;had its ErrorLevel changed by another thread in between: not a Pass - 2026-11-21 16:18, an error dialog at the round
+	;start's log line, the round "played" on another program's window)
+	if (pbErr = 0 && (x = "" || y = ""))
+		{
+		pbErr := 1, PassHover := 0
+		DebugLog("  (the Pass button search said found but gave no position - another thread changed ErrorLevel in between: not counted)")
 		}
 	ErrorLevel := pbErr
 	return pbErr
@@ -4348,6 +4355,7 @@ LogMirrorGameShown()
 #Include "%A_ScriptDir%\..\AutoQuester\ArrowReader.ahk"
 #Include "%A_ScriptDir%\..\Watch.ahk"
 #Include "%A_ScriptDir%\..\CheatEngine.ahk"
+#Include "%A_ScriptDir%\..\GameRect.ahk"
 #Include "%A_ScriptDir%\..\V1Compat.ahk" ; (v2 port: the v1 behaviours it keeps)
 
 ;###############  (v1: the labels, as functions)  ###############
@@ -4432,6 +4440,7 @@ return
 ;##############################################
 MenuStats(A_ThisMenuItem:="", A_ThisMenuItemPos:="", MyMenu:="", *) { ; (v1: a label)
 global
+local v1Keep := V1Thread() ; (v1: each thread had its own ErrorLevel)
 TrayPicked(A_ThisMenuItem, MyMenu)
 StatsWanted := 1
 TrayTip("Reading your stats at the next quiet moment out of battle (hands off the mouse and keys for 5 s).", "Wizard101 bot", 1)
@@ -4715,6 +4724,7 @@ return
 ;##############################################
 MenuExit(A_ThisMenuItem:="", A_ThisMenuItemPos:="", MyMenu:="", *) { ; (v1: a label)
 global
+local v1Keep := V1Thread() ; (v1: each thread had its own ErrorLevel)
 TrayPicked(A_ThisMenuItem, MyMenu)
 ExitApp()
 }
@@ -4917,6 +4927,9 @@ UpdateGameRect()
 ;debug.log: what the script sees and decides each round (starts fresh every start / restart; the last
 ;run's is kept as debug.previous.log - e.g. to see why a wizard died before you restarted)
 V1Do(FileMove, A_ScriptDir "\debug.log", A_ScriptDir "\debug.previous.log", 1)
+;(a full-screen game window bigger than its screen, said by the look above into the last run's log: said again in this one's -
+;GameRect.ahk)
+GameRectSaid := ""
 ;The dashboard: statistics, what the bot sees, the log as it's written (Dashboard.ahk; Windows+2)
 DashInit()
 SetTimer(UpdPeekNow,-45000)
@@ -5223,10 +5236,10 @@ Loop
 		mobloop() ; (v1: Gosub)
 		LoreLoop() ; (v1: Gosub)
 		}
-	;(the Pass button, or as it's drawn with the mouse on it - PassButtonAt)
-	PassButtonAt(&startX, &startY)
-	;Kept, since writing the log line below resets ErrorLevel (which would start a round that isn't there)
-	startErr := ErrorLevel
+	;(the Pass button, or as it's drawn with the mouse on it - PassButtonAt). Its answer kept - from its return, not the
+	;global ErrorLevel afterwards: writing the log line below resets ErrorLevel (which would start a round that isn't
+	;there), and so does a thread that interrupts in between without its V1Thread (test_thread_errorlevel.py)
+	startErr := PassButtonAt(&startX, &startY)
 	if (startErr = 2 && !PicError)
 		{
 		DebugLog("Can't open " PicPath("resources\roundstart.png") " - the pictures aren't where the script expects them")
@@ -6525,6 +6538,7 @@ HK2_()
 ;##############################################
 HK2_() { ; (v1: a hotkey)
 global
+local v1Keep := V1Thread() ; (v1: each thread had its own ErrorLevel)
 if (on = 1)
 	{
 	if (devmode = 1)
