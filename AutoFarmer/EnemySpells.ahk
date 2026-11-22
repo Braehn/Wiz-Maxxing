@@ -511,11 +511,15 @@ BattleDefeated(how)
 KoNote()
 	{
 	global KoGoal, KoTimes, Walking, KoStopGoal ; (v1 globals it sets)
-	global WkGoalLine, BotOn, DgRun ; (read: the walker's goal line, the bot on, a dungeon run)
+	global WkGoalLine, WkGoalSeen, BotOn, DgRun ; (read: the walker's goal line - and its last that wasn't blank -, the bot on, a dungeon run)
 	if (!BotOn)
 		return
 	;(a dungeon run's knockouts: its own count - the quest's goal line isn't what it's doing)
 	koG := (IsObject(DgRun) && !DgRun.between && DgRun.name != "") ? "the dungeon run '" DgRun.name "'" : Trim(WkGoalLine)
+	;(the line blank just then - a battle, a loading screen: the last one read. 2026-11-21: one goal's knockouts went under 'Defeat
+	;Shaka Zebu in Zamunda' and three 'somewhere in <zone>' keys - six that afternoon, the guard's 3 never reached)
+	if (koG = "" && IsSet(WkGoalSeen))
+		koG := Trim(WkGoalSeen)
 	if (koG = "")
 		koG := "somewhere in " (V1IsFunc("WalkZone") ? WalkZone.Call() : "this zone")
 	if (!IsObject(KoTimes))

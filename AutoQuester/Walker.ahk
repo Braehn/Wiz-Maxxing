@@ -144,6 +144,9 @@ global ArriveUnits, PushUnits
 ;(X pressed at a prompt: what it opened looked at already; the quest's goal line as last read, and when; where the last
 ;WalkGoalText got it from: "the game" - its memory, AutoFarmer's NavGoal -, "the screen" - the OCR -, "" nowhere)
 global WkAfterXLooked, WkGoalLine, WkGoalLineAt, WkGoalFrom
+;The last goal line that wasn't blank (a battle, a loading screen or a dialogue blanks WkGoalLine for a while) - AutoFarmer's
+;knockout count keys by it then (EnemySpells.ahk KoNote)
+global WkGoalSeen
 ;When each prompt's NPC was last looked at for a quest marker (WalkQuestMarker: {name letters: tick})
 global WkQmLooked
 ;When each NPC was last talked to for its quest marker - once per 5 minutes ({name letters: tick})
@@ -3425,7 +3428,7 @@ WalkEditDist(a, b)
 ;else by OCR (the arrow not on screen: where it usually is)
 WalkGoalLine()
 	{
-	global WkGoalLineAt, WkGoalFrom, WkGoalLine ; (v1 globals it sets)
+	global WkGoalLineAt, WkGoalFrom, WkGoalLine, WkGoalSeen ; (v1 globals it sets)
 	if (WkGoalLineAt && A_TickCount - WkGoalLineAt < 3000)
 		return WkGoalLine
 	WkGoalLineAt := A_TickCount
@@ -3444,6 +3447,8 @@ WalkGoalLine()
 	if (text != "" && text != said && (WkGoalFrom = "the game" || !saidAt || A_TickCount - saidAt > 30000))
 		said := text, saidAt := A_TickCount, WalkLog("the quest's goal line: " SubStr(text, 1, 120) " (from " WkGoalFrom ")")
 	WkGoalLine := text
+	if (text != "")
+		WkGoalSeen := text
 	return text
 	}
 
@@ -4237,6 +4242,14 @@ CollectCheck(dist)
 	;way to aren't taken up here: the arrow's own arrival with a place, CollectNoPlace without)
 	ccMode := IsObject(WkCollect) ? WkCollect.kind : ""
 	ccOn := ccMode = "" || ccMode = "fight" || ccMode = "use"
+	;(a fight goal's collecting isn't carried on where the game's memory has the goal in another zone - CollectStep would stop it
+	;the next step, and the two would take turns for ever at a way out that doesn't load: dropped, the walk's own arrival and wait)
+	if (IsObject(WkCollect) && !WkCollect.gaveUp && (ccMode = "" || ccMode = "fight") && CollectElsewhere(WkCollect.goalid))
+		{
+		WalkLog("collect: the game's memory has '" WkCollect.text "' " WkNavHops " zone change" (WkNavHops = 1 ? "" : "s") " away - not collecting here")
+		WkCollect := ""
+		WalkNotifyClose("collect")
+		}
 	going := IsObject(WkCollect) && !WkCollect.gaveUp && ccOn
 	if (going && A_TickCount - WkCollect.sureAt < 20000)
 		{
@@ -4280,6 +4293,10 @@ CollectCheck(dist)
 	;own arrival; anything else - Practice Photomancy - nothing roamed for)
 	ccKind := WalkGoalKind(text)
 	if (ccKind != "fight" && ccKind != "use")
+		return false
+	;(a fight goal the game's memory has in another zone isn't collected here - waited at the way out, as any goal: the wait's notice
+	;and a blocked way's handling (Puzzle.ahk) as before. Arrival with the goal in this zone as before)
+	if (ccKind = "fight" && CollectElsewhere(CollectGoalId()))
 		return false
 	WkCollect := V1Obj({text: text, from: A_TickCount, sureAt: A_TickCount, last: text, gaveUp: 0, battles: 0
 		, count: CollectCount(text), progressAt: A_TickCount, stepAt: A_TickCount, goalid: CollectGoalId(), newText: "", kind: ccKind})
@@ -4325,6 +4342,13 @@ CollectNoPlace()
 	;(using, going to or talking to only on the game's memory's verdict - WkNavNoPlace: an arrow hidden 2 s with nothing standing in
 	;for it - a zone change, the memory not trusted, an older helper, no helper - isn't "no way to it"; the arrow's own way then)
 	if (cnpKind = "" || (cnpKind = "fight" && !CollectGoal(text)) || (cnpKind != "fight" && !WkNavNoPlace))
+		return false
+	;(a fight goal too isn't taken up while the game's memory has a place for it - in another zone (hops) or in this one
+	;(noplace 0): the arrow hidden 2 s there is a knockout, a zone change or a loading screen, not "no way to it". 2026-11-21
+	;16:54:40: knocked out, the arrow hidden 3 s - 'Defeat Shaka Zebu in Zamunda', two zones off by the game's memory, was
+	;collected in Zamunda Outskirts, the bot walking into every mob there and knocked out again and again. No memory reading
+	;at all - no helper, navmem:0: as before)
+	if (cnpKind = "fight" && !WkNavNoPlace && CollectPlacedByMem())
 		return false
 	;(the memory keeps the line whatever is drawn over it - a dialogue or window X opened, a screen Remote Desktop doesn't
 	;draw: taken only while the line shows there too - its OCR a collect goal, or sharing a word with it; the memory's exact
@@ -4433,6 +4457,21 @@ CollectStep(seen, h, dist)
 		{
 		WalkLog(csKind ": the game shows a way to '" WkCollect.text "' now - following it")
 		WkCollect := ""
+		ReleaseKeys()
+		WalkReset()
+		return true
+		}
+	;(a fight goal's collecting whose goal the game's memory, read this step for the same goal, has in another zone (hops) - a
+	;knockout or a hidden arrow started it away from it (2026-11-21 16:54: 'Defeat Shaka Zebu in Zamunda' collected in the
+	;Outskirts, every mob there walked into) - or, one the game showed no way to, a place now: the arrow's own way from here;
+	;its monsters are taken up again at its arrival (CollectCheck)
+	if (csKind = "fight" && (CollectElsewhere(WkCollect.goalid) || (WkCollect.noPlace && !WkNavNoPlace && WkNavOk && IsObject(WkNavObj)
+		&& (WkCollect.goalid = "" || WkNavObj.goalid = "" || WkCollect.goalid "|" = WkNavObj.goalid "|")
+		&& WkNavObj.noplace = 0 && WkNavObj.tx != "")))
+		{
+		WalkLog("collect: the game's memory has '" WkCollect.text "' " (V1Gt(WkNavHops, 0) ? WkNavHops " zone change" (WkNavHops = 1 ? "" : "s") " away" : "at a place it shows the way to now") " - not collecting here, following the way there")
+		WkCollect := ""
+		WalkNotifyClose("collect")
 		ReleaseKeys()
 		WalkReset()
 		return true
@@ -4665,6 +4704,22 @@ CollectGoalId()
 	{
 	;(a goal the game shows no way to: no usable reading, its id read all the same - WalkNav's WkNpGoal)
 	return (WkNavOk && IsObject(WkNavObj)) ? WkNavObj.goalid : (WkNavNoPlace && WkNpGoal != "") ? WkNpGoal : ""
+	}
+
+;The game's memory's last reading (WkNavLast - a newer helper's, this step's or the last one it answered) has a place for the
+;quest's goal: in another zone (hops - noplace is "" there) or in this one (noplace 0). False: no reading (no helper,
+;navmem:0, AutoQuester on its own), one that says no place (noplace 1), or one that doesn't know (noplace "", no hops)
+CollectPlacedByMem()
+	{
+	return IsObject(WkNavLast) && (V1Gt(WkNavLast.hops, 0) || (WkNavLast.noplace = 0 && WkNavLast.noplace != ""))
+	}
+
+;The game's memory, read this step, has the quest's goal in another zone (hops) - goalid: the goal collecting is for (its id ""
+;not known: any goal's). False with no usable reading this step, or one saying the game shows no way to it
+CollectElsewhere(goalid)
+	{
+	return !WkNavNoPlace && WkNavOk && IsObject(WkNavObj) && V1Gt(WkNavHops, 0)
+		&& (goalid = "" || WkNavObj.goalid = "" || goalid "|" = WkNavObj.goalid "|")
 	}
 
 ;The goal collecting is for has changed (the quest moved on): by the game's memory's goal id when it's known both then
@@ -7024,6 +7079,7 @@ WalkerBlank()
 	global WkNavSignSaved := "", NavWhy := "", WkNavChecked := "", WkNavZScales := "", WkNavScaleZone := "", WkNavScaleAll := "", WkStandIn := ""
 	global NavRoute := "", WkNavRouted := "", WkNavLeft := "", WkRouteBest := "", WkRouteProg := "", WkRouteState := "", ArriveUnits := ""
 	global PushUnits := "", WkAfterXLooked := "", WkGoalLine := "", WkGoalLineAt := "", WkGoalFrom := "", WkQmLooked := "", WkQmTalked := ""
+	global WkGoalSeen := ""
 	global WkPromptSkip := "", WkPreXText := "", WkNavJump := "", WkNavJumpAt := "", WkJumpKey := "", WkJumpStuck := "", WkJumpPushUntil := ""
 	global WkNavMob := "", WkNavMobName := "", WkMobLogged := "", WkNavMobAt := "", WkRealSeenAt := "", WkArrowAtX := "", WkNavMirrorSaid := ""
 	global WkNavDoor := "", ApproachUnits := "", TalkUnits := "", TalkReach := "", WkApTries := "", WkApOffUntil := "", WkGoalType := ""
