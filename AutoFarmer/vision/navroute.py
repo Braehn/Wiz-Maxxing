@@ -193,6 +193,10 @@ DUEL_COST = 200.0       # extra cost of a square in it (not a wall: with no othe
 DUEL_SOFT_COST = 6.0    # ...right outside it, fading to nothing at DUEL_SOFT
 DUEL_GIVEUP = 240.0     # on the way with no way round: waited for this long at most (s - a battle takes minutes)...
 DUEL_IGNORE = 600.0     # ...then not waited for for this long (s)
+HEAT = None             # the route memory's heat (vision.py sets it - routemem.RouteMem.heat01 - with the
+                        # routeheat setting on): (zone, x0, y0, nx, ny, cell) -> each square's 0-1, or None
+HEAT_DISCOUNT = 0.25    # ...a square at full heat this much cheaper to walk (walls stay walls; mobs and
+                        # battles as dear - added after)
 
 DIRS = [(-1, 0, 1.0), (1, 0, 1.0), (0, -1, 1.0), (0, 1, 1.0),
         (-1, -1, math.sqrt(2)), (-1, 1, math.sqrt(2)), (1, -1, math.sqrt(2)), (1, 1, math.sqrt(2))]
@@ -962,6 +966,16 @@ class Field:
             self.see_blocked |= ground == 0
         near = (dist > hard_cells) & (dist <= soft_cells)
         cost = cost + np.where(near, SOFT_COST * (soft_cells + 1 - dist) / (soft_cells + 1 - hard_cells), 0.0)
+        # (the ways walked well before - routemem's heat, the routeheat setting: a little cheaper, so of two ways
+        # about as long the one that worked is taken; the mobs' and battles' costs below are added on top as dear)
+        heat = HEAT
+        if heat is not None:
+            try:
+                h = heat(self.zone, self.x0, self.y0, self.nx, self.ny, CELL)
+            except Exception:  # noqa: BLE001 - not known: no discount
+                h = None
+            if h is not None and getattr(h, 'shape', None) == cost.shape:
+                cost = cost * (1.0 - HEAT_DISCOUNT * np.clip(h, 0.0, 1.0))
         # the mobs avoided: dearer near them (on this storey; within the window or near enough to reach into it - a
         # walking one with its sweep)
         x1, y1 = self.x0 + self.nx * CELL, self.y0 + self.ny * CELL

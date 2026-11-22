@@ -1726,7 +1726,9 @@ MobShape()
 ;The helper's arguments for keeping a route out of what mobs see: mobavoid (on unless 0) and MobShape - "" when it's off;
 ;duelavoid (off unless 1 - the duel circles aren't confirmed in the game yet): out of other players' battles too (&duels=1);
 ;mobwall (off unless 1 - the gap's width isn't measured in the game yet): a line of mobs' wall with no way round waited at
-;as a mob on the way (&walls=1 - /nav's; else walked through its gap at once, as before)
+;as a mob on the way (&walls=1 - /nav's; else walked through its gap at once, as before); routeheat (on unless 0): the route
+;memory's ways walked well before a little cheaper for the planner (&heat=1 - /nav's, vision\routemem.py); you playing
+;(PlayerActive): &user=1 - the leg being walked isn't kept as one the bot walked well
 NavMobArgs()
 	{
 	if (Stats.Has("mobavoid") && !Stats["mobavoid"])
@@ -1735,6 +1737,8 @@ NavMobArgs()
 	return "&avoid=1&mobr=" s.range "&shape=" s.shape (s.shape = 3 ? "&cone=" s.wide : "") (s.shape > 1 ? "&body=" s.body : "")
 		. (Stats.Has("duelavoid") && Stats["duelavoid"] = 1 ? "&duels=1" : "")
 		. (Stats.Has("mobwall") && Stats["mobwall"] = 1 ? "&walls=1" : "")
+		. (Stats.Has("routeheat") && !Stats["routeheat"] ? "" : "&heat=1")
+		. (IsSet(PlayerActive) && PlayerActive ? "&user=1" : "")
 	}
 
 ;A number off /nav ("" if it isn't one: empty, nan, inf). Python may write a tiny one as 1.5e-08

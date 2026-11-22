@@ -272,6 +272,24 @@ checked in the game: vision\bossmem.py --duels 30 next to someone else's
 battle, at a dungeon's sigil and in your own battle (the helper's /duels lists
 them too).
 
+Ways that worked (routeheat:1 - Settings: "...prefer the ways that worked
+before"): each time the wizard gets to where the quest's path leads - a quest
+goal, or a zone's way out - with mob avoidance on and you not playing, the
+helper keeps the way it walked there (AutoFarmer\routes\heat\<zone>.jsonl, one
+walk a line: the goal, how long it took, how far it walked, the trail). Each is
+weighed by how well it went: the straight line over the length walked, times
+the time spent walking over the time it took - a detour, a wait for a mob,
+standing stuck and every battle on the way count against it. Older walks count
+less (halved every 14 days); 300 kept a zone. Not kept: a walk that ended
+anywhere else (a knockout, a recall, the quest changed), took over 15 minutes,
+or had you playing in it. With the setting on, the planner makes the squares
+those walks passed through up to a quarter cheaper to walk, so of two ways
+about as long it takes the one that worked; walls stay walls and the mobs and
+other players' battles are kept out of as before. Off: the walks are still
+kept, not used. The dashboard's Map shades them orange, warmer the more good
+walks went that way. vision.log says "route memory: kept the leg in ..." or why
+one was dropped. Delete a zone's file to forget it.
+
 Mobs that catch you anyway (mobgrow:1): each battle a mob the quest doesn't
 need starts (not collecting, not one named in the goal line, not right after X
 at the goal, not a dungeon run that fights everything, not while you play)

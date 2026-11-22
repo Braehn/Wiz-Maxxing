@@ -2089,6 +2089,8 @@ QUEST_NEAR = 400.0                  # a mob this near the quest's goal (in this 
 MOBS_SHOWN = {}                     # the last /nav's split, for the map: {'quest': {gids}, 'near': mob radius, 'at': time}
 DUELS_SHOWN = {}                    # the last /nav's other players' battles kept out of, for the map: {'list', 'at'}
 MAP_DUEL = (186, 120, 255)          # another player's battle kept out of (duelavoid)
+MAP_HEAT = (255, 150, 40)           # the ways walked well before (the route memory's heat - routemem)...
+MAP_HEAT_A = 0.5                    # ...at full heat this much over the map (less and less with less)
 MAP_WALL = (240, 82, 82)            # a line of mobs' gaps closed (a wall)
 OV_FLOOR_A, OV_WATER_A, OV_RIM_A = 120, 110, 170   # the overlay map's (clear) floor, water and rim alpha
 OV_UNIT_DIV = 170   # its markers and names one size bigger than the dashboard's /240
@@ -4164,6 +4166,43 @@ def mob_avoid(q):
     return min(1500.0, rng), mob_cone(q)
 
 
+ROUTEMEM = None
+ROUTEMEM_LOCK = threading.Lock()
+
+
+def route_mem():
+    """the route memory (vision\\routemem.py: the legs of the quests walked well, kept in routes\\heat\\ - the heat
+    of the ways that worked), made on first use"""
+    global ROUTEMEM
+    with ROUTEMEM_LOCK:
+        if ROUTEMEM is None:
+            import routemem
+            ROUTEMEM = routemem.RouteMem(os.path.join(ROOT, 'routes', 'heat'), log=log)
+    return ROUTEMEM
+
+
+def route_heat(q, r, goal):
+    """/nav route=1's reading kept by the route memory (routemem.RouteMem.see): clean - a leg that can be kept - only
+    with avoid=1 (the walker keeping away from mobs: not walking into them on purpose) and not user=1 (you playing);
+    the goal told from the next by the game's ids for it (the quest's and the goal's - read with the quest's path; a
+    reading without them counts as the same goal, and no leg begins at one - a line read off the screen or the
+    memory's can differ from one reading to the next), its line (the memory's, else the walker's) for the file and the
+    log. With heat=1 (the routeheat setting) the planner's squares the kept legs passed through are a little
+    cheaper (navroute.HEAT) - without it, as before. A leg kept or dropped: in the log. Never raises"""
+    try:
+        import navroute
+        rm = route_mem()
+        navroute.HEAT = rm.heat01 if q.get('heat', '0') not in ('', '0') else None
+        clean = q.get('avoid', '0') not in ('', '0') and q.get('user', '0') in ('', '0')
+        text = (goal or {}).get('text') or q.get('goal', '')
+        key = ('ids %s %s' % (r.get('quest'), r.get('goalid'))) if r.get('goalid') not in (None, '', 0) else ''
+        said = rm.see(r.get('zone'), r.get('pos'), key, r.get('goal'), clean=clean, label=text)
+        if said:
+            log(said)
+    except Exception as e:  # noqa: BLE001 - not kept: walking goes on as before
+        log(f'route memory: {e!r}')
+
+
 def my_speed():
     """the wizard's walking speed (units / s - MobMotion's, off the readings), None not known yet"""
     try:
@@ -4520,6 +4559,35 @@ def height_rgb(level):
     return np.stack([np.interp(lv, MAP_HEIGHT_STOPS, cols[:, c]) for c in range(3)], -1).astype(np.uint8)
 
 
+def heat_shade(img, zone, upp, ox, oy):
+    """the route memory's heat (routemem: the legs of quests walked well) shaded into the map picture img (RGB) - warm
+    (MAP_HEAT) where they passed, the more the warmer (MAP_HEAT_A at full heat); the picture's pixel (px, py) is world
+    ((px + ox + 0.5) * upp, -(py + oy + 0.5) * upp). Nothing kept for the zone: as it was. Never raises"""
+    try:
+        import routemem
+        got = route_mem().zone_grid(zone)
+        if got is None:
+            return
+        grid, gx0, gy0 = got
+        w, h = img.size
+        gi = np.floor(((np.arange(w) + ox + 0.5) * upp - gx0) / routemem.CELL).astype(np.int64)
+        gj = np.floor((-(np.arange(h) + oy + 0.5) * upp - gy0) / routemem.CELL).astype(np.int64)
+        oki = (gi >= 0) & (gi < grid.shape[1])
+        okj = (gj >= 0) & (gj < grid.shape[0])
+        if not oki.any() or not okj.any():
+            return
+        hv = np.zeros((h, w))
+        hv[np.ix_(np.nonzero(okj)[0], np.nonzero(oki)[0])] = grid[np.ix_(gj[okj], gi[oki])]
+        a = np.minimum(1.0, hv / routemem.FULL)[..., None] * MAP_HEAT_A
+        if not a.any():
+            return
+        arr = np.asarray(img.convert('RGB'), dtype=np.float32)
+        arr = arr * (1.0 - a) + np.asarray(MAP_HEAT, dtype=np.float32) * a
+        img.paste(Image.fromarray(np.clip(arr + 0.5, 0, 255).astype(np.uint8), 'RGB'))
+    except Exception as e:  # noqa: BLE001 - the map without it
+        log(f'map heat: {e!r}')
+
+
 def render_navmap(r, w, h, game_dir='', span=NAV_SPAN, route=None, mobs=None, rings_on=False, items=None, duels=None,
                   walls=None, clear=False):
     """the /navmap picture (RGB, w x h) round the wizard for a navmem reading r (r['pos'] known); route: the
@@ -4563,6 +4631,10 @@ def render_navmap(r, w, h, game_dir='', span=NAV_SPAN, route=None, mobs=None, ri
                         tiles.popitem(last=False)
                 if tiles[key] is not None:
                     img.paste(tiles[key], (i * T - ox, j * T - oy))
+    # (the ways walked well before - the route memory's heat: under the routes and markers; the dashboard's map, not
+    # the overlay over the game)
+    if not clear and zone:
+        heat_shade(img, zone, upp, ox, oy)
     # the overlay, drawn big and shrunk
     S = NAV_SS
     ov = Image.new('RGBA', (w * S, h * S), (0, 0, 0, 0))
@@ -5189,6 +5261,9 @@ class Handler(BaseHTTPRequestHandler):
                         arc_r = 0.0
                     # (this ask's own cone - not MOBS_SHOWN's, which a /navto running alongside may have changed; a line
                     # of mobs' wall with no way round waited at only with walls=1 - the mobwall setting)
+                    # (the route memory: this reading kept for the leg being walked - and its heat for the planner
+                    # with heat=1 - before the route's asked for)
+                    route_heat(q, r, goal)
                     lines += route_lines(r, nm.game_dir, avoid, near, cone, arc_r, duels,
                                          bool(avoid) and q.get('walls', '0') not in ('', '0'))
                 lines.append(goal_nav_line(goal))
