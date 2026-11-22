@@ -522,6 +522,9 @@ class SettingsFileWiring(unittest.TestCase):
         shrink = self.fn(code_of(os.path.join(AF, 'Vision.ahk')), 'MobShrinkTick')
         self.assertIn('Stat("mobradiusfloor")', shrink)
         self.assertIn('Stat("mobbodyfloor")', shrink)
+        # (its 10 minutes counted only while the wizard walks - W held -, not while he stands with walking on: 2026-11-22
+        # 12:15 8 of the 10 stood at a NEEDS YOU)
+        self.assertIn('if (lastAt && now - lastAt < 5000 && BotOn && Walking && HeldW && inbattle != 1 && !PlayerActive)', shrink)
 
     def test_apply_hooks(self):
         """after the write, each hook through V1IsFunc (never by name): the tray ticks and the dashboard's menu bar's

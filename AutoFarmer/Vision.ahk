@@ -1688,13 +1688,15 @@ MobGrow(f, s, playing := 0)
 ;(mobbody) - so routes aren't long ways round for nothing; a catch raises it again (MobGrow, which starts the 10 minutes
 ;again). Never below what you set yourself in the Settings window (mobradiusfloor, mobbodyfloor - written when you
 ;save them there; else 300 and 120). 2026-10-24: a fifth at a time down to 300 had the crabs of Survey Camp catching
-;the wizard - you'd set 850. Counted while the bot's on and walking, out of battle, you not playing
+;the wizard - you'd set 850. Counted while the bot's on and the wizard is walking (W held - HeldW), out of battle, you not
+;playing: not while he stands - at a NEEDS YOU, a talk, a wait - with walking switched on (2026-11-22 12:15 "10 minutes
+;walking without a mob catching" - 8 of them stood at a NEEDS YOU; 11-08 overnight the same with the game closed)
 MobShrinkTick()
 	{
 	static lastAt := 0
 	global MobWalkMs ; (v1 globals it sets)
 	now := A_TickCount
-	if (lastAt && now - lastAt < 5000 && BotOn && Walking && inbattle != 1 && !PlayerActive)
+	if (lastAt && now - lastAt < 5000 && BotOn && Walking && HeldW && inbattle != 1 && !PlayerActive)
 		MobWalkMs := (MobWalkMs ? MobWalkMs : 0) + now - lastAt
 	lastAt := now
 	if (MobWalkMs < 600000)
