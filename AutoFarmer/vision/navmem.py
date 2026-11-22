@@ -1148,6 +1148,13 @@ class NavMem:
         self._obj_thread, self._mob_names, self._names_retry, self.obj_stats = None, None, 0.0, {}
         self._names_said = 0.0           # (when a failure to ask for the things' name tables may be logged again)
         self._obj_state = (None, 0.0, None, 0.0, {})   # the objects thread's: regions, last full scan, zone, since, cache
+        # (a new zone's mobs: the walker asks for a look at the whole heap once its loading screen is over (want_full_scan -
+        # the thread woken at once, not after its OBJ_QUICK wait), and holds off walking till one that began after it has
+        # finished (mobs_scan_age): the zone the objects thread is on (its name), the monotonic time the last finished full
+        # look at it began (0.0 none yet), a full look asked for. 2026-11-21: the wizard walked into Zamunda 1-2 s after
+        # its loading screen, the mobs not read yet - "none" to the route - and an Impi Raider caught him 3 times of 4)
+        self._obj_wake = threading.Event()
+        self._obj_zone_name, self._obj_full_began, self._obj_full_want = None, 0.0, False
         # the hand (handmem.py): its reader of the attached game, the thread making it (its classes looked up once, about
         # half a second), why it couldn't be made (the game it was for, when to try again); the game opened for the
         # cards alone when one of the walker's signatures isn't in this build (handmem.LightAttach)
@@ -2529,7 +2536,11 @@ class NavMem:
                     if zone != zone_seen:
                         zone_seen, zone_from, regions, cache = zone, t0, None, {}
                         self._set_objs(0, {}, "looking at the new zone")
-                    full = (regions is None or not regions or t0 - last_full >= OBJ_FULL
+                        with self.lock:
+                            self._obj_zone_name, self._obj_full_began = zone[1], 0.0
+                    with self.lock:
+                        want, self._obj_full_want = self._obj_full_want, False
+                    full = (want or regions is None or not regions or t0 - last_full >= OBJ_FULL
                             or (t0 - zone_from < OBJ_SETTLE and t0 - last_full >= OBJ_SETTLE_EVERY))
                     found, where = st.scan_objects(cz, None if full else regions)
                     if full:
@@ -2584,13 +2595,38 @@ class NavMem:
                     except Exception:  # noqa: BLE001 - none: as before
                         duels = {}
                     self._set_objs(cz, objs, "", items, doors, duels)
+                    if full:
+                        with self.lock:
+                            if self._obj_zone_name == zone[1]:
+                                self._obj_full_began = t0
                     self.obj_stats = {"objects": len(found), "mobs": len(objs), "items": len(items), "doors": len(doors),
                                       "duels": len(duels), "uses": sum(1 for v in items.values() if v[5] == "use"),
                                       "full": full,
                                       "ms": round((time.monotonic() - t0) * 1000), "regions": len(regions or ())}
             except Exception as e:  # noqa: BLE001 - tried again next time
                 self._set_objs(0, {}, "the zone's objects couldn't be read (%r)" % (e,))
-            time.sleep(max(0.5, OBJ_QUICK - (time.monotonic() - t0)))
+            # (woken at once by want_full_scan - a walker just out of a loading screen - else every OBJ_QUICK s)
+            self._obj_wake.wait(max(0.5, OBJ_QUICK - (time.monotonic() - t0)))
+            self._obj_wake.clear()
+
+    def want_full_scan(self):
+        """a look at the whole heap for the zone's objects as soon as the objects thread can (it's woken) - the walker's,
+        once its loading screen is over: the new zone's mobs come after it. The thread started if it isn't running"""
+        with self.lock:
+            self._obj_full_want = True
+            self._obj_asked = time.monotonic()
+            if self._obj_thread is None or not self._obj_thread.is_alive():
+                self._obj_thread = threading.Thread(target=self._objects_run, name="objects", daemon=True)
+                self._obj_thread.start()
+        self._obj_wake.set()
+
+    def mobs_scan_age(self, zone):
+        """seconds since the last finished look at the whole heap for zone's objects began - None when none has finished
+        for it yet (a zone just entered, the objects thread on another zone, not running)"""
+        with self.lock:
+            if not zone or self._obj_zone_name != zone or not self._obj_full_began:
+                return None
+            return time.monotonic() - self._obj_full_began
 
 
 # ============================================================================ command line

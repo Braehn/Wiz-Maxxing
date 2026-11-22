@@ -115,6 +115,12 @@ Requests (all GET, answers are plain text lines, "ERR <why>" on a problem):
                                                                      not known - another zone, the quest helper off, a
                                                                      goal change caught midway. An older helper sends no
                                                                      such line)
+                                               mobscan|s            (only with route=1&avoid=1: seconds since the last
+                                                                     finished look at the whole heap for this zone's
+                                                                     mobs began, -1 none yet - &freshmobs=1 asks for
+                                                                     one at once: a walker just out of a loading
+                                                                     screen walks once one begun after it is in. An
+                                                                     older helper sends no such line)
                                                path|x,y,z;x,y,z;... (only with path=1: the game's own path over the
                                                                      zone's nav graph, from the wizard to the goal)
                                                route|x|y|left       (only with route=1: where to steer - a point ahead on
@@ -4192,6 +4198,12 @@ def noplace_line(r):
             + (f'{held:.1f}' if np_ == 1 and isinstance(held, (int, float)) else ''))
 
 
+def mobscan_line(age):
+    """/nav's mobscan|<s since the last finished look at the whole heap for this zone's objects began - -1 none yet>
+    (with route=1&avoid=1: a walker just out of a loading screen walks once one that began after it is in)"""
+    return 'mobscan|' + ('-1' if age is None else f'{age:.1f}')
+
+
 def nav_lines(r, with_path):
     """/nav's answer from a navmem reading (fields that can't be read for sure left empty)"""
     def xyz(v):
@@ -5076,6 +5088,11 @@ class Handler(BaseHTTPRequestHandler):
                     avoid, near, cone, duels = None, None, None, None
                     if q.get('avoid', '0') not in ('', '0'):
                         near, cone = mob_avoid(q)
+                        # (a walker just out of a loading screen: the whole heap looked at again at once - the new zone's
+                        # mobs come after the screen - and how old the last finished look is, on its own line)
+                        if q.get('freshmobs', '0') not in ('', '0'):
+                            nm.want_full_scan()
+                        lines.append(mobscan_line(nm.mobs_scan_age(r.get('zone'))))
                         mobs, _ = mobs_now(r, q.get('goal', ''), trail=True, goal=goal)
                         avoid = [m for m in mobs if not m['quest']]
                         MOBS_SHOWN.update(quest={m['gid'] for m in mobs if m['quest']}, near=near, avoid=True, at=time.time(),

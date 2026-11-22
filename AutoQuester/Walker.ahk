@@ -47,6 +47,9 @@ global WkGoalZones, WkKnownZones, WkZonesFile, WkPromptDest, WkTransUsed, WkTran
 global WkPromptUsed, WkZoneFrom, WkZoneAt, WkPressAt, DialogQuiet, WkQuietUntil, WkQuietLogged
 ;A loading screen per the game's log: a zone transfer under way (WkLoading - since WkLoadingAt), when the last one finished
 global WkLoading, WkLoadedAt, SkipGap, WkDlgLook, WkLoadingAt
+;Just out of a loading screen: held still till the new zone's mobs are read (WalkNav - WkMobHold 1), the WkLoadedAt a fresh
+;look at them was asked for, and the one they were read after (MobScanWait at most)
+global WkMobHold, WkMobScanAsked, WkMobScanDone, MobScanWait, WkMobKey, WkMobArriveAt, WkMobHeldFor
 global CollectWait, RoamRadius, ChaseTime, CollectMax
 ;Telling you when it needs you (WalkNotify): settings; the notice up now ("" none: its kind, title, window,
 ;shown now, OK'd - not shown again till it's sorted); how long without an arrow / waiting at a goal; the
@@ -211,6 +214,7 @@ WalkerInit(prefix := "AutoQuester")
 	global WkJumpStuck, WkJumpPushUntil, WkNavMob, WkNavMobName, WkMobLogged, WkNavMobAt, WkBlindAt, WkBlindBackSaid ; (v1 globals it sets)
 	global WkBlindMob, WkLoading, WkLoadedAt, WkDlgLook, WkCloseLook, WkNavEscAt, WkCollect, WkGoalReadAt, WkAfterXLooked ; (v1 globals it sets)
 	global WkLoadingAt ; (v2-only: the port tools don't know it)
+	global WkMobHold, WkMobScanAsked, WkMobScanDone, MobScanWait, WkMobKey, WkMobArriveAt, WkMobHeldFor
 	global WkGoalLine, WkGoalLineAt, WkRealSeenAt, WkArrowAtX, WkGoalFrom, WkNoteKind, WkNoteTitle, WkNoteHwnd, WkNoteShown ; (v1 globals it sets)
 	global WkNoteOff, WkWaitFrom, WkLastX, WkResetAt, WkNavOk, WkNavUse, WkNavH, WkNavD, WkNavHops, WkNavObj, WkNavState ; (v1 globals it sets)
 	global WkNavTrusted, WkNavAgree, WkNavMirror, WkNavOdd, WkNavScales, WkNavScaleBad, WkNavPrev, WkNavTurns, WkNavTurnLog ; (v1 globals it sets)
@@ -330,6 +334,8 @@ WalkerInit(prefix := "AutoQuester")
 	;(0, not blank: A_TickCount - "" is blank, and blank < 5000 holds - WalkCloseWindow never looked, 2026-10-23 15:02, a
 	;potion shop left open held the wizard; blank > 1500 doesn't - the party leader never waited for followers)
 	WkLoading := 0, WkLoadedAt := 0, WkDlgLook := 0, WkCloseLook := 0, WkNavEscAt := 0, WkLoadingAt := 0
+	;(a new zone's mobs: held for at most 8 s after a loading screen - a full look at the heap takes 2-5 s)
+	WkMobHold := 0, WkMobScanAsked := 0, WkMobScanDone := 0, MobScanWait := 8000, WkMobKey := 0, WkMobArriveAt := 0, WkMobHeldFor := 0
 	WkCollect := "", WkGoalReadAt := 0, WkAfterXLooked := 0, WkGoalLine := "", WkGoalLineAt := 0, WkRealSeenAt := 0, WkArrowAtX := 0
 	WkGoalFrom := ""
 	WkNoteKind := "", WkNoteTitle := "", WkNoteHwnd := 0, WkNoteShown := 0, WkNoteOff := 0, WkWaitFrom := 0, WkLastX := 0
@@ -550,6 +556,17 @@ WalkStep()
 	;(...the verdict just come with this reading: this step's arrow left out too)
 	if (seen && WkNavNoPlace)
 		seen := false, moved := false, h := "", dist := ""
+	;(just out of a loading screen, the new zone's mobs not read yet - WalkNav: no step till they are, the keys let go (the speed
+	;kept, as the other short stops do); a wait, not stuck - the stuck watch's clocks kept, as the other waits do)
+	if (WkMobHold)
+		{
+		if (KeysDown || HeldW)
+			ReleaseKeys(true)
+		SetStatus("waiting - the new zone's mobs being read (after the loading screen)")
+		WkBestTime := A_TickCount, WkLastRead := A_TickCount, WkTries := 0
+		Sleep(100)
+		return true
+		}
 	;(a new quest goal by the game's memory - its id: the no-X time after a dialogue is over, the new goal's prompt is X'd -
 	;2026-10-25 11:28:44, Edith Benchley's kept from X by the Star Portal's dialogue just before)
 	if (WkNavOk && WkNavObj.goalid != "")
@@ -6182,8 +6199,9 @@ WalkNav(hScr, dScr)
 	global WkNavLast, WkNpN, WkNpGoal, WkNpAt, WkNavNoPlace, WkNpTarget, WkCollect, WkNavObj, WkRouteBest, WkRouteProg ; (v1 globals it sets)
 	global WkProgBest, WkJumpKey, WkJumpStuck, WkNavMobName, WkNavMobAt, WkNavEscAt, WkNavPrev, WkWalkSamples, WkWalkSpeed ; (v1 globals it sets)
 	global TurnRadius ; (v1 globals it sets)
+	global WkMobHold, WkMobScanAsked, WkMobScanDone, WkMobKey, WkMobArriveAt, WkMobHeldFor ; (sets)
 	WkNavOk := 0, WkNavUse := 0, WkNavH := "", WkNavD := "", WkNavHops := "", WkNavRouted := 0, WkNavLeft := ""
-	WkNavJump := "", WkNavJumpAt := "", WkNavMob := "", WkNavRel := ""
+	WkNavJump := "", WkNavJumpAt := "", WkNavMob := "", WkNavRel := "", WkMobHold := 0
 	;(AutoQuester on its own has no vision helper - nor the mouse's turns: said once. In a battle there's nothing to
 	;steer, and the battle shouldn't wait for it)
 	if (!V1IsFunc("NavRead") || inbattle)
@@ -6199,7 +6217,39 @@ WalkNav(hScr, dScr)
 	;into mobs - WkCollect.kind)
 	avoidMobs := NavRoute && !(IsObject(Stats) && Stats.Has("mobavoid") && !Stats["mobavoid"])
 		&& !(WkArrived = 7 && !(IsObject(WkCollect) && WkCollect.kind != "" && WkCollect.kind != "fight"))
-	nav := %"NavRead"%.Call(150, false, NavRoute, avoidMobs, WalkGoalLine)
+	;(just into a zone - the game's log's loading screen over, or AutoFarmer's Reconnect back in the world after a relog or a
+	;relaunch - with mobs avoided: the new zone's mobs come after the screen, and till the helper has looked at the whole heap
+	;again (2-5 s) the route has none - "none in the way". 2026-11-21: into Zamunda 1-2 s after its screen, an Impi Raider caught
+	;the wizard 3 times of 4. Held still from then (MobScanWait at most); once the game's memory has the zone the log names (its
+	;ClientZone loaded - the log's ConnectComplete comes a second or so before: a look then would be the old zone's) a fresh look
+	;asked for half a second on, and walked on once one begun after that is in. An older helper (no mobscan) not waited for)
+	msKey := WkLoadedAt
+	if (V1IsFunc("RcBackAgo"))
+		{
+		msBack := %"RcBackAgo"%.Call()
+		if (msBack != "" && A_TickCount - msBack > msKey)
+			msKey := A_TickCount - msBack
+		}
+	msSince := msKey ? A_TickCount - msKey : ""
+	msOn := avoidMobs && msSince != "" && msSince < MobScanWait && WkMobScanDone != msKey
+	if (msOn && WkMobKey != msKey)
+		WkMobKey := msKey, WkMobArriveAt := 0
+	msFresh := msOn && WkMobArriveAt && A_TickCount - WkMobArriveAt >= 500 && WkMobScanAsked != msKey
+	if (msFresh)
+		WkMobScanAsked := msKey
+	nav := %"NavRead"%.Call(150, false, NavRoute, avoidMobs, WalkGoalLine, msFresh)
+	if (msOn && IsObject(nav) && nav.mobscan != "")
+		{
+		;(the log read every 250 ms meanwhile - its "Finished loading zone" seen at once)
+		if (!WkMobArriveAt && nav.zone != "" && WalkSameZone(nav.zone, WalkZone(true)))
+			WkMobArriveAt := A_TickCount
+		if (WkMobArriveAt && nav.mobscan >= 0 && nav.mobscan < (A_TickCount - WkMobArriveAt) / 1000 - 0.4)
+			WkMobScanDone := msKey, WalkLog("the new zone's mobs read " Round(msSince / 1000, 1) " s after the loading screen - walking on")
+		else
+			WkMobHold := 1, WkMobHeldFor := msKey
+		}
+	else if (avoidMobs && msSince != "" && msSince >= MobScanWait && WkMobHeldFor = msKey && WkMobScanDone != msKey)
+		WkMobScanDone := msKey, WalkLog("the new zone's mobs not read in " Round(MobScanWait / 1000) " s after the loading screen - walking on")
 	;A goal the game shows no way to (a newer helper's noplace 1, held 2 s for this goal, two readings running with the same goal id;
 	;a missed reading keeps it 3 s): the arrow on screen is a phantom - WalkStep leaves it out, the goal's kind's own way instead.
 	;An older helper sends no noplace: never - the arrow as before
@@ -7056,6 +7106,7 @@ WalkerBlank()
 	global WkPromptUsed := "", WkZoneFrom := "", WkZoneAt := "", WkPressAt := "", DialogQuiet := "", WkQuietUntil := "", WkQuietLogged := ""
 	global WkLoadingAt := ""
 	global WkLoading := "", WkLoadedAt := "", SkipGap := "", WkDlgLook := "", CollectWait := "", RoamRadius := "", ChaseTime := "", CollectMax := ""
+	global WkMobHold := 0, WkMobScanAsked := 0, WkMobScanDone := 0, MobScanWait := 8000, WkMobKey := 0, WkMobArriveAt := 0, WkMobHeldFor := 0
 	global NoArrowNotify := "", WaitNotify := "", CollectStall := "", OnTopDist := "", ResetTeleport := "", ResetEvery := "", StuckForever := ""
 	global WkResetAt := "", WkProgBest := "", WkProgAt := "", WkProgStep := "", WkNoteKind := "", WkNoteTitle := "", WkNoteHwnd := ""
 	global WkNoteShown := "", WkNoteOff := "", WkNoArrowFrom := "", WkWaitFrom := "", WkLastX := "", WkEscTried := "", WkNoGuideFrom := ""

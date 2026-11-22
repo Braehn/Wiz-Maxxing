@@ -585,6 +585,9 @@ global NavUiWhy, NavUiWaitUntil, NavUiRootW
 ;            change caught midway, an older helper). noplaceheld: seconds the 1 has held for this quest and goal (a
 ;            number - 3.000000: compare it as one), "" unless noplace is 1 - act on it once it has held (2 s, and the
 ;            same goalid two readings running: a goal change or a zone arrival can read 1 for a moment)
+;  mobscan   (avoidMobs only) seconds since the last finished look at the whole heap for this zone's mobs began, -1 none
+;            yet, "" an older helper; freshMobs: one asked for at once (a walker just out of a loading screen - the new
+;            zone's mobs come after it: Walker.ahk WalkNav holds still till one begun after the screen is in)
 ;A value that couldn't be read for sure is "". Returns "" when it can't be asked: navmem:0, the helper not
 ;running, an ERR (the game not running, at the login screen...) or no answer within timeoutMs - NavWhy says
 ;why, and after an ERR it isn't asked again for 1 s, doubling to 30 s while it keeps failing (no answer:
@@ -592,7 +595,7 @@ global NavUiWhy, NavUiWaitUntil, NavUiRootW
 ;avoidMobs (with withRoute): the route kept out of what the zone's mobs see (mobshape, mobradius) - but not those named in
 ;goalLine, the quest's goal line (or a function giving it: called only if the ask is sent), nor one by the quest's
 ;goal (the helper decides)
-NavRead(timeoutMs := 150, withPath := false, withRoute := false, avoidMobs := false, goalLine := "")
+NavRead(timeoutMs := 150, withPath := false, withRoute := false, avoidMobs := false, goalLine := "", freshMobs := false)
 	{
 	global NavWhy, NavUnblock, NavWait, NavWaitUntil ; (v1 globals it sets)
 	if (!Stat("navmem"))
@@ -611,7 +614,7 @@ NavRead(timeoutMs := 150, withPath := false, withRoute := false, avoidMobs := fa
 	if (withRoute && avoidMobs)
 		{
 		goalNow := IsObject(goalLine) ? goalLine.Call() : goalLine
-		unblock .= NavMobArgs() "&goal=" NavUri(SubStr(goalNow, 1, 160))
+		unblock .= NavMobArgs() "&goal=" NavUri(SubStr(goalNow, 1, 160)) (freshMobs ? "&freshmobs=1" : "")
 		}
 	;(the wizard's turning circle: the helper looks round its arc to the aim - walls on it or not)
 	arcAsk := (withRoute && V1IsFunc("WalkTurnRadius")) ? "&arcr=" WalkTurnRadius.Call() : ""
@@ -628,7 +631,7 @@ NavRead(timeoutMs := 150, withPath := false, withRoute := false, avoidMobs := fa
 	nav := V1Obj({ok: "", zone: "", x: "", y: "", z: "", yaw: "", tx: "", ty: "", tz: "", gx: "", gy: "", gz: ""
 		, hops: "", dist: "", enabled: "", questid: "", goalid: "", ax: "", ay: "", left: "", routewhy: "", jump: "", jx: "", jy: ""
 		, mob: "", mx: "", my: "", mobname: "", escape: "", blindahead: "", blindback: "", blindin: "", arc: "", duel: "", duelx: "", duely: ""
-		, goaltext: "", goaltype: "", goalstatus: "", goalcount: "", goaltotal: "", goalshown: "", noplace: "", noplaceheld: ""})
+		, goaltext: "", goaltype: "", goalstatus: "", goalcount: "", goaltotal: "", goalshown: "", noplace: "", noplaceheld: "", mobscan: ""})
 	Loop Parse, answer, "`n", "`r"
 		{
 		navLine := A_LoopField
@@ -669,6 +672,10 @@ NavRead(timeoutMs := 150, withPath := false, withRoute := false, avoidMobs := fa
 		;helper sends no such line)
 		else if (V1At(f, 1) = "noplace")
 			nav.noplace := NavNum(V1At(f, 2)), nav.noplaceheld := NavNum(V1At(f, 3))
+		;(avoidMobs only: seconds since the last finished look at the whole heap for this zone's mobs began, -1 none yet - "" an
+		;older helper's answer, which has no such line)
+		else if (V1At(f, 1) = "mobscan" && withRoute && avoidMobs)
+			nav.mobscan := NavNum(V1At(f, 2))
 		;(the quest's goal line from the game's memory - the helper's last line; an older one has none)
 		else if (V1At(f, 1) = "goalline")
 			nav.goaltext := Trim(V1At(f, 2)), nav.goaltype := Trim(V1At(f, 3)), nav.goalstatus := Trim(V1At(f, 4)), nav.goalcount := NavNum(V1At(f, 5))
