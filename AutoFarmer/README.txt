@@ -274,21 +274,27 @@ them too).
 
 Ways that worked (routeheat:1 - Settings: "...prefer the ways that worked
 before"): each time the wizard gets to where the quest's path leads - a quest
-goal, or a zone's way out - with mob avoidance on and you not playing, the
-helper keeps the way it walked there (AutoFarmer\routes\heat\<zone>.jsonl, one
-walk a line: the goal, how long it took, how far it walked, the trail). Each is
-weighed by how well it went: the straight line over the length walked, times
-the time spent walking over the time it took - a detour, a wait for a mob,
-standing stuck and every battle on the way count against it. Older walks count
-less (halved every 14 days); 300 kept a zone. Not kept: a walk that ended
-anywhere else (a knockout, a recall, the quest changed), took over 15 minutes,
-or had you playing in it. With the setting on, the planner makes the squares
-those walks passed through up to a quarter cheaper to walk, so of two ways
-about as long it takes the one that worked; walls stay walls and the mobs and
-other players' battles are kept out of as before. Off: the walks are still
-kept, not used. The dashboard's Map shades them orange, warmer the more good
-walks went that way. vision.log says "route memory: kept the leg in ..." or why
-one was dropped. Delete a zone's file to forget it.
+goal, or a zone's way out - the helper keeps the way it walked there
+(AutoFarmer\routes\heat\<zone>.jsonl, one walk a line: the goal, how long it took,
+how far it walked, the trail) once the goal moves on (or the zone changes). A
+walk ends where it gets there: a fight at a "Defeat ..." goal or walking about
+for a goal's things afterwards isn't part of it. Each is weighed by how well it
+went: the game's own path length over the length walked, times the time spent
+walking over the time it took - a detour, a wait for a mob, standing stuck and
+every battle on the way count against it. Older walks count less (halved every
+14 days); 300 kept a zone. Not kept: a walk that didn't get there (a knockout,
+a recall, the quest changed), took over 15 minutes, had mob avoidance off on
+the way, or had you playing - or the bot or its walking off - before it got
+there. With the setting on, the planner makes the squares those walks passed
+through up to 8% cheaper to walk, by how well they went: of two ways about as
+long it takes the one whose walks went well (never one more than 9% longer);
+walls stay walls and mobs and other players' battles are kept out of as before.
+Off: the walks are still kept, not used. The dashboard's Map shades them
+orange, the better and more of them the warmer. vision.log says "route memory:
+kept the leg in ..." or why one was dropped. Delete a zone's file to forget it
+(noticed at once). Each quest followed gets a line in quests.jsonl there too:
+its title, how long it was followed (battles in), its zones and goals in order,
+and how many walks were kept.
 
 Mobs that catch you anyway (mobgrow:1): each battle a mob the quest doesn't
 need starts (not collecting, not one named in the goal line, not right after X

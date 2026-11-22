@@ -4182,21 +4182,31 @@ def route_mem():
 
 
 def route_heat(q, r, goal):
-    """/nav route=1's reading kept by the route memory (routemem.RouteMem.see): clean - a leg that can be kept - only
-    with avoid=1 (the walker keeping away from mobs: not walking into them on purpose) and not user=1 (you playing);
-    the goal told from the next by the game's ids for it (the quest's and the goal's - read with the quest's path; a
-    reading without them counts as the same goal, and no leg begins at one - a line read off the screen or the
-    memory's can differ from one reading to the next), its line (the memory's, else the walker's) for the file and the
-    log. With heat=1 (the routeheat setting) the planner's squares the kept legs passed through are a little
-    cheaper (navroute.HEAT) - without it, as before. A leg kept or dropped: in the log. Never raises"""
+    """/nav route=1's reading for the route memory (routemem.RouteMem.see and .quest): clean - a leg that can be kept -
+    with avoid=1 (the walker keeping away from mobs on the way: not walking into them on purpose - a fight at the goal
+    has it off, after the leg's frozen); played with user=1 (you played, or the bot or its walking was off, since the
+    walker's last route ask - Vision.ahk NavRouteArgs); the goal told from the next by the game's ids for it (the
+    quest's and the goal's - read with the quest's path; a reading without them counts as the same goal, and no leg
+    begins at one - a line read off the screen or the memory's can differ from one reading to the next), its line (the
+    memory's, else the walker's) for the files and the log; ahead - the game's own path from here (routemem.path_len):
+    what the leg's eff is measured against. With heat=1 (the routeheat setting) the planner's squares the kept legs
+    passed through are a little cheaper (navroute.HEAT) - without it, as before. A leg or a quest over: in the log.
+    Never raises"""
     try:
         import navroute
+        import routemem
         rm = route_mem()
         navroute.HEAT = rm.heat01 if q.get('heat', '0') not in ('', '0') else None
-        clean = q.get('avoid', '0') not in ('', '0') and q.get('user', '0') in ('', '0')
+        clean = q.get('avoid', '0') not in ('', '0')
+        played = q.get('user', '0') not in ('', '0')
         text = (goal or {}).get('text') or q.get('goal', '')
         key = ('ids %s %s' % (r.get('quest'), r.get('goalid'))) if r.get('goalid') not in (None, '', 0) else ''
-        said = rm.see(r.get('zone'), r.get('pos'), key, r.get('goal'), clean=clean, label=text)
+        ahead = routemem.path_len(r.get('pos'), r.get('path'), r.get('goal'))
+        said = rm.see(r.get('zone'), r.get('pos'), key, r.get('goal'), clean=clean, played=played, label=text, ahead=ahead)
+        if said:
+            log(said)
+        # (the quest followed - quests.jsonl: how long each took, its zones and goals)
+        said = rm.quest(r.get('quest'), (goal or {}).get('quest') or '', r.get('zone'), text)
         if said:
             log(said)
     except Exception as e:  # noqa: BLE001 - not kept: walking goes on as before
@@ -4560,9 +4570,10 @@ def height_rgb(level):
 
 
 def heat_shade(img, zone, upp, ox, oy):
-    """the route memory's heat (routemem: the legs of quests walked well) shaded into the map picture img (RGB) - warm
-    (MAP_HEAT) where they passed, the more the warmer (MAP_HEAT_A at full heat); the picture's pixel (px, py) is world
-    ((px + ox + 0.5) * upp, -(py + oy + 0.5) * upp). Nothing kept for the zone: as it was. Never raises"""
+    """the route memory's heat (routemem.RouteMem.zone_grid: the walks to quest goals that went well) shaded into the
+    map picture img (RGB) - orange (MAP_HEAT) where they passed, the better and more of them the warmer (MAP_HEAT_A at
+    full heat); the picture's pixel (px, py) is world ((px + ox + 0.5) * upp, -(py + oy + 0.5) * upp) - render_navmap's
+    at(). Nothing kept for the zone: as it was. Never raises"""
     try:
         import routemem
         got = route_mem().zone_grid(zone)
@@ -4578,7 +4589,7 @@ def heat_shade(img, zone, upp, ox, oy):
             return
         hv = np.zeros((h, w))
         hv[np.ix_(np.nonzero(okj)[0], np.nonzero(oki)[0])] = grid[np.ix_(gj[okj], gi[oki])]
-        a = np.minimum(1.0, hv / routemem.FULL)[..., None] * MAP_HEAT_A
+        a = np.clip(hv, 0.0, 1.0)[..., None] * MAP_HEAT_A
         if not a.any():
             return
         arr = np.asarray(img.convert('RGB'), dtype=np.float32)

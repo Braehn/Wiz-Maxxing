@@ -272,7 +272,7 @@ PlayerActing()
 ;The bot on / off (F6, the tray menu, the dashboard's button): off, the main loop does nothing; keys held let go
 BotToggle()
 	{
-	global BotOn, BotEverOn, PlayerTookRound, BossChoosen, DeckBoss ; (v1 globals it sets)
+	global BotOn, BotEverOn, PlayerTookRound, BossChoosen, DeckBoss, NavHandsAt ; (v1 globals it sets)
 	;(Wizard101 in the tray - Settings: traygame: the bot stays off till it's shown again - GameTrayBlocked says so)
 	if (!BotOn && GameTrayBlocked("turn the bot on"))
 		return
@@ -280,6 +280,8 @@ BotToggle()
 	if (BotOn)
 		{
 		BotEverOn := 1
+		;(the route memory: the wizard maybe walked by you while the bot was off - Vision.ahk NavRouteArgs)
+		NavHandsAt := A_TickCount
 		;(turned on in a battle: what was played meanwhile isn't known - no kill check till it ends, and the boss
 		;picked again with Alt+1)
 		if (inbattle == 1)

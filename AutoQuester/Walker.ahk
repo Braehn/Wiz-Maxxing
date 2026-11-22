@@ -3729,7 +3729,7 @@ PressKey(key)
 ;Switches walking on or off (F8). Off lets go of every key straight away
 WalkToggle()
 	{
-	global Walking, WkJumpStuck, WkJumpKey, NavUnblock, Refocus ; (v1 globals it sets)
+	global Walking, WkJumpStuck, WkJumpKey, NavUnblock, NavHandsAt, Refocus ; (v1 globals it sets)
 	;(AutoFarmer's battles only - Settings: battlesonly: walking stays off, and F8 says why - a tray tip. AutoQuester has none)
 	if (!Walking && V1IsFunc("BattlesOnlyNo") && %"BattlesOnlyNo"%.Call("walking (" WalkKeyText() ")", true))
 		return
@@ -3747,6 +3747,8 @@ WalkToggle()
 			}
 		;(teleports the helper gave up get another go - you may have done what opens one: NavRead, AutoFarmer)
 		WkJumpStuck := 0, WkJumpKey := "", NavUnblock := 1
+		;(the route memory: the wizard maybe walked by you while walking was off - AutoFarmer's Vision.ahk NavRouteArgs)
+		NavHandsAt := A_TickCount
 		;(a sigil given up on - "The sigil won't start" - gets another go too: you may have relogged, or want it tried)
 		WalkSigilForgive()
 		;(a blocked way's hold and tries - AutoFarmer's Puzzle.ahk - forgotten: walking on)

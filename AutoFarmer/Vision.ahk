@@ -543,6 +543,9 @@ VisionPlate(x1, y1, x2, y2)
 global NavWhy, NavWaitUntil, NavWait
 ;Set by the walker's F8 (walking on): the next NavRead asks the helper to forget the teleports it gave up
 global NavUnblock
+;When the last route ask (NavRead withRoute) was answered; when the bot or its walking was last turned on (BotToggle,
+;WalkToggle) - NavRouteArgs: the wizard maybe walked by you in between
+global NavRouteAt, NavHandsAt
 ;Why the last NavGoal got nothing; when it may ask again
 global NavGoalWhy, NavGoalWaitUntil
 ;Why the last NavMobs / NavBattle got nothing; when each may ask again
@@ -597,7 +600,7 @@ global NavUiWhy, NavUiWaitUntil, NavUiRootW
 ;goal (the helper decides)
 NavRead(timeoutMs := 150, withPath := false, withRoute := false, avoidMobs := false, goalLine := "", freshMobs := false)
 	{
-	global NavWhy, NavUnblock, NavWait, NavWaitUntil ; (v1 globals it sets)
+	global NavWhy, NavUnblock, NavWait, NavWaitUntil, NavRouteAt ; (v1 globals it sets)
 	if (!Stat("navmem"))
 		{
 		NavWhy := "navmem:0 in PlayerStats.txt"
@@ -616,11 +619,16 @@ NavRead(timeoutMs := 150, withPath := false, withRoute := false, avoidMobs := fa
 		goalNow := IsObject(goalLine) ? goalLine.Call() : goalLine
 		unblock .= NavMobArgs() "&goal=" NavUri(SubStr(goalNow, 1, 160)) (freshMobs ? "&freshmobs=1" : "")
 		}
+	;(the route memory's - vision\routemem.py: the heat setting, and whether the wizard was the bot's alone since the last ask)
+	if (withRoute)
+		unblock .= NavRouteArgs()
 	;(the wizard's turning circle: the helper looks round its arc to the aim - walls on it or not)
 	arcAsk := (withRoute && V1IsFunc("WalkTurnRadius")) ? "&arcr=" WalkTurnRadius.Call() : ""
 	answer := VisionGet("/nav?path=" (withPath ? 1 : 0) "&route=" (withRoute ? 1 : 0) unblock arcAsk, timeoutMs, true)
 	if (InStr(unblock, "&unblock=1") && answer != "")
 		NavUnblock := 0
+	if (withRoute && answer != "")
+		NavRouteAt := A_TickCount
 	if (answer = "")
 		{
 		NavWhy := VisionErr = "" ? "no answer" : RegExReplace(VisionErr, "^ERR\s*")
@@ -1726,9 +1734,7 @@ MobShape()
 ;The helper's arguments for keeping a route out of what mobs see: mobavoid (on unless 0) and MobShape - "" when it's off;
 ;duelavoid (off unless 1 - the duel circles aren't confirmed in the game yet): out of other players' battles too (&duels=1);
 ;mobwall (off unless 1 - the gap's width isn't measured in the game yet): a line of mobs' wall with no way round waited at
-;as a mob on the way (&walls=1 - /nav's; else walked through its gap at once, as before); routeheat (on unless 0): the route
-;memory's ways walked well before a little cheaper for the planner (&heat=1 - /nav's, vision\routemem.py); you playing
-;(PlayerActive): &user=1 - the leg being walked isn't kept as one the bot walked well
+;as a mob on the way (&walls=1 - /nav's; else walked through its gap at once, as before)
 NavMobArgs()
 	{
 	if (Stats.Has("mobavoid") && !Stats["mobavoid"])
@@ -1737,8 +1743,19 @@ NavMobArgs()
 	return "&avoid=1&mobr=" s.range "&shape=" s.shape (s.shape = 3 ? "&cone=" s.wide : "") (s.shape > 1 ? "&body=" s.body : "")
 		. (Stats.Has("duelavoid") && Stats["duelavoid"] = 1 ? "&duels=1" : "")
 		. (Stats.Has("mobwall") && Stats["mobwall"] = 1 ? "&walls=1" : "")
-		. (Stats.Has("routeheat") && !Stats["routeheat"] ? "" : "&heat=1")
-		. (IsSet(PlayerActive) && PlayerActive ? "&user=1" : "")
+	}
+
+;The route memory's arguments for a route ask (/nav route=1 - vision\routemem.py): &heat=1 unless routeheat is 0 (the
+;ways walked well before a little cheaper for the planner); &user=1 when the wizard maybe wasn't the bot's alone since
+;the last route ask answered - you played since (PlayerActedAt), the bot or its walking was turned on since (NavHandsAt:
+;off in between, you may have walked him), or "Wait while I play" is off and you've touched the keyboard or mouse in
+;the last 3 s: the leg being walked isn't kept as one the bot walked well
+NavRouteArgs()
+	{
+	last := IsSet(NavRouteAt) ? NavRouteAt : ""
+	played := last = "" || (IsSet(PlayerActedAt) && PlayerActedAt != "" && PlayerActedAt >= last)
+		|| (IsSet(NavHandsAt) && NavHandsAt != "" && NavHandsAt >= last) || (!HandsOffOn() && UserIdle() < 3000)
+	return (Stats.Has("routeheat") && !Stats["routeheat"] ? "" : "&heat=1") (played ? "&user=1" : "")
 	}
 
 ;A number off /nav ("" if it isn't one: empty, nan, inf). Python may write a tiny one as 1.5e-08
@@ -1756,7 +1773,7 @@ VisionBlank()
 	{
 	global VisionOn := "", VisionPid := "", VisionFails := "", VisionCardsVar := "", VisionCardsAt := "", VisionCardsKey := "", VisionMissing := ""
 	global VisionDir := "", VisionPort := "", VisionErr := "", VisionPlateWhy := "", VisionCardsWhy := "", VisionMemLast := "", VisionMemAt := ""
-	global VisionMemWhy := "", VisionLookN := "", NavWhy := "", NavWaitUntil := "", NavWait := "", NavUnblock := "", NavGoalWhy := ""
+	global VisionMemWhy := "", VisionLookN := "", NavWhy := "", NavWaitUntil := "", NavWait := "", NavUnblock := "", NavRouteAt := "", NavHandsAt := "", NavGoalWhy := ""
 	global NavGoalWaitUntil := "", NavMobsWhy := "", NavMobsWaitUntil := "", NavBattleWhy := "", NavBattleWaitUntil := "", NavBagWhy := ""
 	global NavBagWaitUntil := "", NavGuiWhy := "", NavGuiWaitUntil := "", NavItemsWhy := "", NavItemsWaitUntil := "", NavUiWhy := ""
 	global NavUiWaitUntil := "", NavUiRootW := ""

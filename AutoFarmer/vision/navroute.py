@@ -38,6 +38,9 @@ How it plans
   * left: the route's length to the carrot plus the game's path on from there to the goal - how far is left to
     walk, for the walker's "is it getting anywhere" checks (going round a wall gets no closer as the crow flies).
 
+The ways walked well before (the routeheat setting - vision\\routemem.py's heat, HEAT): each square costs up to
+HEAT_DISCOUNT less, by how well the walks to quest goals through it went - only a near-tie is broken by it.
+
 Things the zone files don't have - NPCs, other players, doors that open - aren't avoided; the walker's own
 "stuck: back up and go round" handles those as before.
 
@@ -195,7 +198,8 @@ DUEL_GIVEUP = 240.0     # on the way with no way round: waited for this long at 
 DUEL_IGNORE = 600.0     # ...then not waited for for this long (s)
 HEAT = None             # the route memory's heat (vision.py sets it - routemem.RouteMem.heat01 - with the
                         # routeheat setting on): (zone, x0, y0, nx, ny, cell) -> each square's 0-1, or None
-HEAT_DISCOUNT = 0.25    # ...a square at full heat this much cheaper to walk (walls stay walls; mobs and
+HEAT_DISCOUNT = 0.08    # ...a square at full heat (the walks there all went perfectly) this much cheaper to walk -
+                        # a near-tie broken, no way more than 9% longer taken for it (walls stay walls; mobs and
                         # battles as dear - added after)
 
 DIRS = [(-1, 0, 1.0), (1, 0, 1.0), (0, -1, 1.0), (0, 1, 1.0),
@@ -967,7 +971,8 @@ class Field:
         near = (dist > hard_cells) & (dist <= soft_cells)
         cost = cost + np.where(near, SOFT_COST * (soft_cells + 1 - dist) / (soft_cells + 1 - hard_cells), 0.0)
         # (the ways walked well before - routemem's heat, the routeheat setting: a little cheaper, so of two ways
-        # about as long the one that worked is taken; the mobs' and battles' costs below are added on top as dear)
+        # about as long the one whose walks went well is taken; the mobs' and battles' costs below are added on top as
+        # dear)
         heat = HEAT
         if heat is not None:
             try:
