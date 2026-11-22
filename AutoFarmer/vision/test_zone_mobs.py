@@ -128,9 +128,20 @@ class WalkerSide(unittest.TestCase):
     def test_step_holds(self):
         ws = func(self.w, "WalkStep")
         nav = ws.index('WalkNav(fair && A_TickCount - WkTurnAt > WalkSettle() + 150 ? h : "", fair ? dist : "")')
-        m = re.search(r'\n\tif \(WkMobHold\)\n\t\t\{\n\t\tif \(KeysDown \|\| HeldW\)\n\t\t\tReleaseKeys\(true\)\n\t\tSetStatus\("waiting - [^\n]*"\)\n'
+        m = re.search(r'\n\tif \(WkMobHold\)\n\t\t\{\n(?:\t\t;[^\n]*\n)*'
+                      r'\t\tif \(WkArrived = 2 \|\| WkArrived = 3\)\n\t\t\t\{\n'
+                      r'\t\t\tWalkLog\(\(WkArrived = 3 \? "push" : "talk"\) ": through the way out - [^\n]*"\)\n'
+                      r'\t\t\tif \(WkArrived = 2 && WkDialog\)\n\t\t\t\tWkQuietUntil := A_TickCount \+ DialogQuiet, WkQuietLogged := 0\n'
+                      r'\t\t\tWalkReset\(\)\n\t\t\tWkLoadAt := A_TickCount, WkSeenAt := 0, WkLastDist := ""\n\t\t\t\}\n'
+                      r'\t\tif \(KeysDown \|\| HeldW\)\n\t\t\tReleaseKeys\(true\)\n\t\tSetStatus\("waiting - [^\n]*"\)\n'
                       r'\t\tWkBestTime := A_TickCount, WkLastRead := A_TickCount, WkTries := 0\n\t\tSleep\(100\)\n\t\treturn true\n\t\t\}\n', ws)
-        self.assertIsNotNone(m, "a wait: keys let go with the speed kept, the stuck watch's clocks kept")
+        self.assertIsNotNone(m, "a wait: keys let go with the speed kept, the stuck watch's clocks kept; a push through a way "
+                                "out over (2026-11-21 20:18: it went on into the next zone and 'arrived' short of the goal)")
+        # (WalkReset: the push's and the talk's state - and the old zone's best distance - not the hold's own)
+        wr = func(self.w, "WalkReset")
+        for k in ("WkBestDist := \"\"", "WkArrived := 0", "WkPushes := 0", "WkStraight := 0"):
+            self.assertIn(k, wr)
+        self.assertNotIn("WkMob", wr)
         self.assertLess(nav, m.start())
         # (before any walking, turning, arriving or collecting)
         for later in ("if (WkArrived = 7)", "CollectCheck(dist)"):

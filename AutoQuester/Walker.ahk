@@ -560,6 +560,19 @@ WalkStep()
 	;kept, as the other short stops do); a wait, not stuck - the stuck watch's clocks kept, as the other waits do)
 	if (WkMobHold)
 		{
+		;(pushing into a way out - or talking, X having opened it - and its loading screen came: through it, the push or the talk
+		;over, as when the arrow stays gone (below, "push: arrow gone"), which the hold gets ahead of: the arrow's back by the
+		;time it ends. 2026-11-21 20:18 the push went on into Pigswick Academy's hub - "the way out didn't load - pressing X",
+		;"arrived" 4000 short of the Fount of Magic, NEEDS YOU and AFK kicks all night. Reset as the sigil's way after its
+		;loading screen: the old zone's best distance and route go too)
+		if (WkArrived = 2 || WkArrived = 3)
+			{
+			WalkLog((WkArrived = 3 ? "push" : "talk") ": through the way out - a new zone (its loading screen over)")
+			if (WkArrived = 2 && WkDialog)
+				WkQuietUntil := A_TickCount + DialogQuiet, WkQuietLogged := 0
+			WalkReset()
+			WkLoadAt := A_TickCount, WkSeenAt := 0, WkLastDist := ""
+			}
 		if (KeysDown || HeldW)
 			ReleaseKeys(true)
 		SetStatus("waiting - the new zone's mobs being read (after the loading screen)")
