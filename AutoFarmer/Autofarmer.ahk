@@ -224,7 +224,7 @@ return
 PlayerActing()
 	{
 	static logged := 0
-	global PlayerActive, PlayerActedAt ; (v1 globals it sets)
+	global PlayerActive, PlayerActedAt, NavPlayedAt ; (v1 globals it sets)
 	secs := Stats.Has("handsoff") ? Stats["handsoff"] : 3
 	acting := (HandsOffOn() && secs > 0 && UserIdle() < secs * 1000)
 	;(the bot's own hotkeys aren't you playing: the key itself, and for Alt+1 / Alt+2 / Windows+3 the click
@@ -263,6 +263,9 @@ PlayerActing()
 	;(when you last were: Vision.ahk CaughtLog - a battle begun while you played is your doing)
 	if (acting)
 		PlayerActedAt := A_TickCount
+	;(the route memory: you at the keys or mouse out of a battle - in one the wizard can't be walked: Vision.ahk NavRouteArgs)
+	if (acting && inbattle != 1)
+		NavPlayedAt := A_TickCount
 	;(the battle recorder told who plays - only on a change: BattleRec.ahk)
 	if (V1IsFunc("BrecWho"))
 		BrecWho.Call(acting)

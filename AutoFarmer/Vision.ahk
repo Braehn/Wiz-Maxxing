@@ -546,8 +546,9 @@ global NavUnblock
 ;When the last route ask (NavRead withRoute) was answered; when the bot or its walking was last turned on (BotToggle,
 ;WalkToggle) - NavRouteArgs: the wizard maybe walked by you in between; when the last battle began (its first round -
 ;CaughtLog) and whether it was with the quest's mob by the game's log (1, 0, ? not known), and which battle's was sent
-;last (NavFightSent: once - an ask whose answer was missed has been heard all the same)
-global NavRouteAt, NavHandsAt, NavFightAt, NavFightQuest, NavFightSent
+;last (NavFightSent: once - an ask whose answer was missed has been heard all the same); when you last played out of a
+;battle (NavPlayedAt - PlayerActing: in one the wizard can't be walked)
+global NavRouteAt, NavHandsAt, NavFightAt, NavFightQuest, NavFightSent, NavPlayedAt
 ;Why the last NavGoal got nothing; when it may ask again
 global NavGoalWhy, NavGoalWaitUntil
 ;Why the last NavMobs / NavBattle got nothing; when each may ask again
@@ -1762,7 +1763,8 @@ NavMobArgs()
 
 ;The route memory's arguments for a route ask (/nav route=1 - vision\routemem.py): &heat=1 unless routeheat is 0 (the
 ;ways walked well before a little cheaper for the planner); &user=1 when the wizard maybe wasn't the bot's alone since
-;the last route ask answered - you played since (PlayerActedAt), the bot or its walking was turned on since (NavHandsAt:
+;the last route ask answered - you played since, out of a battle (NavPlayedAt: in one the wizard can't be walked - 2026-11-22
+;18:16 a walk dropped for a touch of the mouse between a battle's rounds), the bot or its walking was turned on since (NavHandsAt:
 ;off in between, you may have walked him), or "Wait while I play" is off and you've touched the keyboard or mouse in
 ;the last 3 s: the leg being walked isn't kept as one the bot walked well; &there=1 while the walker has the goal taken
 ;up (WkArrived: arrived, talking, pushing through the way out, at a world gate, a sigil, pressing, collecting - a fight
@@ -1778,7 +1780,7 @@ NavRouteArgs()
 		&& !(IsSet(NavFightSent) && NavFightSent != "" && NavFightSent >= NavFightAt)
 	if (fight)
 		NavFightSent := NavFightAt
-	played := last = "" || (IsSet(PlayerActedAt) && PlayerActedAt != "" && PlayerActedAt >= last)
+	played := last = "" || (IsSet(NavPlayedAt) && NavPlayedAt != "" && NavPlayedAt >= last)
 		|| (IsSet(NavHandsAt) && NavHandsAt != "" && NavHandsAt >= last) || (!HandsOffOn() && UserIdle() < 3000)
 	return (Stats.Has("routeheat") && !Stats["routeheat"] ? "" : "&heat=1") (played ? "&user=1" : "")
 		. (IsSet(WkArrived) && WkArrived ? "&there=1" : "")
@@ -1800,7 +1802,7 @@ VisionBlank()
 	{
 	global VisionOn := "", VisionPid := "", VisionFails := "", VisionCardsVar := "", VisionCardsAt := "", VisionCardsKey := "", VisionMissing := ""
 	global VisionDir := "", VisionPort := "", VisionErr := "", VisionPlateWhy := "", VisionCardsWhy := "", VisionMemLast := "", VisionMemAt := ""
-	global VisionMemWhy := "", VisionLookN := "", NavWhy := "", NavWaitUntil := "", NavWait := "", NavUnblock := "", NavRouteAt := "", NavHandsAt := "", NavFightAt := "", NavFightQuest := "", NavFightSent := "", NavGoalWhy := ""
+	global VisionMemWhy := "", VisionLookN := "", NavWhy := "", NavWaitUntil := "", NavWait := "", NavUnblock := "", NavRouteAt := "", NavHandsAt := "", NavFightAt := "", NavFightQuest := "", NavFightSent := "", NavPlayedAt := "", NavGoalWhy := ""
 	global NavGoalWaitUntil := "", NavMobsWhy := "", NavMobsWaitUntil := "", NavBattleWhy := "", NavBattleWaitUntil := "", NavBagWhy := ""
 	global NavBagWaitUntil := "", NavGuiWhy := "", NavGuiWaitUntil := "", NavItemsWhy := "", NavItemsWaitUntil := "", NavUiWhy := ""
 	global NavUiWaitUntil := "", NavUiRootW := ""

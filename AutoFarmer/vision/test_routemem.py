@@ -859,7 +859,14 @@ class HelperWiring(unittest.TestCase):
         m = re.search(r'\nNavRouteArgs\(\)\n\t\{\n(.*?)\n\t\}\n', a, re.S)
         self.assertIsNotNone(m)
         body = m.group(1)
-        self.assertIn('PlayerActedAt >= last', body)
+        self.assertIn('NavPlayedAt >= last', body)
+        self.assertNotIn('PlayerActedAt', body)
+        # (you at the keys out of a battle only - 2026-11-22 18:16 a walk dropped for a touch of the mouse between rounds)
+        pa = self.af[self.af.index('\nPlayerActing()'):]
+        pa = pa[:pa.index('\n\t}\n')]
+        self.assertIn('\tglobal PlayerActive, PlayerActedAt, NavPlayedAt ; (v1 globals it sets)\n', pa)
+        self.assertIn('\tif (acting && inbattle != 1)\n\t\tNavPlayedAt := A_TickCount\n', pa)
+        self.assertIn('NavPlayedAt := ""', a)
         self.assertIn('NavHandsAt >= last', body)
         self.assertIn('(!HandsOffOn() && UserIdle() < 3000)', body)
         self.assertIn('(Stats.Has("routeheat") && !Stats["routeheat"] ? "" : "&heat=1") (played ? "&user=1" : "")', body)
@@ -871,7 +878,7 @@ class HelperWiring(unittest.TestCase):
         self.assertIn('\tif (withRoute)\n\t\tunblock .= NavRouteArgs()\n', nr)
         self.assertIn('\tif (withRoute && answer != "")\n\t\tNavRouteAt := A_TickCount\n', nr)
         self.assertIn('NavRouteAt := "", NavHandsAt := ""', a)
-        self.assertIn('global NavRouteAt, NavHandsAt, NavFightAt, NavFightQuest, NavFightSent\n', a)
+        self.assertIn('global NavRouteAt, NavHandsAt, NavFightAt, NavFightQuest, NavFightSent, NavPlayedAt\n', a)
         # (review 5: a battle's flag once - an ask whose answer was missed was heard; a puzzle's guards, a dungeon run's
         # fight: the way's)
         self.assertIn('\tif (fight)\n\t\tNavFightSent := NavFightAt\n', body)
