@@ -1710,13 +1710,16 @@ MobGrow(f, s, playing := 0)
 ;save them there; else 300 and 120). 2026-10-24: a fifth at a time down to 300 had the crabs of Survey Camp catching
 ;the wizard - you'd set 850. Counted while the bot's on and the wizard is walking (W held - HeldW), out of battle, you not
 ;playing: not while he stands - at a NEEDS YOU, a talk, a wait - with walking switched on (2026-11-22 12:15 "10 minutes
-;walking without a mob catching" - 8 of them stood at a NEEDS YOU; 11-08 overnight the same with the game closed)
+;walking without a mob catching" - 8 of them stood at a NEEDS YOU; 11-08 overnight the same with the game closed), nor
+;through a loading screen (W held through a puzzle's door - WkLoading), nor while a party follower follows (PartyFollowing:
+;its own way after the leader, not the walker's routes - and pressing W into a wall when stuck)
 MobShrinkTick()
 	{
 	static lastAt := 0
 	global MobWalkMs ; (v1 globals it sets)
 	now := A_TickCount
-	if (lastAt && now - lastAt < 5000 && BotOn && Walking && HeldW && inbattle != 1 && !PlayerActive)
+	if (lastAt && now - lastAt < 5000 && BotOn && Walking && HeldW && inbattle != 1 && !PlayerActive
+		&& !(IsSet(WkLoading) && WkLoading) && !(V1IsFunc("PartyFollowing") && %"PartyFollowing"%.Call()))
 		MobWalkMs := (MobWalkMs ? MobWalkMs : 0) + now - lastAt
 	lastAt := now
 	if (MobWalkMs < 600000)

@@ -524,7 +524,10 @@ class SettingsFileWiring(unittest.TestCase):
         self.assertIn('Stat("mobbodyfloor")', shrink)
         # (its 10 minutes counted only while the wizard walks - W held -, not while he stands with walking on: 2026-11-22
         # 12:15 8 of the 10 stood at a NEEDS YOU)
-        self.assertIn('if (lastAt && now - lastAt < 5000 && BotOn && Walking && HeldW && inbattle != 1 && !PlayerActive)', shrink)
+        self.assertIn('if (lastAt && now - lastAt < 5000 && BotOn && Walking && HeldW && inbattle != 1 && !PlayerActive\n', shrink)
+        # (nor through a loading screen - W held through a puzzle's door -, nor while a party follower follows - pressing W
+        # into a wall when stuck)
+        self.assertIn('\t\t&& !(IsSet(WkLoading) && WkLoading) && !(V1IsFunc("PartyFollowing") && %"PartyFollowing"%.Call()))\n', shrink)
 
     def test_apply_hooks(self):
         """after the write, each hook through V1IsFunc (never by name): the tray ticks and the dashboard's menu bar's
