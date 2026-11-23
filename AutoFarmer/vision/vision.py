@@ -4191,8 +4191,10 @@ def route_heat(q, r, goal, mobs=None):
     as the same goal, and no leg begins at one); its line and the quest's title from the game's memory only when that
     reading is of the same ids (goal_now's is up to a second old: the goal before, just after a talk) - else none, the
     next reading's taken; ahead - the game's own path from here (routemem.path_len): what the leg's eff is measured
-    against; goalmob - one of the goal's own mobs (mobs: this reading's mobs_now, avoid=1 only - their 'quest') within
-    routemem.GOALMOB_NEAR of the wizard: a battle next is the goal's own fight. With heat=1 (the routeheat setting) the planner's squares the kept legs passed through are a little
+    against; goalhere - the goal's in this zone (hops 0: the path leads to it, not to a way out); fight - fight=1 / 0 /
+    ? (the walker's: a battle began since its last route ask, with the quest's mob by the game's log / not / not known);
+    goalmob - with the goal here, one of its own mobs (mobs: this reading's mobs_now, avoid=1 only - their 'quest')
+    within routemem.GOALMOB_NEAR and GOALMOB_DZ of the wizard: for a fight not known, the goal's own. With heat=1 (the routeheat setting) the planner's squares the kept legs passed through are a little
     cheaper (navroute.HEAT) - without it, as before. A leg or a quest over: in the log. Never raises"""
     try:
         import navroute
@@ -4207,10 +4209,14 @@ def route_heat(q, r, goal, mobs=None):
         text, title = (g.get('text') or '', g.get('quest') or '') if same else ('', '')
         ahead = routemem.path_len(r.get('pos'), r.get('path'), r.get('goal'))
         me = r.get('pos')
-        goalmob = me is not None and any(
-            m.get('quest') and math.hypot(m['pos'][0] - me[0], m['pos'][1] - me[1]) <= routemem.GOALMOB_NEAR for m in mobs or ())
+        here = r.get('hops') == 0
+        goalmob = here and me is not None and any(
+            m.get('quest') and math.hypot(m['pos'][0] - me[0], m['pos'][1] - me[1]) <= routemem.GOALMOB_NEAR
+            and abs(m['pos'][2] - me[2]) <= routemem.GOALMOB_DZ for m in mobs or ())
+        fight = q.get('fight')
         said = rm.see(r.get('zone'), r.get('pos'), key, r.get('goal'), clean=on('avoid'), played=on('user'), label=text,
-                      ahead=ahead, there=on('there'), goalmob=goalmob)
+                      ahead=ahead, there=on('there'), goalmob=goalmob, goalhere=here,
+                      fight=fight if fight in ('1', '0', '?') else None)
         if said:
             log(said)
         # (the quest followed - quests.jsonl: how long each took, its zones and goals)

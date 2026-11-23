@@ -544,8 +544,9 @@ global NavWhy, NavWaitUntil, NavWait
 ;Set by the walker's F8 (walking on): the next NavRead asks the helper to forget the teleports it gave up
 global NavUnblock
 ;When the last route ask (NavRead withRoute) was answered; when the bot or its walking was last turned on (BotToggle,
-;WalkToggle) - NavRouteArgs: the wizard maybe walked by you in between
-global NavRouteAt, NavHandsAt
+;WalkToggle) - NavRouteArgs: the wizard maybe walked by you in between; when the last battle began (its first round -
+;CaughtLog) and whether it was with the quest's mob by the game's log (1, 0, ? not known)
+global NavRouteAt, NavHandsAt, NavFightAt, NavFightQuest
 ;Why the last NavGoal got nothing; when it may ask again
 global NavGoalWhy, NavGoalWaitUntil
 ;Why the last NavMobs / NavBattle got nothing; when each may ask again
@@ -1581,6 +1582,9 @@ NavPetList(v)
 ;going, the bot started after it), isn't counted
 CaughtLog()
 	{
+	global NavFightAt, NavFightQuest ; (v1 globals it sets)
+	;(the route memory: a battle began - whose, below if the helper can tell - Vision.ahk NavRouteArgs)
+	NavFightAt := A_TickCount, NavFightQuest := "?"
 	if (!VisionOn)
 		return
 	clS := BattleLogLastStart(60000)
@@ -1611,6 +1615,9 @@ CaughtLog()
 	clPlay := (clS.actedAt != "" && clS.actedAt >= clS.duelAt - 5000) || (PlayerActedAt != "" && PlayerActedAt > clS.duelAt)
 	a := VisionGet("/caught" clArgs, 600, true)
 	f := StrSplit(Trim(a, " `r`n"), "|")
+	;(the quest's mob or not - /caught's 7th field: the route memory's - an older helper's has none)
+	if (V1At(f, 1) = "caught" && f.Length >= 7)
+		NavFightQuest := V1At(f, 7) = 1 ? 1 : 0
 	if (V1At(f, 1) != "caught" || f.Length < 6)   ; (v1: an empty answer's first field read blank)
 		{
 		;(why not, in the log: the helper's "none (...)", or no answer)
@@ -1751,7 +1758,9 @@ NavMobArgs()
 ;off in between, you may have walked him), or "Wait while I play" is off and you've touched the keyboard or mouse in
 ;the last 3 s: the leg being walked isn't kept as one the bot walked well; &there=1 while the walker has the goal taken
 ;up (WkArrived: arrived, talking, pushing through the way out, at a world gate, a sigil, pressing, collecting - a fight
-;goal's has mob avoidance off from ~1500 out): the walk there ends where this began
+;goal's has mob avoidance off from ~1500 out): the walk there ends where this began; &fight=1 / 0 / ? when a battle began
+;since the last route ask - with the quest's mob by the game's log, not, not known (CaughtLog): the goal's own fight ends
+;the walk to it where the battle began
 NavRouteArgs()
 	{
 	last := IsSet(NavRouteAt) ? NavRouteAt : ""
@@ -1759,6 +1768,7 @@ NavRouteArgs()
 		|| (IsSet(NavHandsAt) && NavHandsAt != "" && NavHandsAt >= last) || (!HandsOffOn() && UserIdle() < 3000)
 	return (Stats.Has("routeheat") && !Stats["routeheat"] ? "" : "&heat=1") (played ? "&user=1" : "")
 		. (IsSet(WkArrived) && WkArrived ? "&there=1" : "")
+		. (last != "" && IsSet(NavFightAt) && NavFightAt != "" && NavFightAt >= last ? "&fight=" (NavFightQuest = "" ? "?" : NavFightQuest) : "")
 	}
 
 ;A number off /nav ("" if it isn't one: empty, nan, inf). Python may write a tiny one as 1.5e-08
@@ -1776,7 +1786,7 @@ VisionBlank()
 	{
 	global VisionOn := "", VisionPid := "", VisionFails := "", VisionCardsVar := "", VisionCardsAt := "", VisionCardsKey := "", VisionMissing := ""
 	global VisionDir := "", VisionPort := "", VisionErr := "", VisionPlateWhy := "", VisionCardsWhy := "", VisionMemLast := "", VisionMemAt := ""
-	global VisionMemWhy := "", VisionLookN := "", NavWhy := "", NavWaitUntil := "", NavWait := "", NavUnblock := "", NavRouteAt := "", NavHandsAt := "", NavGoalWhy := ""
+	global VisionMemWhy := "", VisionLookN := "", NavWhy := "", NavWaitUntil := "", NavWait := "", NavUnblock := "", NavRouteAt := "", NavHandsAt := "", NavFightAt := "", NavFightQuest := "", NavGoalWhy := ""
 	global NavGoalWaitUntil := "", NavMobsWhy := "", NavMobsWaitUntil := "", NavBattleWhy := "", NavBattleWaitUntil := "", NavBagWhy := ""
 	global NavBagWaitUntil := "", NavGuiWhy := "", NavGuiWaitUntil := "", NavItemsWhy := "", NavItemsWaitUntil := "", NavUiWhy := ""
 	global NavUiWaitUntil := "", NavUiRootW := ""
