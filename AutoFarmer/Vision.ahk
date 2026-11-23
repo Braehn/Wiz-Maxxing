@@ -545,8 +545,9 @@ global NavWhy, NavWaitUntil, NavWait
 global NavUnblock
 ;When the last route ask (NavRead withRoute) was answered; when the bot or its walking was last turned on (BotToggle,
 ;WalkToggle) - NavRouteArgs: the wizard maybe walked by you in between; when the last battle began (its first round -
-;CaughtLog) and whether it was with the quest's mob by the game's log (1, 0, ? not known)
-global NavRouteAt, NavHandsAt, NavFightAt, NavFightQuest
+;CaughtLog) and whether it was with the quest's mob by the game's log (1, 0, ? not known), and which battle's was sent
+;last (NavFightSent: once - an ask whose answer was missed has been heard all the same)
+global NavRouteAt, NavHandsAt, NavFightAt, NavFightQuest, NavFightSent
 ;Why the last NavGoal got nothing; when it may ask again
 global NavGoalWhy, NavGoalWaitUntil
 ;Why the last NavMobs / NavBattle got nothing; when each may ask again
@@ -1618,6 +1619,10 @@ CaughtLog()
 	;(the quest's mob or not - /caught's 7th field: the route memory's - an older helper's has none)
 	if (V1At(f, 1) = "caught" && f.Length >= 7)
 		NavFightQuest := V1At(f, 7) = 1 ? 1 : 0
+	;(a puzzle's guards - the helper takes the camp walked to as the quest's - or a dungeon run's fight: the way's, not
+	;the goal's - as MobGrow has it)
+	if ((IsSet(PzRun) && IsObject(PzRun)) || (IsSet(DgRun) && IsObject(DgRun)) || (V1IsFunc("PuzzleFighting") && %"PuzzleFighting"%.Call(V1At(f, 2))))
+		NavFightQuest := 0
 	if (V1At(f, 1) != "caught" || f.Length < 6)   ; (v1: an empty answer's first field read blank)
 		{
 		;(why not, in the log: the helper's "none (...)", or no answer)
@@ -1760,15 +1765,21 @@ NavMobArgs()
 ;up (WkArrived: arrived, talking, pushing through the way out, at a world gate, a sigil, pressing, collecting - a fight
 ;goal's has mob avoidance off from ~1500 out): the walk there ends where this began; &fight=1 / 0 / ? when a battle began
 ;since the last route ask - with the quest's mob by the game's log, not, not known (CaughtLog): the goal's own fight ends
-;the walk to it where the battle began
+;the walk to it where the battle began - once a battle (an ask whose answer was missed was heard: sent again, it would
+;end the next goal's walk at its start)
 NavRouteArgs()
 	{
+	global NavFightSent ; (v1 globals it sets)
 	last := IsSet(NavRouteAt) ? NavRouteAt : ""
+	fight := last != "" && IsSet(NavFightAt) && NavFightAt != "" && NavFightAt >= last
+		&& !(IsSet(NavFightSent) && NavFightSent != "" && NavFightSent >= NavFightAt)
+	if (fight)
+		NavFightSent := NavFightAt
 	played := last = "" || (IsSet(PlayerActedAt) && PlayerActedAt != "" && PlayerActedAt >= last)
 		|| (IsSet(NavHandsAt) && NavHandsAt != "" && NavHandsAt >= last) || (!HandsOffOn() && UserIdle() < 3000)
 	return (Stats.Has("routeheat") && !Stats["routeheat"] ? "" : "&heat=1") (played ? "&user=1" : "")
 		. (IsSet(WkArrived) && WkArrived ? "&there=1" : "")
-		. (last != "" && IsSet(NavFightAt) && NavFightAt != "" && NavFightAt >= last ? "&fight=" (NavFightQuest = "" ? "?" : NavFightQuest) : "")
+		. (fight ? "&fight=" (NavFightQuest = "" ? "?" : NavFightQuest) : "")
 	}
 
 ;A number off /nav ("" if it isn't one: empty, nan, inf). Python may write a tiny one as 1.5e-08
@@ -1786,7 +1797,7 @@ VisionBlank()
 	{
 	global VisionOn := "", VisionPid := "", VisionFails := "", VisionCardsVar := "", VisionCardsAt := "", VisionCardsKey := "", VisionMissing := ""
 	global VisionDir := "", VisionPort := "", VisionErr := "", VisionPlateWhy := "", VisionCardsWhy := "", VisionMemLast := "", VisionMemAt := ""
-	global VisionMemWhy := "", VisionLookN := "", NavWhy := "", NavWaitUntil := "", NavWait := "", NavUnblock := "", NavRouteAt := "", NavHandsAt := "", NavFightAt := "", NavFightQuest := "", NavGoalWhy := ""
+	global VisionMemWhy := "", VisionLookN := "", NavWhy := "", NavWaitUntil := "", NavWait := "", NavUnblock := "", NavRouteAt := "", NavHandsAt := "", NavFightAt := "", NavFightQuest := "", NavFightSent := "", NavGoalWhy := ""
 	global NavGoalWaitUntil := "", NavMobsWhy := "", NavMobsWaitUntil := "", NavBattleWhy := "", NavBattleWaitUntil := "", NavBagWhy := ""
 	global NavBagWaitUntil := "", NavGuiWhy := "", NavGuiWaitUntil := "", NavItemsWhy := "", NavItemsWaitUntil := "", NavUiWhy := ""
 	global NavUiWaitUntil := "", NavUiRootW := ""

@@ -871,13 +871,20 @@ class HelperWiring(unittest.TestCase):
         self.assertIn('\tif (withRoute)\n\t\tunblock .= NavRouteArgs()\n', nr)
         self.assertIn('\tif (withRoute && answer != "")\n\t\tNavRouteAt := A_TickCount\n', nr)
         self.assertIn('NavRouteAt := "", NavHandsAt := ""', a)
-        self.assertIn('global NavRouteAt, NavHandsAt, NavFightAt, NavFightQuest\n', a)
+        self.assertIn('global NavRouteAt, NavHandsAt, NavFightAt, NavFightQuest, NavFightSent\n', a)
+        # (review 5: a battle's flag once - an ask whose answer was missed was heard; a puzzle's guards, a dungeon run's
+        # fight: the way's)
+        self.assertIn('\tif (fight)\n\t\tNavFightSent := NavFightAt\n', body)
+        self.assertIn('!(IsSet(NavFightSent) && NavFightSent != "" && NavFightSent >= NavFightAt)', body)
         # (a battle's first round: when, and whether with the quest's mob - /caught's 7th field)
         cl = a[a.index('\nCaughtLog()'):]
         cl = cl[:cl.index('\n\t}\n')]
         self.assertIn('\tglobal NavFightAt, NavFightQuest ; (v1 globals it sets)\n', cl)
         self.assertLess(cl.index('NavFightAt := A_TickCount, NavFightQuest := "?"'), cl.index('if (!VisionOn)'))
         self.assertIn('\tif (V1At(f, 1) = "caught" && f.Length >= 7)\n\t\tNavFightQuest := V1At(f, 7) = 1 ? 1 : 0\n', cl)
+        self.assertIn('\tif ((IsSet(PzRun) && IsObject(PzRun)) || (IsSet(DgRun) && IsObject(DgRun)) || (V1IsFunc("PuzzleFighting") && '
+                      '%"PuzzleFighting"%.Call(V1At(f, 2))))\n\t\tNavFightQuest := 0\n', cl)
+        self.assertLess(cl.index('NavFightQuest := V1At(f, 7)'), cl.index('\t\tNavFightQuest := 0\n'))
         self.assertIn('"&fight=" (NavFightQuest = "" ? "?" : NavFightQuest)', body)
         self.assertNotIn('routeheat', a[a.index('\nNavMobArgs()'):a.index(";The route memory's arguments for a route ask")])
         # (the bot or its walking turned on: you may have walked him meanwhile)
