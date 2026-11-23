@@ -501,10 +501,12 @@ RcLogLine(logLine)
 		}
 	if (InStr(logLine, "MSG_CharacterSelected: Error=0"))
 		{
-		RcCharAt := 0
-		;(a character picked - yours too: the world it goes into next is a relog's - not the start's replay of the log)
-		if (!RcScanning)
+		;(a character picked - yours too: the world it goes into next is a relog's - not the start's replay of the log. Only
+		;with the character select's scene up before it: the game writes the same line - with a SERVER TRANSFER - at every
+		;zone change onto another of its servers (2026-11-22: "a relog" said at each of them))
+		if (!RcScanning && RcCharAt)
 			RcCharSelAt := A_TickCount
+		RcCharAt := 0
 		if (RcOn && RcState = "select")
 			RcSet("enter", "character chosen - going into the world")
 		return
