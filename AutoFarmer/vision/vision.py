@@ -4181,7 +4181,7 @@ def route_mem():
     return ROUTEMEM
 
 
-def route_heat(q, r, goal):
+def route_heat(q, r, goal, mobs=None):
     """/nav route=1's reading for the route memory (routemem.RouteMem.see and .quest): clean - a leg can be begun and
     kept - with avoid=1 (the walker keeping away from mobs on the way: not walking into them on purpose); there with
     there=1 (the walker has taken the goal up - arrived, talking, pushing through the way out, collecting: a "Defeat
@@ -4191,7 +4191,8 @@ def route_heat(q, r, goal):
     as the same goal, and no leg begins at one); its line and the quest's title from the game's memory only when that
     reading is of the same ids (goal_now's is up to a second old: the goal before, just after a talk) - else none, the
     next reading's taken; ahead - the game's own path from here (routemem.path_len): what the leg's eff is measured
-    against. With heat=1 (the routeheat setting) the planner's squares the kept legs passed through are a little
+    against; goalmob - one of the goal's own mobs (mobs: this reading's mobs_now, avoid=1 only - their 'quest') within
+    routemem.GOALMOB_NEAR of the wizard: a battle next is the goal's own fight. With heat=1 (the routeheat setting) the planner's squares the kept legs passed through are a little
     cheaper (navroute.HEAT) - without it, as before. A leg or a quest over: in the log. Never raises"""
     try:
         import navroute
@@ -4205,8 +4206,11 @@ def route_heat(q, r, goal):
         same = key != '' and (str(g.get('quest_id')), str(g.get('goal_id'))) == (str(ids[0]), str(ids[1]))
         text, title = (g.get('text') or '', g.get('quest') or '') if same else ('', '')
         ahead = routemem.path_len(r.get('pos'), r.get('path'), r.get('goal'))
+        me = r.get('pos')
+        goalmob = me is not None and any(
+            m.get('quest') and math.hypot(m['pos'][0] - me[0], m['pos'][1] - me[1]) <= routemem.GOALMOB_NEAR for m in mobs or ())
         said = rm.see(r.get('zone'), r.get('pos'), key, r.get('goal'), clean=on('avoid'), played=on('user'), label=text,
-                      ahead=ahead, there=on('there'))
+                      ahead=ahead, there=on('there'), goalmob=goalmob)
         if said:
             log(said)
         # (the quest followed - quests.jsonl: how long each took, its zones and goals)
@@ -5251,7 +5255,7 @@ class Handler(BaseHTTPRequestHandler):
                 goal, _ = goal_now(r)
                 if with_route:
                     # (the mobs kept away from: all but the quest's - asked for with avoid=1)
-                    avoid, near, cone, duels = None, None, None, None
+                    avoid, near, cone, duels, mobs = None, None, None, None, None
                     if q.get('avoid', '0') not in ('', '0'):
                         near, cone = mob_avoid(q)
                         # (a walker just out of a loading screen: the whole heap looked at again at once - the new zone's
@@ -5277,8 +5281,8 @@ class Handler(BaseHTTPRequestHandler):
                     # (this ask's own cone - not MOBS_SHOWN's, which a /navto running alongside may have changed; a line
                     # of mobs' wall with no way round waited at only with walls=1 - the mobwall setting)
                     # (the route memory: this reading kept for the leg being walked - and its heat for the planner
-                    # with heat=1 - before the route's asked for)
-                    route_heat(q, r, goal)
+                    # with heat=1 - before the route's asked for; the zone's mobs read with avoid=1, the goal's among them)
+                    route_heat(q, r, goal, mobs if avoid is not None else None)
                     lines += route_lines(r, nm.game_dir, avoid, near, cone, arc_r, duels,
                                          bool(avoid) and q.get('walls', '0') not in ('', '0'))
                 lines.append(goal_nav_line(goal))
@@ -5310,8 +5314,9 @@ class Handler(BaseHTTPRequestHandler):
             if u.path == '/quit':
                 self.reply('OK bye')
                 party_stop()
-                # (the route memory's last kept legs and quest written - a second at most)
+                # (the route memory's quest followed and its last kept legs written - a second at most)
                 if ROUTEMEM is not None:
+                    ROUTEMEM.close()
                     ROUTEMEM.flush(1.0)
                 threading.Thread(target=self.server.shutdown, daemon=True).start()
                 return
@@ -5461,6 +5466,9 @@ def main():
                 time.sleep(5)
             log('AutoFarmer is gone - stopping')
             party_stop()
+            if ROUTEMEM is not None:
+                ROUTEMEM.close()
+                ROUTEMEM.flush(1.0)
             server.shutdown()
         threading.Thread(target=watch, daemon=True).start()
     server.serve_forever()

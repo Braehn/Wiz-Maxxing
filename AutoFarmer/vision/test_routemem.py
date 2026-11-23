@@ -296,6 +296,65 @@ class Legs(unittest.TestCase):
         self.clock.t += 180
         self.assertIn('kept', done(rm, at=(0.0, 1700.0)))
 
+    def test_the_goals_fight_before_there(self):
+        # (review 3: the walker doesn't keep away from the goal's own mobs - a "Defeat ..." goal's first fight often
+        # begins before it takes the goal up: the walk ended at the reading before that battle)
+        rm = self.rm
+        walk(rm, self.clock, (0, 0), (0, 4500), target=(0.0, 6000.0, 0.0))
+        rm.see(Z, (0.0, 4520.0, 0.0), GOAL, (0.0, 6000.0, 0.0), goalmob=True)
+        self.clock.t += 120
+        rm.see(Z, (0.0, 4600.0, 0.0), GOAL, (0.0, 6000.0, 0.0))
+        rm.see(Z, (0.0, 4700.0, 0.0), GOAL, (0.0, 6000.0, 0.0), clean=False, there=True)
+        self.clock.t += 200
+        self.assertIn('kept', done(rm, at=(0.0, 4900.0)))
+        leg = legs(rm)[0]
+        self.assertGreater(leg['eff'], 0.9)
+        self.assertLess(leg['s'], 6)
+        self.assertLessEqual(leg['to'][1], 4520)
+        # (one fight finished the goal: the next reading has the next goal - kept all the same)
+        walk(rm, self.clock, (0, 4900), (0, 9000), goal=NEXT, target=(0.0, 11000.0, 0.0), upto=0.9)
+        rm.see(Z, (0.0, 8700.0, 0.0), NEXT, (0.0, 11000.0, 0.0), goalmob=True)
+        self.clock.t += 90
+        self.assertIn('kept', done(rm, at=(0.0, 8800.0), goal='ids 1 9'))
+        self.assertEqual(len(legs(rm)), 2)
+
+    def test_a_short_gap_by_a_goal_mob_isnt_a_fight(self):
+        walk(self.rm, self.clock, (0, 0), (0, 3000), upto=0.5, target=(0.0, 3000.0, 0.0))
+        self.rm.see(Z, (0.0, 1500.0, 0.0), GOAL, (0.0, 3000.0, 0.0), goalmob=True)
+        self.clock.t += 4                                    # (two missed answers - no battle)
+        self.rm.see(Z, (0.0, 1600.0, 0.0), GOAL, (0.0, 3000.0, 0.0))
+        self.assertIsNone(self.rm.leg['arrived'])
+
+    def test_a_prompt_on_the_way_isnt_the_goal(self):
+        # (review 3: X at a "?" NPC on the way - WkArrived 6 - said there, far from the goal by its path)
+        rm = M.RouteMem(tempfile.mkdtemp(), clock=self.clock)
+        g = (0.0, 9000.0, 0.0)
+        for y in range(0, 9001, 250):
+            p = (0.0, float(y), 0.0)
+            prompt = 3000 <= y <= 3500
+            rm.see(Z, p, GOAL, g, there=prompt, ahead=9000.0 - y)
+            self.clock.t += 0.25 + (5 if prompt else 0)
+        done(rm, at=(0.0, 9000.0))
+        leg = legs(rm)[0]
+        self.assertGreaterEqual(leg['to'][1], 8600)
+
+    def test_done_arrival_measured_by_its_own_path(self):
+        # (review 3: the goal moving on as the wizard got there - that reading's path is the next goal's)
+        rm = M.RouteMem(tempfile.mkdtemp(), clock=self.clock)
+        g = (0.0, 3000.0, 0.0)
+        way = [(0, 0), (1500, 1500), (0, 2800)]
+        for a, b in zip(way, way[1:]):
+            n = int(math.ceil(math.hypot(b[0] - a[0], b[1] - a[1]) / 250.0))
+            for k in range(n):
+                p = (a[0] + (b[0] - a[0]) * k / n, a[1] + (b[1] - a[1]) * k / n, 0.0)
+                rest = [(1500.0, 1500.0, 0.0)] if p[1] < 1500 else []
+                rm.see(Z, p, GOAL, g, ahead=M.path_len(p, rest, g))
+                self.clock.t += 0.25
+        self.assertIsNone(rm.leg['arrived'])
+        rm.see(Z, (0.0, 2800.0, 0.0), NEXT, (0.0, 9000.0, 0.0), ahead=6200.0)
+        leg = legs(rm)[0]
+        self.assertGreater(leg['eff'], 0.9)
+
     def test_next_leg_after_collecting(self):
         # (review 2: a goal ended collecting, no battle - for a few seconds the walker's still at it, avoidance off, with
         # the next goal's ids: the next leg begins once it walks on clean)
@@ -555,6 +614,35 @@ class Quests(unittest.TestCase):
             self.assertEqual(len(f.readlines()), 1)
 
 
+class QuestsClose(unittest.TestCase):
+    def test_the_quest_followed_written_at_a_stop(self):
+        # (review 3: /quit only waited for what was queued - the quest followed was never written)
+        d, clock = tempfile.mkdtemp(), Clock()
+        rm = M.RouteMem(d, clock=clock)
+        for _ in range(30):
+            rm.quest(1, 'Long One', Z, 'Go To Crystal Tower')
+            clock.t += 2
+        clock.t += 1
+        rm.close()
+        self.assertTrue(rm.flush(5.0))
+        with open(os.path.join(d, M.QUESTS), encoding='utf-8') as f:
+            q = json.loads(f.readline())
+        self.assertTrue(q['cut'])
+        self.assertEqual(q['quest'], 'Long One')
+        self.assertAlmostEqual(q['s'], 61, delta=2)
+        self.assertIsNone(rm.qs)
+        self.assertIsNone(rm.leg)
+
+    def test_quit_closes_it(self):
+        with open(os.path.join(HERE, 'vision.py'), encoding='utf-8') as f:
+            src = f.read()
+        for at in ("                party_stop()\n                # (the route memory's quest followed and its last kept legs written - a second at most)\n"
+                   "                if ROUTEMEM is not None:\n                    ROUTEMEM.close()\n                    ROUTEMEM.flush(1.0)\n",
+                   "            party_stop()\n            if ROUTEMEM is not None:\n                ROUTEMEM.close()\n"
+                   "                ROUTEMEM.flush(1.0)\n            server.shutdown()\n"):
+            self.assertIn(at, src)
+
+
 class QuestsLast(unittest.TestCase):
     def test_its_last_battle_counted(self):
         # (review 2: the reading after a quest's boss battle is the next quest's - the battle was the old one's)
@@ -675,14 +763,14 @@ class HelperWiring(unittest.TestCase):
 
     def test_nav_reading_kept_before_the_route(self):
         s = self.src
-        i = s.index('                    route_heat(q, r, goal)\n')
+        i = s.index('                    route_heat(q, r, goal, mobs if avoid is not None else None)\n')
         self.assertLess(s.index("if q.get('avoid', '0') not in ('', '0'):\n                        near, cone = mob_avoid(q)"), i)
         self.assertLess(i, s.index('                    lines += route_lines(r, nm.game_dir, avoid, near, cone, arc_r, duels,'))
         self.assertIn("os.path.join(ROOT, 'routes', 'heat')", s)
 
     def test_route_heat_runs(self):
         # (the function itself, on a stand-in memory: a reading kept, the planner's heat set with heat=1 only)
-        m = re.search(r"^def route_heat\(q, r, goal\):\n.*?\n\n\n", self.src, re.M | re.S)
+        m = re.search(r"^def route_heat\(q, r, goal, mobs=None\):\n.*?\n\n\n", self.src, re.M | re.S)
         self.assertIsNotNone(m)
         seen, quests, logs = [], [], []
 
@@ -696,7 +784,7 @@ class HelperWiring(unittest.TestCase):
             def quest(self, *a):
                 quests.append(a)
                 return None
-        ns = {'route_mem': RM, 'log': logs.append}
+        ns = {'route_mem': RM, 'log': logs.append, 'math': math}
         exec(m.group(0), ns)
         was = R.HEAT
         try:
@@ -706,7 +794,7 @@ class HelperWiring(unittest.TestCase):
             self.assertEqual(R.HEAT, RM.heat01)
             self.assertEqual(seen[-1], ((Z, (0.0, 0.0, 0.0), 'ids 7 8', (0.0, 50.0, 0.0)),
                                         {'clean': True, 'played': False, 'label': 'memory line',
-                                         'ahead': 50.0 + math.sqrt(1000.0), 'there': False}))
+                                         'ahead': 50.0 + math.sqrt(1000.0), 'there': False, 'goalmob': False}))
             self.assertEqual(quests[-1], (7, 'Title', Z, 'memory line'))
             self.assertEqual(logs, ['said'])
             # (review 2: the memory's goal of the goal before - its ids not this reading's: no line, no title)
@@ -717,8 +805,15 @@ class HelperWiring(unittest.TestCase):
             ns['route_heat']({'user': '1', 'goal': 'screen line'}, dict(r, goalid=None, path=None), None)
             self.assertIsNone(R.HEAT)
             self.assertEqual(seen[-1], ((Z, (0.0, 0.0, 0.0), '', (0.0, 50.0, 0.0)),
-                                        {'clean': False, 'played': True, 'label': '', 'ahead': 50.0, 'there': False}))
+                                        {'clean': False, 'played': True, 'label': '', 'ahead': 50.0, 'there': False,
+                                         'goalmob': False}))
             self.assertEqual(quests[-1], (7, '', Z, ''))
+            # (one of the goal's own mobs near: a battle next is the goal's fight; another mob, or the goal's far: not)
+            mob = lambda x, quest: {'pos': (x, 0.0, 0.0), 'quest': quest}               # noqa: E731
+            ns['route_heat']({'avoid': '1'}, r, g, [mob(300.0, False), mob(1100.0, True)])
+            self.assertTrue(seen[-1][1]['goalmob'])
+            ns['route_heat']({'avoid': '1'}, r, g, [mob(300.0, False), mob(1300.0, True)])
+            self.assertFalse(seen[-1][1]['goalmob'])
         finally:
             R.HEAT = was
 

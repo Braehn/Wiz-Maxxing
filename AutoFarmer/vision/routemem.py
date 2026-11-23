@@ -6,16 +6,19 @@ READ-ONLY toward the game: it keeps only what vision.py's /nav already reads (ro
 quest's way). Nothing is sent to the game.
 
     rm = RouteMem(folder, log=print)
-    rm.see(zone, pos, goal, target, clean=True, played=False, there=False, ahead=None, label=None)   # each route reading
+    rm.see(zone, pos, goal, target, clean=True, played=False, there=False, ahead=None, label=None, goalmob=False)
     rm.quest(qid, title, zone, goal)                    # ...and its quest
     rm.heat01(zone, x0, y0, nx, ny, cell)               # the heat (0-1) of a window's squares - None: nothing known
     rm.flush(timeout)                                   # the files written (they're written by a thread of their own)
+    rm.close()                                          # the helper stopping: the quest followed written as it is
 
 A leg: the walk to one goal in one zone - from the first clean reading with that goal (the game's ids for it) and a
 way to it (target: where the quest's path leads - the goal itself, or the way out to the zone it's in) to where it
 got there: the first reading the walker says it took the goal up (there: arrived, talking, pushing through the way
-out, collecting - a "Defeat ..." goal's fight begins ~1500 out, with mob avoidance off), or within ARRIVE of the
-target. It's frozen there: what comes after - the fight, walking about to a goal's things, a talk - isn't part of it.
+out, collecting - a "Defeat ..." goal's fight begins ~1500 out, with mob avoidance off - and within THERE_NEAR of the
+target by the game's path: a prompt on the way isn't the goal), the first within ARRIVE of the target, or the last
+before a battle begun with one of the goal's own mobs near (goalmob - the walker doesn't keep away from those, so a
+"Defeat ..." goal's first fight often begins before it takes the goal up). It's frozen there: what comes after - the fight, walking about to a goal's things, a talk - isn't part of it.
 Kept (a success) when after that the goal moves on, the way on moves, the zone changes or the wizard is moved (a
 knockout in the goal's fight: the walk there still went well) - within AFTER_MAX. Dropped when it ends before getting
 there (a knockout, a recall, a teleport, the quest changed), when you played or the bot or its walking was off on
@@ -42,8 +45,9 @@ Files (in folder - AutoFarmer\\routes\\heat\\, kept by the updater):
   quests.jsonl   one line a quest followed (by the game's id for it), written once another quest's id is read: t,
                  quest (its title), id, s (the seconds it was followed - its battles and waits in, the last one too; a
                  stop of more than GAP_MAX not), span (first reading to last), zones and goals (in order), kept and
-                 dropped (its legs). Over doesn't say done: you may have picked another quest. One followed under
-                 QUEST_MIN: not written.
+                 dropped (its legs), cut (true: the helper stopped - the bot closed - while it was followed; the
+                 same quest's next line goes on from there). Over doesn't say done: you may have picked another quest.
+                 One followed under QUEST_MIN: not written.
 
 Threads: see() and quest() - the walker's /nav - only look and note, under the leg's lock; the files are written by
 a writer thread of their own; a zone's file is read and its heat built by whoever asks for it (the planner's thread,
@@ -63,6 +67,10 @@ CELL = 40.0             # game units per heat square (2 of the planner's)
 WIDE = 1                # ...the squares this many beside the trail count too (the wizard's body, a route's slack)
 STEP = 40.0             # a trail point kept each time the wizard is this far from the last one
 ARRIVE = 400.0          # within this of where the quest's path leads: there (the leg frozen)
+THERE_NEAR = 2500.0     # the walker's word it's taken the goal up counts within this of it (by the game's path)
+GOALMOB_NEAR = 1200.0   # one of the goal's own mobs this near the wizard just before a battle: the goal's own fight
+BATTLE_GAP = 8.0        # ...a battle: no reading for longer than this (s - the walker's asks stop for one; a missed
+                        # answer or two waits 1-4 s)
 TARGET_MOVED = 400.0    # where it leads moved this far: another leg
 JUMP = 1500.0           # the wizard this far from his last reading...
 JUMP_S = 3.0            # ...after more than this (s - a battle, a knockout's respawn), or...
@@ -224,13 +232,15 @@ class RouteMem:
 
     # ---- the leg being walked
 
-    def see(self, zone, pos, goal, target, clean=True, played=False, now=None, label=None, ahead=None, there=False):
+    def see(self, zone, pos, goal, target, clean=True, played=False, now=None, label=None, ahead=None, there=False,
+            goalmob=False):
         """one /nav route reading: the zone, the wizard's pos (x, y, z), the goal (what tells it from the next one: the
         game's ids for it - empty: as the last reading, and no leg begun), where the quest's path leads (target: x, y,
         z - None: no way known, no leg begun), clean (mob avoidance on in this reading), played (you played, or the bot
         or its walking was off, since the reading before), there (the walker has taken the goal up - arrived, talking,
         pushing through the way out, collecting), label (the goal's line - empty: not known yet, the next one's taken),
-        ahead (the game's path length from here). A line for the log when a leg ends (kept or dropped), else None.
+        ahead (the game's path length from here), goalmob (one of the goal's own mobs within GOALMOB_NEAR). A line for
+        the log when a leg ends (kept or dropped), else None.
         Nothing written here: a kept leg goes to the writer thread"""
         now = self.clock() if now is None else now
         if not zone or pos is None:
@@ -243,14 +253,20 @@ class RouteMem:
             if leg is not None and played and leg['arrived'] is None:
                 said = self._said(self._drop(leg, 'you played, or the bot or its walking was off on the way'))
                 leg = self.leg = None
+            if leg is not None and leg['arrived'] is None and now - leg['last'] > BATTLE_GAP and leg['goalmob']:
+                # (a battle since the reading before, one of the goal's own mobs near the wizard then: the goal's fight -
+                # the walk there ended at that reading, a knockout in it or not)
+                leg['arrived'], leg['ahead_end'] = leg['last'], leg['ahead_last']
             if leg is not None:
                 why = self._ends(leg, zone, pos, key, target, now)
                 if why is not None:
                     # (the goal moved on - or its way did - right where the wizard stands, or with the walker at it: there,
-                    # at this reading)
-                    if why.startswith('done') and zone == leg['zone'] and leg['arrived'] is None and (there or math.hypot(
-                            pos[0] - leg['target'][0], pos[1] - leg['target'][1]) <= ARRIVE):
-                        self._arrive(leg, pos, now, ahead)
+                    # at this reading - this reading's path is the next goal's: the leg's own from the reading before, or
+                    # the straight line to it)
+                    off = math.hypot(pos[0] - leg['target'][0], pos[1] - leg['target'][1])
+                    if why.startswith('done') and zone == leg['zone'] and leg['arrived'] is None and (
+                            off <= ARRIVE or (there and off <= THERE_NEAR)):
+                        self._arrive(leg, pos, now, off if off <= ARRIVE else leg['ahead_last'])
                     line, job = self._end(leg, why, now)
                     said = self._said(line)
                     leg = self.leg = None
@@ -259,11 +275,12 @@ class RouteMem:
             if leg is None and target is not None and key and clean and not there:
                 leg = self.leg = {'zone': zone, 'key': key, 'goal': ' '.join((label or '').split()), 'target': target,
                                   't0': now, 'last': now, 'at': pos, 'pts': [(pos[0], pos[1])], 'len': 0.0,
-                                  'moving': 0.0, 'arrived': None, 'clean': True, 'ahead': ahead, 'ahead_end': None}
+                                  'moving': 0.0, 'arrived': None, 'clean': True, 'ahead': ahead, 'ahead_end': None,
+                                  'ahead_last': ahead, 'goalmob': bool(goalmob)}
                 if math.hypot(pos[0] - target[0], pos[1] - target[1]) <= ARRIVE:
                     self._arrive(leg, pos, now, ahead)
             elif leg is not None:
-                self._step(leg, pos, target, clean, there, now, ahead, label)
+                self._step(leg, pos, target, clean, there, now, ahead, label, goalmob)
         if job is not None:
             self._write(job)
         return said
@@ -295,10 +312,10 @@ class RouteMem:
             return 'drop: there %.0f s and the goal not moving on' % (now - leg['arrived'])
         return None
 
-    def _step(self, leg, pos, target, clean, there, now, ahead, label):
+    def _step(self, leg, pos, target, clean, there, now, ahead, label, goalmob=False):
         dt = now - leg['last']
         step = math.hypot(pos[0] - leg['at'][0], pos[1] - leg['at'][1])
-        leg['last'], leg['at'] = now, pos
+        leg['last'], leg['at'], leg['goalmob'] = now, pos, bool(goalmob)
         if not leg['goal'] and label:
             leg['goal'] = ' '.join(label.split())
         if leg['arrived'] is not None:
@@ -311,7 +328,10 @@ class RouteMem:
         last = leg['pts'][-1]
         if math.hypot(pos[0] - last[0], pos[1] - last[1]) >= STEP:
             leg['pts'].append((pos[0], pos[1]))
-        if there or math.hypot(pos[0] - leg['target'][0], pos[1] - leg['target'][1]) <= ARRIVE:
+        off = math.hypot(pos[0] - leg['target'][0], pos[1] - leg['target'][1])
+        near = (ahead if _num(ahead) is not None else off) <= THERE_NEAR
+        leg['ahead_last'] = ahead
+        if (there and near) or off <= ARRIVE:
             # (the reading that gets there may be the goal's own first: a fight's has mob avoidance off - not counted)
             self._arrive(leg, pos, now, ahead)
         else:
@@ -436,6 +456,25 @@ class RouteMem:
                 return False
             time.sleep(0.005)
         return True
+
+    def close(self, now=None):
+        """the helper stopping (/quit, AutoFarmer gone): the quest followed written as it is - cut - its time since the
+        last reading counted only up to JUMP_S x 10 (a stop is the bot closing, not the quest); the leg being walked
+        let go. The writer's job queued - flush() after"""
+        now = self.clock() if now is None else now
+        job = None
+        with self.lock:
+            q, self.qs, self.leg = self.qs, None, None
+            if q is not None:
+                dt = now - q['last']
+                if 0 < dt <= JUMP_S * 10:
+                    q['s'] += dt
+                    q['last'] = now
+                _, job = self._quest_over(q, now)
+                if job is not None:
+                    job[2]['cut'] = True
+        if job is not None:
+            self._write(job)
 
     # ---- the kept legs
 
