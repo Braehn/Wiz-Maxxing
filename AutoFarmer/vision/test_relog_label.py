@@ -37,6 +37,13 @@ class RelogLabel(unittest.TestCase):
         self.assertIn('\tif (InStr(logLine, "WizardCharacterSelect: The scene has been loaded successfully"))\n'
                       '\t\t{\n\t\tRcCharAt := A_TickCount\n\t\treturn\n\t\t}\n', self.rc)
 
+    def test_off_lets_the_scene_through(self):
+        # (review: auto-reconnect off reads only a relog's lines - the scene's has to be one, or no relog is ever noticed)
+        self.assertIn('\tif (!RcOn && !InStr(logLine, "MSG_CharacterSelected: Error=0") && !InStr(logLine, "ConnectComplete destination Zone=")\n'
+                      '\t\t&& !InStr(logLine, "WizardCharacterSelect: The scene has been loaded successfully"))\n\t\treturn\n', self.rc)
+        self.assertLess(self.rc.index('&& !InStr(logLine, "WizardCharacterSelect: The scene has been loaded successfully"))'),
+                        self.rc.index('\tif (InStr(logLine, "WizardCharacterSelect: The scene has been loaded successfully"))\n'))
+
     def test_the_game_logs_replayed(self):
         # (the lines of 2026-11-22 through the same rule: one relog - the 17:05 select - and three server transfers)
         lines = [
@@ -52,8 +59,18 @@ class RelogLabel(unittest.TestCase):
             "17:42:35 GameClient::MSG_CharacterSelected: Error=0, PrepPhase=0",
             "17:42:36 GameClient::ConnectComplete destination Zone=Zafaria/ZF_Z03_Savannah",
         ]
+        for rc_on in (True, False):
+            self.assertEqual(self.replay(lines, rc_on), ["17:06:07"], rc_on)
+
+    @staticmethod
+    def replay(lines, rc_on):
+        """the relogs the rule finds in lines - with auto-reconnect off, only the lines its filter lets through"""
+        keep = ("MSG_CharacterSelected: Error=0", "ConnectComplete destination Zone=",
+                "WizardCharacterSelect: The scene has been loaded successfully")
         char_at, sel_at, relogs = 0, 0, []
         for k, line in enumerate(lines, 1):
+            if not rc_on and not any(x in line for x in keep):
+                continue
             if "WizardCharacterSelect: The scene has been loaded successfully" in line:
                 char_at = k
             elif "MSG_CharacterSelected: Error=0" in line:
@@ -64,7 +81,7 @@ class RelogLabel(unittest.TestCase):
                 if sel_at:
                     relogs.append(line[:8])
                 sel_at = 0
-        self.assertEqual(relogs, ["17:06:07"])
+        return relogs
 
 
 if __name__ == "__main__":

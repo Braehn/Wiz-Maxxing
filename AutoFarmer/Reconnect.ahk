@@ -381,8 +381,10 @@ RcLogLine(logLine)
 	if (InStr(logLine, "LOGIN RESPONSE: Error=0") || InStr(logLine, "WizardCharacterSelect") || InStr(logLine, "MSG_CharacterSelected: Error=0")
 		|| InStr(logLine, "ConnectComplete destination Zone=") || InStr(logLine, "Finished loading zone"))
 		RcLoggedIn := 1
-	;(auto-reconnect off: only a relog's two lines - ReconnectCheck)
-	if (!RcOn && !InStr(logLine, "MSG_CharacterSelected: Error=0") && !InStr(logLine, "ConnectComplete destination Zone="))
+	;(auto-reconnect off: only a relog's lines - ReconnectCheck: the character select's scene, the character picked, back in
+	;the world)
+	if (!RcOn && !InStr(logLine, "MSG_CharacterSelected: Error=0") && !InStr(logLine, "ConnectComplete destination Zone=")
+		&& !InStr(logLine, "WizardCharacterSelect: The scene has been loaded successfully"))
 		return
 	if (InStr(logLine, "DisplayMessageBox("))
 		{
