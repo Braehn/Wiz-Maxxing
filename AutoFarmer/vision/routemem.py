@@ -6,24 +6,28 @@ READ-ONLY toward the game: it keeps only what vision.py's /nav already reads (ro
 quest's way). Nothing is sent to the game.
 
     rm = RouteMem(folder, log=print)
-    rm.see(zone, pos, goal, target, clean=True, played=False, ahead=None, label=None)   # each /nav route reading
+    rm.see(zone, pos, goal, target, clean=True, played=False, there=False, ahead=None, label=None)   # each route reading
     rm.quest(qid, title, zone, goal)                    # ...and its quest
     rm.heat01(zone, x0, y0, nx, ny, cell)               # the heat (0-1) of a window's squares - None: nothing known
+    rm.flush(timeout)                                   # the files written (they're written by a thread of their own)
 
-A leg: the walk to one goal in one zone - from the first reading with that goal (the game's ids for it) and a way to
-it (target: where the quest's path leads - the goal itself, or the way out to the zone it's in) to the first reading
-within ARRIVE of that. It's frozen there: what comes after - a fight at a "Defeat ..." goal (mob avoidance off),
-walking about to a goal's things, a talk - isn't part of it. Kept (a success) when after that the goal moves on, the
-way on moves, the zone changes or the wizard is moved (a knockout in the goal's fight: the walk there still went
-well) - within AFTER_MAX. Dropped when it ends before arriving (a knockout, a recall, a teleport, the quest changed),
-when you played or the bot or its walking was off on the way (played: the reading after says so), when a reading on
-the way had mob avoidance off (walking into mobs on purpose), when it took longer than LEG_MAX to arrive, when nothing
-was read for GAP_MAX before it arrived (the bot off), or when it was shorter than MIN_LEN.
+A leg: the walk to one goal in one zone - from the first clean reading with that goal (the game's ids for it) and a
+way to it (target: where the quest's path leads - the goal itself, or the way out to the zone it's in) to where it
+got there: the first reading the walker says it took the goal up (there: arrived, talking, pushing through the way
+out, collecting - a "Defeat ..." goal's fight begins ~1500 out, with mob avoidance off), or within ARRIVE of the
+target. It's frozen there: what comes after - the fight, walking about to a goal's things, a talk - isn't part of it.
+Kept (a success) when after that the goal moves on, the way on moves, the zone changes or the wizard is moved (a
+knockout in the goal's fight: the walk there still went well) - within AFTER_MAX. Dropped when it ends before getting
+there (a knockout, a recall, a teleport, the quest changed), when you played or the bot or its walking was off on
+the way (played: the reading after says so), when a reading on the way had mob avoidance off (walking into mobs on
+purpose), when it took longer than LEG_MAX to get there, when nothing was read for GAP_MAX before it got there (the
+bot off). One shorter than MIN_LEN is neither kept nor said.
 
-Its weight - how well it went: eff = (the game's own path length from where it began, else the straight line, / the
-length walked) x (the time spent walking / the time it took), at most 1. A detour, a wait for a mob to move off,
-standing stuck and every battle on the way (the walker doesn't read /nav in one) lower it. An older leg weighs less:
-halved every HALF_LIFE days.
+Its weight - how well it went: eff = (the game's own path over the stretch walked - its length from where the leg
+began less its length from where it got there - or the straight line if that's longer or not known, / the length
+walked) x (the time spent walking / the time it took), at most 1. A detour, a wait for a mob to move off, standing
+stuck and every battle on the way (the walker doesn't read /nav in one) lower it. An older leg weighs less: halved
+every HALF_LIFE days.
 
 A square's heat (CELL units across): of the legs that passed through it (or WIDE squares beside it - each leg once),
 n = their weights summed (each counts 1, halved with age) and e = their weights times their eff; heat01 = e /
@@ -32,19 +36,23 @@ way went, not only how often one did; the planner's discount on it (navroute.HEA
 
 Files (in folder - AutoFarmer\\routes\\heat\\, kept by the updater):
   <zone>.jsonl   one kept leg a line (JSON): t (when it ended, epoch s), goal (its line), from, to ([x, y]), s
-                 (seconds to arrive), len (units walked), ahead (the game's path length at its start), eff, pts
+                 (seconds to get there), len (units walked), ahead (the game's path over that stretch), eff, pts
                  ([[x, y], ...] - the trail, a point every STEP units). At most 2 x KEEP lines (then the newest KEEP
                  kept). Delete it to forget the zone - noticed at once, the bot running or not.
   quests.jsonl   one line a quest followed (by the game's id for it), written once another quest's id is read: t,
-                 quest (its title), id, s (the seconds it was followed - its battles and waits in, a stop of more than
-                 GAP_MAX not), span (first reading to last), zones and goals (in order), kept and dropped (its legs).
-                 Over doesn't say done: you may have picked another quest. One followed under QUEST_MIN: not written.
+                 quest (its title), id, s (the seconds it was followed - its battles and waits in, the last one too; a
+                 stop of more than GAP_MAX not), span (first reading to last), zones and goals (in order), kept and
+                 dropped (its legs). Over doesn't say done: you may have picked another quest. One followed under
+                 QUEST_MIN: not written.
 
-Locks: the leg being walked has its own (see() - the walker's /nav - never waits for a zone's file being read or its
-heat being built); a zone's legs and heat another, held only to look or swap; the files a third."""
+Threads: see() and quest() - the walker's /nav - only look and note, under the leg's lock; the files are written by
+a writer thread of their own; a zone's file is read and its heat built by whoever asks for it (the planner's thread,
+the Map's), outside the zone's lock (held only to look or swap) - one read of a zone at a time; the files' lock is
+held only to read a file's text or to write."""
 import json
 import math
 import os
+import queue
 import re
 import threading
 import time
@@ -54,16 +62,16 @@ import numpy as np
 CELL = 40.0             # game units per heat square (2 of the planner's)
 WIDE = 1                # ...the squares this many beside the trail count too (the wizard's body, a route's slack)
 STEP = 40.0             # a trail point kept each time the wizard is this far from the last one
-ARRIVE = 400.0          # within this of where the quest's path leads: arrived (the leg frozen)
+ARRIVE = 400.0          # within this of where the quest's path leads: there (the leg frozen)
 TARGET_MOVED = 400.0    # where it leads moved this far: another leg
 JUMP = 1500.0           # the wizard this far from his last reading...
 JUMP_S = 3.0            # ...after more than this (s - a battle, a knockout's respawn), or...
 TELE_SPEED = 3000.0     # ...faster than this (units / s - no walk, even sped up): a teleport
 MOVING = 150.0          # faster than this (units / s) between two readings JUMP_S or less apart: walking
-GAP_MAX = 600.0         # nothing read for this long (s) before arriving: the leg dropped (the bot off, a long stop)
-LEG_MAX = 900.0         # a leg taking longer than this (s) to arrive: dropped (it got stuck, or waited for you)
-AFTER_MAX = 2700.0      # arrived, the goal not moving on in this long (s): dropped (it wasn't the goal after all)
-MIN_LEN = 300.0         # walked less than this (units): not kept
+GAP_MAX = 600.0         # nothing read for this long (s) before getting there: the leg dropped (the bot off)
+LEG_MAX = 900.0         # a leg taking longer than this (s) to get there: dropped (it got stuck, or waited for you)
+AFTER_MAX = 2700.0      # there, the goal not moving on in this long (s): dropped (it wasn't the goal after all)
+MIN_LEN = 300.0         # walked less than this (units): neither kept nor said
 HALF_LIFE = 14.0        # days: an older leg's weight halved every this many
 KEEP = 300              # legs kept a zone
 FULL = 3.0              # legs' weight at which a square's heat is their mean eff (fewer: less)
@@ -92,25 +100,26 @@ def path_len(pos, path, goal):
     return sum(math.hypot(b[0] - a[0], b[1] - a[1]) for a, b in zip(pts, pts[1:]))
 
 
+def _num(v):
+    """v as a finite float, else None"""
+    try:
+        v = float(v)
+    except (TypeError, ValueError):
+        return None
+    return v if math.isfinite(v) else None
+
+
 def leg_eff(leg):
     """a kept leg's eff (0-1), as written - not a number: 0"""
-    try:
-        v = float(leg.get('eff', 0.0))
-    except (TypeError, ValueError):
-        return 0.0
-    return max(0.0, min(1.0, v)) if math.isfinite(v) else 0.0
+    v = _num(leg.get('eff', 0.0))
+    return 0.0 if v is None else max(0.0, min(1.0, v))
 
 
 def leg_age_w(leg, base):
     """a kept leg's count at time base: 1 when it ended then, halved every HALF_LIFE days before it (more after) - None
     when its time isn't a number"""
-    try:
-        t = float(leg.get('t'))
-    except (TypeError, ValueError):
-        return None
-    if not math.isfinite(t):
-        return None
-    return 0.5 ** ((base - t) / 86400.0 / HALF_LIFE)
+    t = _num(leg.get('t'))
+    return None if t is None else 0.5 ** ((base - t) / 86400.0 / HALF_LIFE)
 
 
 def trail_cells(pts, x0, y0, nx, ny, cell=CELL, wide=WIDE):
@@ -198,29 +207,35 @@ def build_heat(legs, base):
 
 class RouteMem:
     """the route memory: the leg being walked and the quest followed (lock), each zone's kept legs and heat (zlock -
-    read from folder when first needed), the files (flock)"""
+    read from folder when first needed; reading: the zones being read, an Event each), the files (flock), the writer
+    thread's queue (wq - made on first use, wlock)"""
 
     def __init__(self, folder, log=print, clock=time.time):
         self.folder, self.log, self.clock = folder, log, clock
         self.lock = threading.Lock()
         self.zlock = threading.Lock()
         self.flock = threading.Lock()
+        self.wlock = threading.Lock()
         self.zones = {}         # zone: ZoneHeat
+        self.reading = {}       # zone: threading.Event - its file being read by one thread (the others wait for it)
         self.leg = None         # the leg being walked (a dict), None none
         self.qs = None          # the quest being followed (a dict), None none
+        self.wq = None
 
     # ---- the leg being walked
 
-    def see(self, zone, pos, goal, target, clean=True, played=False, now=None, label=None, ahead=None):
+    def see(self, zone, pos, goal, target, clean=True, played=False, now=None, label=None, ahead=None, there=False):
         """one /nav route reading: the zone, the wizard's pos (x, y, z), the goal (what tells it from the next one: the
         game's ids for it - empty: as the last reading, and no leg begun), where the quest's path leads (target: x, y,
         z - None: no way known, no leg begun), clean (mob avoidance on in this reading), played (you played, or the bot
-        or its walking was off, since the reading before), label (the goal's line, for the file and the log - else
-        goal) and ahead (the game's path length from here: the leg's eff is measured against it). A line for the log
-        when a leg ends (kept or dropped), else None"""
+        or its walking was off, since the reading before), there (the walker has taken the goal up - arrived, talking,
+        pushing through the way out, collecting), label (the goal's line - empty: not known yet, the next one's taken),
+        ahead (the game's path length from here). A line for the log when a leg ends (kept or dropped), else None.
+        Nothing written here: a kept leg goes to the writer thread"""
         now = self.clock() if now is None else now
         if not zone or pos is None:
             return None
+        job = None
         with self.lock:
             said = None
             leg = self.leg
@@ -231,21 +246,27 @@ class RouteMem:
             if leg is not None:
                 why = self._ends(leg, zone, pos, key, target, now)
                 if why is not None:
-                    # (the goal moved on - or its way did - right where the wizard stands: there, at this reading)
-                    if why.startswith('done') and zone == leg['zone'] and leg['arrived'] is None and math.hypot(
-                            pos[0] - leg['target'][0], pos[1] - leg['target'][1]) <= ARRIVE:
-                        self._arrive(leg, pos, now)
-                    said = self._said(self._end(leg, why, now))
+                    # (the goal moved on - or its way did - right where the wizard stands, or with the walker at it: there,
+                    # at this reading)
+                    if why.startswith('done') and zone == leg['zone'] and leg['arrived'] is None and (there or math.hypot(
+                            pos[0] - leg['target'][0], pos[1] - leg['target'][1]) <= ARRIVE):
+                        self._arrive(leg, pos, now, ahead)
+                    line, job = self._end(leg, why, now)
+                    said = self._said(line)
                     leg = self.leg = None
-            if leg is None and target is not None and key:
-                leg = self.leg = {'zone': zone, 'key': key, 'goal': ' '.join((label or goal or '').split()), 'target': target,
+            # (begun only at a clean reading of the walker on its way: not where it's still at the last goal - collecting
+            # till it sees the goal moved on, with mob avoidance off)
+            if leg is None and target is not None and key and clean and not there:
+                leg = self.leg = {'zone': zone, 'key': key, 'goal': ' '.join((label or '').split()), 'target': target,
                                   't0': now, 'last': now, 'at': pos, 'pts': [(pos[0], pos[1])], 'len': 0.0,
-                                  'moving': 0.0, 'arrived': None, 'clean': bool(clean), 'ahead': ahead}
+                                  'moving': 0.0, 'arrived': None, 'clean': True, 'ahead': ahead, 'ahead_end': None}
                 if math.hypot(pos[0] - target[0], pos[1] - target[1]) <= ARRIVE:
-                    self._arrive(leg, pos, now)
+                    self._arrive(leg, pos, now, ahead)
             elif leg is not None:
-                self._step(leg, pos, target, clean, now)
-            return said
+                self._step(leg, pos, target, clean, there, now, ahead, label)
+        if job is not None:
+            self._write(job)
+        return said
 
     def _said(self, line):
         """the quest followed told how its leg went; the line"""
@@ -254,7 +275,7 @@ class RouteMem:
         return line
 
     def _ends(self, leg, zone, pos, key, target, now):
-        """why the leg ends at this reading ('done: ...' - kept if it arrived - or 'drop: ...'), None it goes on"""
+        """why the leg ends at this reading ('done: ...' - kept if it got there - or 'drop: ...'), None it goes on"""
         dt = now - leg['last']
         step = math.hypot(pos[0] - leg['at'][0], pos[1] - leg['at'][1])
         there = leg['arrived'] is not None
@@ -274,12 +295,14 @@ class RouteMem:
             return 'drop: there %.0f s and the goal not moving on' % (now - leg['arrived'])
         return None
 
-    def _step(self, leg, pos, target, clean, now):
+    def _step(self, leg, pos, target, clean, there, now, ahead, label):
         dt = now - leg['last']
         step = math.hypot(pos[0] - leg['at'][0], pos[1] - leg['at'][1])
         leg['last'], leg['at'] = now, pos
+        if not leg['goal'] and label:
+            leg['goal'] = ' '.join(label.split())
         if leg['arrived'] is not None:
-            return                                   # (frozen at its arrival: only the end's checks go on)
+            return                                   # (frozen where it got there: only the end's checks go on)
         if 0 < dt <= JUMP_S and step / dt > MOVING:
             leg['moving'] += dt
         leg['len'] += step
@@ -288,62 +311,67 @@ class RouteMem:
         last = leg['pts'][-1]
         if math.hypot(pos[0] - last[0], pos[1] - last[1]) >= STEP:
             leg['pts'].append((pos[0], pos[1]))
-        if math.hypot(pos[0] - leg['target'][0], pos[1] - leg['target'][1]) <= ARRIVE:
-            # (a reading that arrives may be the first of the goal's own: a fight's has mob avoidance off - not counted)
-            self._arrive(leg, pos, now)
+        if there or math.hypot(pos[0] - leg['target'][0], pos[1] - leg['target'][1]) <= ARRIVE:
+            # (the reading that gets there may be the goal's own first: a fight's has mob avoidance off - not counted)
+            self._arrive(leg, pos, now, ahead)
         else:
             leg['clean'] = leg['clean'] and bool(clean)
 
-    def _arrive(self, leg, pos, now):
-        leg['arrived'] = now
+    def _arrive(self, leg, pos, now, ahead):
+        leg['arrived'], leg['ahead_end'] = now, ahead
         last = leg['pts'][-1]
         if math.hypot(pos[0] - last[0], pos[1] - last[1]) > 1.0:
             leg['pts'].append((pos[0], pos[1]))
 
     def _drop(self, leg, why):
-        return "route memory: dropped the leg in %s to '%s' - %s" % (leg['zone'], leg['goal'][:60], why)
-
-    def _end(self, leg, why, now):
-        """a leg over: kept (written to its zone's file) when it's a success, else dropped - the log's line"""
-        if why.startswith('drop'):
-            return self._drop(leg, why[6:])
-        if leg['arrived'] is None:
-            return self._drop(leg, why[6:] + ' with the wizard not there')
-        if not leg['clean']:
-            return self._drop(leg, 'mob avoidance was off on the way')
+        """the log's line for a leg dropped - None for one too short to say (it hadn't been walked)"""
         if leg['len'] < MIN_LEN:
             return None
+        return "route memory: dropped the leg in %s to '%s' - %s" % (leg['zone'], leg['goal'][:60] or '?', why)
+
+    def _end(self, leg, why, now):
+        """a leg over: (the log's line, the writer's job - kept - or None: dropped)"""
+        if why.startswith('drop'):
+            return self._drop(leg, why[6:]), None
+        if leg['arrived'] is None:
+            return self._drop(leg, why[6:] + ' with the wizard not there'), None
+        if not leg['clean']:
+            return self._drop(leg, 'mob avoidance was off on the way'), None
+        if leg['len'] < MIN_LEN:
+            return None, None
         took = max(1e-3, leg['arrived'] - leg['t0'])
         a, b = leg['pts'][0], leg['pts'][-1]
-        ahead = leg['ahead']
-        if ahead is None or not math.isfinite(ahead) or ahead <= 0:
-            ahead = math.hypot(b[0] - a[0], b[1] - a[1])
+        straight = math.hypot(b[0] - a[0], b[1] - a[1])
+        a0, a1 = _num(leg['ahead']), _num(leg['ahead_end'])
+        ahead = max(straight, a0 - a1) if a0 is not None and a1 is not None else straight
         eff = min(1.0, ahead / max(leg['len'], 1e-3)) * min(1.0, leg['moving'] / took)
         kept = {'t': round(now, 1), 'goal': leg['goal'], 'from': [round(a[0]), round(a[1])], 'to': [round(b[0]), round(b[1])],
                 's': round(took, 1), 'len': round(leg['len']), 'ahead': round(ahead), 'eff': round(eff, 3),
                 'pts': [[round(x), round(y)] for x, y in leg['pts']]}
-        where = "leg in %s to '%s'" % (leg['zone'], leg['goal'][:60])
-        try:
-            n = self._keep(leg['zone'], kept)
-        except OSError as e:
-            return 'route memory: the ' + where + " couldn't be written (%s)" % e
-        return 'route memory: kept the %s - %.0f s, %.0f walked, eff %.2f%s' % (
-            where, took, leg['len'], eff, '' if n is None else ' (%d legs there)' % n)
+        line = "route memory: kept the leg in %s to '%s' - %.0f s, %.0f walked, eff %.2f" % (
+            leg['zone'], leg['goal'][:60] or '?', took, leg['len'], eff)
+        return line, ('leg', leg['zone'], kept)
 
     # ---- the quest being followed
 
     def quest(self, qid, title, zone, goal, now=None):
         """one /nav route reading's quest: the game's id for it (None / '' / 0 - not read: as the last reading), its
-        title, the zone, the goal's line. A line for the log when the quest followed before is over (another id read)
-        and written to quests.jsonl, else None"""
+        title and the goal's line (empty: not known for sure), the zone. A line for the log when the quest followed
+        before is over (another id read) - its line goes to the writer thread for quests.jsonl -, else None"""
         now = self.clock() if now is None else now
         if qid in (None, '', 0):
             return None
         qid = str(qid)
+        job = None
         with self.lock:
             q, said = self.qs, None
             if q is not None and q['id'] != qid:
-                said = self._quest_over(q, now)
+                # (the time since its last reading is its own: its last battle - a boss's - ended it)
+                dt = now - q['last']
+                if 0 < dt <= GAP_MAX:
+                    q['s'] += dt
+                    q['last'] = now
+                said, job = self._quest_over(q, now)
                 q = self.qs = None
             if q is None:
                 q = self.qs = {'id': qid, 'title': '', 't0': now, 'last': now, 's': 0.0, 'zones': [], 'goals': [],
@@ -358,22 +386,56 @@ class RouteMem:
             line = ' '.join((goal or '').split())
             if line and (not q['goals'] or goal_key(q['goals'][-1]) != goal_key(line)):
                 q['goals'].append(line)
-            return said
+        if job is not None:
+            self._write(job)
+        return said
 
     def _quest_over(self, q, now):
+        """(the log's line, the writer's job) for a quest over - (None, None) for one followed under QUEST_MIN"""
         if q['s'] < QUEST_MIN:
-            return None
+            return None, None
         line = {'t': round(now, 1), 'quest': q['title'], 'id': q['id'], 's': round(q['s']), 'span': round(q['last'] - q['t0']),
                 'zones': q['zones'][:50], 'goals': q['goals'][:100], 'kept': q['kept'], 'dropped': q['dropped']}
-        try:
-            with self.flock:
-                os.makedirs(self.folder, exist_ok=True)
-                with open(os.path.join(self.folder, QUESTS), 'a', encoding='utf-8', newline='\n') as f:
-                    f.write(json.dumps(line, separators=(',', ':')) + '\n')
-        except OSError as e:
-            return "route memory: the quest '%s' couldn't be written (%s)" % (q['title'][:60], e)
-        return "route memory: the quest '%s' over - followed %.0f min, %d zone(s), %d goal(s), %d walk(s) kept" % (
-            q['title'][:60], q['s'] / 60.0, len(q['zones']), len(q['goals']), q['kept'])
+        said = "route memory: the quest '%s' over - followed %.0f min, %d zone(s), %d goal(s), %d walk(s) kept" % (
+            q['title'][:60] or '?', q['s'] / 60.0, len(q['zones']), len(q['goals']), q['kept'])
+        return said, ('quest', None, line)
+
+    # ---- the writer thread
+
+    def _write(self, job):
+        with self.wlock:
+            if self.wq is None:
+                self.wq = queue.Queue()
+                threading.Thread(target=self._writer, name='routemem writer', daemon=True).start()
+        self.wq.put(job)
+
+    def _writer(self):
+        while True:
+            kind, zone, what = self.wq.get()
+            try:
+                if kind == 'leg':
+                    self._keep(zone, what)
+                else:
+                    with self.flock:
+                        os.makedirs(self.folder, exist_ok=True)
+                        with open(os.path.join(self.folder, QUESTS), 'a', encoding='utf-8', newline='\n') as f:
+                            f.write(json.dumps(what, separators=(',', ':')) + '\n')
+            except Exception as e:  # noqa: BLE001 - one not written: said, the next ones go on
+                self.log("route memory: %s couldn't be written (%r)" % ('a leg in ' + zone if kind == 'leg' else 'a quest', e))
+            finally:
+                self.wq.task_done()
+
+    def flush(self, timeout=5.0):
+        """wait (timeout s at most) for what's been handed to the writer thread to be written - True when it all was"""
+        wq = self.wq
+        if wq is None:
+            return True
+        end = time.monotonic() + timeout
+        while wq.unfinished_tasks:
+            if time.monotonic() > end:
+                return False
+            time.sleep(0.005)
+        return True
 
     # ---- the kept legs
 
@@ -386,9 +448,9 @@ class RouteMem:
         return st.st_size, st.st_mtime_ns
 
     def _keep(self, zone, kept):
-        """a kept leg appended to its zone's file - and to its heat, when that's built and the leg fits in it (else built
-        again when next asked for). How many legs there now, None when the zone isn't read yet. The file rewritten with
-        the newest KEEP once it has twice that many lines"""
+        """(the writer thread) a kept leg appended to its zone's file - and to its heat, when that's built and the leg
+        fits in it (else built again when next asked for). The file rewritten with the newest KEEP once it has twice
+        that many lines"""
         path = zone_file(self.folder, zone)
         with self.flock:
             os.makedirs(self.folder, exist_ok=True)
@@ -410,10 +472,10 @@ class RouteMem:
                     f.write(json.dumps(kept, separators=(',', ':')) + '\n')
             st = self._stat(path)
             if zh is None:
-                return None
+                return
             with self.zlock:
                 if self.zones.get(zone) is not zh:
-                    return None
+                    return
                 if rewrite:
                     zh.legs, zh.lines, zh.n, zh.e = legs, len(legs), None, None
                 else:
@@ -424,38 +486,43 @@ class RouteMem:
                     else:
                         zh.n = zh.e = None
                 zh.stat, zh.ver = st, zh.ver + 1
-                return len(zh.legs)
 
     def _read(self, zone):
-        """(legs, lines, stat) from the zone's file - lines that don't parse skipped; ([], 0, None) with none"""
+        """(legs, lines, stat) from the zone's file - its text read under the files' lock, parsed after; lines that
+        don't parse skipped; ([], 0, None) with none"""
         path = zone_file(self.folder, zone)
-        legs, lines = [], 0
         with self.flock:
             st = self._stat(path)
             if st is None:
                 return [], 0, None
             try:
-                with open(path, encoding='utf-8') as f:
-                    for line in f:
-                        lines += 1
-                        try:
-                            leg = json.loads(line)
-                        except ValueError:
-                            continue
-                        if isinstance(leg, dict) and isinstance(leg.get('pts'), list):
-                            legs.append(leg)
-            except (OSError, UnicodeDecodeError):
+                with open(path, 'rb') as f:
+                    raw = f.read()
+            except OSError:
                 return [], 0, None
+        legs, lines = [], 0
+        for line in raw.split(b'\n'):
+            if not line.strip():
+                continue
+            lines += 1
+            try:
+                leg = json.loads(line.decode('utf-8'))
+            except (ValueError, UnicodeDecodeError):
+                continue
+            if isinstance(leg, dict) and isinstance(leg.get('pts'), list):
+                legs.append(leg)
         return legs[-KEEP:], lines, st
 
     def zone_heat(self, zone, now=None):
         """(n, e, x0, y0, scale) - the zone's kept legs' heat by CELL squares from (x0, y0) ([j, i]), n and e to be
         multiplied by scale (their age now) - or None, no legs kept there. Its file read again when it changed or went
-        (deleted: forgotten); the heat built again when it's to be - outside the zone's lock: see() never waits for it"""
+        (deleted: forgotten) - by one asker at a time, the others waiting for it; the heat built again when it's to
+        be - outside the zone's lock"""
         now = self.clock() if now is None else now
         path = zone_file(self.folder, zone)
-        for _ in range(3):
+        for _ in range(4):
             st = self._stat(path)
+            mine = None
             with self.zlock:
                 zh = self.zones.get(zone)
                 fresh = zh is not None and zh.stat == st
@@ -463,14 +530,27 @@ class RouteMem:
                     return zh.n, zh.e, zh.x0, zh.y0, 0.5 ** ((now - zh.base) / 86400.0 / HALF_LIFE)
                 if fresh and not zh.legs:
                     return None
-                legs, ver = (list(zh.legs), zh.ver) if fresh else (None, None)
-            if legs is None:
-                legs, lines, st = self._read(zone)
-                with self.zlock:
-                    if self.zones.get(zone) is not zh:
-                        continue
-                    zh = self.zones[zone] = ZoneHeat(legs, lines, st)
-                    ver = zh.ver
+                if fresh:
+                    legs, ver = list(zh.legs), zh.ver
+                else:
+                    ev = self.reading.get(zone)
+                    if ev is None:
+                        mine = self.reading[zone] = threading.Event()
+            if not fresh:
+                if mine is None:
+                    ev.wait(5.0)                     # (another asker is reading it: its answer used)
+                    continue
+                try:
+                    legs, lines, st = self._read(zone)
+                    with self.zlock:
+                        if self.zones.get(zone) is not zh:
+                            continue
+                        zh = self.zones[zone] = ZoneHeat(legs, lines, st)
+                        ver = zh.ver
+                finally:
+                    with self.zlock:
+                        self.reading.pop(zone, None)
+                    mine.set()
                 if lines > 2 * KEEP:
                     self._trim(zone)
                 if not legs:
@@ -490,7 +570,7 @@ class RouteMem:
         with self.flock:
             with self.zlock:
                 zh = self.zones.get(zone)
-                if zh is None or zh.lines <= 2 * KEEP:
+                if zh is None or zh.lines <= 2 * KEEP or zh.stat != self._stat(path):
                     return
                 legs = list(zh.legs)
             try:

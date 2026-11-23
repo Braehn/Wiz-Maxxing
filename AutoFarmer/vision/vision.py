@@ -4182,31 +4182,35 @@ def route_mem():
 
 
 def route_heat(q, r, goal):
-    """/nav route=1's reading for the route memory (routemem.RouteMem.see and .quest): clean - a leg that can be kept -
-    with avoid=1 (the walker keeping away from mobs on the way: not walking into them on purpose - a fight at the goal
-    has it off, after the leg's frozen); played with user=1 (you played, or the bot or its walking was off, since the
-    walker's last route ask - Vision.ahk NavRouteArgs); the goal told from the next by the game's ids for it (the
-    quest's and the goal's - read with the quest's path; a reading without them counts as the same goal, and no leg
-    begins at one - a line read off the screen or the memory's can differ from one reading to the next), its line (the
-    memory's, else the walker's) for the files and the log; ahead - the game's own path from here (routemem.path_len):
-    what the leg's eff is measured against. With heat=1 (the routeheat setting) the planner's squares the kept legs
-    passed through are a little cheaper (navroute.HEAT) - without it, as before. A leg or a quest over: in the log.
-    Never raises"""
+    """/nav route=1's reading for the route memory (routemem.RouteMem.see and .quest): clean - a leg can be begun and
+    kept - with avoid=1 (the walker keeping away from mobs on the way: not walking into them on purpose); there with
+    there=1 (the walker has taken the goal up - arrived, talking, pushing through the way out, collecting: a "Defeat
+    ..." goal's fight has avoidance off from ~1500 out - the leg's frozen there); played with user=1 (you played, or the
+    bot or its walking was off, since the walker's last route ask - Vision.ahk NavRouteArgs); the goal told from the
+    next by the game's ids for it (the quest's and the goal's, read with the quest's path; a reading without them counts
+    as the same goal, and no leg begins at one); its line and the quest's title from the game's memory only when that
+    reading is of the same ids (goal_now's is up to a second old: the goal before, just after a talk) - else none, the
+    next reading's taken; ahead - the game's own path from here (routemem.path_len): what the leg's eff is measured
+    against. With heat=1 (the routeheat setting) the planner's squares the kept legs passed through are a little
+    cheaper (navroute.HEAT) - without it, as before. A leg or a quest over: in the log. Never raises"""
     try:
         import navroute
         import routemem
         rm = route_mem()
         navroute.HEAT = rm.heat01 if q.get('heat', '0') not in ('', '0') else None
-        clean = q.get('avoid', '0') not in ('', '0')
-        played = q.get('user', '0') not in ('', '0')
-        text = (goal or {}).get('text') or q.get('goal', '')
-        key = ('ids %s %s' % (r.get('quest'), r.get('goalid'))) if r.get('goalid') not in (None, '', 0) else ''
+        on = lambda k: q.get(k, '0') not in ('', '0')                      # noqa: E731
+        ids = (r.get('quest'), r.get('goalid'))
+        key = ('ids %s %s' % ids) if ids[1] not in (None, '', 0) else ''
+        g = goal or {}
+        same = key != '' and (str(g.get('quest_id')), str(g.get('goal_id'))) == (str(ids[0]), str(ids[1]))
+        text, title = (g.get('text') or '', g.get('quest') or '') if same else ('', '')
         ahead = routemem.path_len(r.get('pos'), r.get('path'), r.get('goal'))
-        said = rm.see(r.get('zone'), r.get('pos'), key, r.get('goal'), clean=clean, played=played, label=text, ahead=ahead)
+        said = rm.see(r.get('zone'), r.get('pos'), key, r.get('goal'), clean=on('avoid'), played=on('user'), label=text,
+                      ahead=ahead, there=on('there'))
         if said:
             log(said)
         # (the quest followed - quests.jsonl: how long each took, its zones and goals)
-        said = rm.quest(r.get('quest'), (goal or {}).get('quest') or '', r.get('zone'), text)
+        said = rm.quest(ids[0], title, r.get('zone'), text)
         if said:
             log(said)
     except Exception as e:  # noqa: BLE001 - not kept: walking goes on as before
@@ -5306,6 +5310,9 @@ class Handler(BaseHTTPRequestHandler):
             if u.path == '/quit':
                 self.reply('OK bye')
                 party_stop()
+                # (the route memory's last kept legs and quest written - a second at most)
+                if ROUTEMEM is not None:
+                    ROUTEMEM.flush(1.0)
                 threading.Thread(target=self.server.shutdown, daemon=True).start()
                 return
             if u.path == '/net':

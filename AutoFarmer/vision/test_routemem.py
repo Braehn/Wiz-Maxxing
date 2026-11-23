@@ -56,8 +56,10 @@ def walk(rm, clock, a, b, speed=1000.0, dt=0.25, goal=GOAL, target=None, zone=Z,
     return said
 
 
-def legs(folder, zone=Z):
-    p = M.zone_file(folder, zone)
+def legs(rm, zone=Z):
+    """the zone's kept legs, as written (the writer thread waited for)"""
+    assert rm.flush(5.0)
+    p = M.zone_file(rm.folder, zone)
     if not os.path.exists(p):
         return []
     with open(p, encoding='utf-8') as f:
@@ -65,8 +67,10 @@ def legs(folder, zone=Z):
 
 
 def done(rm, at=(0.0, 3000.0), goal=NEXT):
-    """the goal moving on where the wizard stands"""
-    return rm.see(Z, (at[0], at[1], 0.0), goal, (0.0, 9000.0, 0.0))
+    """the goal moving on where the wizard stands (what it kept written)"""
+    said = rm.see(Z, (at[0], at[1], 0.0), goal, (0.0, 9000.0, 0.0))
+    rm.flush(5.0)
+    return said
 
 
 class Legs(unittest.TestCase):
@@ -79,7 +83,7 @@ class Legs(unittest.TestCase):
         walk(self.rm, self.clock, (0, 0), (0, 3000), label='Talk to Groundskeeper Verne')
         said = done(self.rm)
         self.assertIn('kept the leg in ' + Z + " to 'Talk to Groundskeeper Verne'", said)
-        got = legs(self.dir)
+        got = legs(self.rm)
         self.assertEqual(len(got), 1)
         leg = got[0]
         self.assertEqual(leg['from'], [0, 0])
@@ -94,7 +98,7 @@ class Legs(unittest.TestCase):
         self.assertEqual(M.goal_key('Collect  X (3 of 5)'), M.goal_key('collect x (4 OF 5)'))
         walk(self.rm, self.clock, (0, 0), (0, 1500), goal='Collect X (3 of 5)', upto=0.5)
         walk(self.rm, self.clock, (0, 750), (0, 1500), goal='Collect X (4 of 5)')
-        self.assertEqual(legs(self.dir), [])
+        self.assertEqual(legs(self.rm), [])
         self.assertEqual(self.rm.leg['pts'][0], (0.0, 0.0))
 
     def test_no_ids_same_goal(self):
@@ -111,19 +115,19 @@ class Legs(unittest.TestCase):
         said = done(self.rm, at=(0.0, 1500.0))
         self.assertIn('dropped', said)
         self.assertIn('not there', said)
-        self.assertEqual(legs(self.dir), [])
+        self.assertEqual(legs(self.rm), [])
 
     def test_zone_change_at_the_way_out(self):
         walk(self.rm, self.clock, (0, 0), (2000, 0), target=(2100.0, 0.0, 0.0))
         said = self.rm.see('Wysteria/PA_Hub', (50.0, 50.0, 0.0), GOAL, (4000.0, 0.0, 0.0))
         self.assertIn('kept', said)
-        self.assertEqual(len(legs(self.dir)), 1)
+        self.assertEqual(len(legs(self.rm)), 1)
         self.assertEqual(self.rm.leg['zone'], 'Wysteria/PA_Hub')
         # (into another zone far from the way out: a knockout, a recall - dropped)
         walk(self.rm, self.clock, (50, 50), (3000, 50), target=(4000.0, 0.0, 0.0), zone='Wysteria/PA_Hub', upto=0.5)
         said = self.rm.see('WizardCity/WC_Hub', (0.0, 0.0, 0.0), GOAL, (100.0, 0.0, 0.0))
         self.assertIn('dropped', said)
-        self.assertEqual(legs(self.dir, 'Wysteria/PA_Hub'), [])
+        self.assertEqual(legs(self.rm, 'Wysteria/PA_Hub'), [])
 
     def test_knockout_before_getting_there_dropped(self):
         walk(self.rm, self.clock, (0, 0), (0, 3000), upto=0.6)
@@ -134,7 +138,7 @@ class Legs(unittest.TestCase):
         walk(self.rm, self.clock, (-4000, -4000), (-4000, -3000), target=(0.0, 3000.0, 0.0), upto=0.5)
         said = self.rm.see(Z, (2000.0, 2000.0, 0.0), GOAL, (0.0, 3000.0, 0.0))
         self.assertIn('a teleport', said)
-        self.assertEqual(legs(self.dir), [])
+        self.assertEqual(legs(self.rm), [])
 
     def test_frozen_at_arrival_a_fight_goal(self):
         # (review: "Defeat 4 Lost Souls" - the walk there with avoidance on, then the fight with it off, battles, roaming)
@@ -145,7 +149,7 @@ class Legs(unittest.TestCase):
             walk(self.rm, self.clock, (1500, 3000 + 300 * k), (0, 3000), clean=False, target=(0.0, 3000.0, 0.0))
         said = done(self.rm)
         self.assertIn('kept', said)
-        leg = legs(self.dir)[0]
+        leg = legs(self.rm)[0]
         self.assertAlmostEqual(leg['eff'], 1.0, delta=0.05)
         self.assertLess(leg['len'], 3000)
         self.assertLessEqual(max(p[0] for p in leg['pts']), 1)
@@ -157,7 +161,7 @@ class Legs(unittest.TestCase):
         walk(self.rm, self.clock, (0, 3000), (2500, 3000), target=(0.0, 3000.0, 0.0))
         walk(self.rm, self.clock, (2500, 3000), (2500, 5000), target=(0.0, 3000.0, 0.0))
         done(self.rm, at=(2500.0, 5000.0))
-        leg = legs(self.dir)[0]
+        leg = legs(self.rm)[0]
         self.assertAlmostEqual(leg['eff'], 1.0, delta=0.05)
         self.assertLessEqual(math.hypot(leg['to'][0], leg['to'][1] - 3000), M.ARRIVE)
 
@@ -172,7 +176,7 @@ class Legs(unittest.TestCase):
         self.clock.t += 120
         said = self.rm.see(Z, (-5000.0, 0.0, 0.0), GOAL, (0.0, 3000.0, 0.0))     # (respawned)
         self.assertIn('kept', said)
-        self.assertEqual(len(legs(self.dir)), 1)
+        self.assertEqual(len(legs(self.rm)), 1)
 
     def test_there_too_long_dropped(self):
         walk(self.rm, self.clock, (0, 0), (0, 3000))
@@ -182,14 +186,14 @@ class Legs(unittest.TestCase):
             if said:
                 break
         self.assertIn('the goal not moving on', said)
-        self.assertEqual(legs(self.dir), [])
+        self.assertEqual(legs(self.rm), [])
 
     def test_not_clean_on_the_way_dropped(self):
-        walk(self.rm, self.clock, (0, 0), (0, 1500), upto=0.5)
+        walk(self.rm, self.clock, (0, 0), (0, 1500), upto=0.5, target=(0.0, 3000.0, 0.0))
         walk(self.rm, self.clock, (0, 750), (0, 3000), clean=False, upto=0.2)
         walk(self.rm, self.clock, (0, 1200), (0, 3000))
         self.assertIn('mob avoidance was off on the way', done(self.rm))
-        self.assertEqual(legs(self.dir), [])
+        self.assertEqual(legs(self.rm), [])
 
     def test_played_on_the_way_dropped(self):
         walk(self.rm, self.clock, (0, 0), (0, 3000), upto=0.5)
@@ -205,7 +209,7 @@ class Legs(unittest.TestCase):
         walk(self.rm, self.clock, (0, 3000), (0, 6000), goal='ids 1 4', target=(0.0, 6000.0, 0.0), upto=0.5)
         said = self.rm.see(Z, (0.0, 6000.0, 0.0), 'ids 1 5', (0.0, 9000.0, 0.0), played=True)
         self.assertIn('you played', said)
-        self.assertEqual(len(legs(self.dir)), 1)
+        self.assertEqual(len(legs(self.rm)), 1)
 
     def test_played_after_getting_there_kept(self):
         walk(self.rm, self.clock, (0, 0), (0, 3000))
@@ -217,17 +221,18 @@ class Legs(unittest.TestCase):
         self.clock.t += M.GAP_MAX + 1
         said = self.rm.see(Z, (0.0, 900.0, 0.0), GOAL, (0.0, 3000.0, 0.0))
         self.assertIn('nothing read for', said)
-        # (standing stuck for 15 minutes: dropped)
+        # (walking on a little, then standing stuck for 15 minutes: dropped)
+        walk(self.rm, self.clock, (0, 900), (0, 3000), upto=0.25)
         for _ in range(int(M.LEG_MAX / 60) + 2):
             self.clock.t += 60
             said = self.rm.see(Z, (0.0, 900.0, 0.0), GOAL, (0.0, 3000.0, 0.0)) or said
         self.assertIn('longer than', said)
-        self.assertEqual(legs(self.dir), [])
+        self.assertEqual(legs(self.rm), [])
 
     def test_short_legs_not_kept(self):
         walk(self.rm, self.clock, (0, 0), (0, 200), target=(0.0, 250.0, 0.0))
         self.assertIsNone(done(self.rm, at=(0.0, 200.0)))
-        self.assertEqual(legs(self.dir), [])
+        self.assertEqual(legs(self.rm), [])
 
     def test_no_target_no_leg(self):
         self.assertIsNone(self.rm.see(Z, (0.0, 0.0, 0.0), GOAL, None))
@@ -240,29 +245,76 @@ class Legs(unittest.TestCase):
         self.clock.t += 60                                   # (caught: a minute's battle, no readings)
         walk(self.rm, self.clock, (0, 1500), (0, 3000))
         done(self.rm)
-        eff = legs(self.dir)[0]['eff']
+        eff = legs(self.rm)[0]['eff']
         self.assertLess(eff, 0.1)
         self.assertGreater(eff, 0.0)
 
+    def lane(self, way, game, goal=(0.0, 3000.0), there_at=None):
+        """a kept leg walked along way (points) with the game's own path via game (its corner points) to goal - each
+        reading's ahead its path from there (by the next corner still ahead); there_at: the walker takes the goal up
+        (avoidance off) from this far out (by its path). The leg kept"""
+        rm = M.RouteMem(tempfile.mkdtemp(), clock=self.clock)
+        g3 = (goal[0], goal[1], 0.0)
+        for a, b in zip(way, way[1:]):
+            n = max(1, int(math.ceil(math.hypot(b[0] - a[0], b[1] - a[1]) / 250.0)))
+            for k in range(n):
+                p = (a[0] + (b[0] - a[0]) * k / n, a[1] + (b[1] - a[1]) * k / n, 0.0)
+                rest = [c for c in game if c[1] > p[1]]
+                ahead = M.path_len(p, [(c[0], c[1], 0.0) for c in rest], g3)
+                there = there_at is not None and ahead <= there_at
+                rm.see(Z, p, GOAL, g3, clean=not there, there=there, ahead=ahead)
+                self.clock.t += 0.25
+        done(rm, at=goal)
+        got = legs(rm)
+        self.assertEqual(len(got), 1)
+        return got[0]
+
     def test_eff_against_the_games_path(self):
         # (round a wall the game's path knows of: its length, not the straight line, is what the walk is measured by)
-        rm = M.RouteMem(tempfile.mkdtemp(), clock=self.clock)
-        ahead = M.path_len((0.0, 0.0, 0.0), [(1500.0, 1500.0, 0.0)], (0.0, 3000.0, 0.0))
-        self.assertAlmostEqual(ahead, 2 * math.hypot(1500, 1500))
-        walk(rm, self.clock, (0, 0), (1500, 1500), target=(0.0, 3000.0, 0.0), ahead=ahead)
-        walk(rm, self.clock, (1500, 1500), (0, 3000), target=(0.0, 3000.0, 0.0))
-        done(rm)
-        leg = legs(rm.folder)[0]
-        self.assertGreater(leg['eff'], 0.9)                  # (a reading's stand between the two walks: 0.25 s of 4)
-        self.assertEqual(leg['ahead'], round(ahead))
-        # (without it: the straight line - a detour costs)
-        rm2 = M.RouteMem(tempfile.mkdtemp(), clock=self.clock)
-        walk(rm2, self.clock, (0, 0), (1500, 1500), target=(0.0, 3000.0, 0.0))
-        walk(rm2, self.clock, (1500, 1500), (0, 3000), target=(0.0, 3000.0, 0.0))
-        done(rm2)
-        self.assertAlmostEqual(legs(rm2.folder)[0]['eff'], 2600 / (2 * math.hypot(1500, 1500) - 400), delta=0.06)
+        self.assertAlmostEqual(M.path_len((0.0, 0.0, 0.0), [(1500.0, 1500.0, 0.0)], (0.0, 3000.0, 0.0)),
+                               2 * math.hypot(1500, 1500))
+        leg = self.lane([(0, 0), (1500, 1500), (0, 3000)], game=[(1500, 1500)])
+        self.assertGreater(leg['eff'], 0.95)
+        # (review: measured to the goal, a lane 8% longer was perfect - the stretch walked is what counts)
+        leg = self.lane([(0, 0), (612, 1500), (0, 3000)], game=[])
+        self.assertLess(leg['eff'], 0.95)
+        self.assertGreater(leg['eff'], 0.85)
+        self.assertGreater(self.lane([(0, 0), (0, 3000)], game=[])['eff'], 0.97)
         self.assertIsNone(M.path_len(None, [], (0, 0, 0)))
         self.assertIsNone(M.path_len((0, 0, 0), [], None))
+
+    def test_there_far_out_a_fight_goal(self):
+        # (review 2: collecting a "Defeat ..." goal begins ~1500 out by the path, with mob avoidance off from then on)
+        leg = self.lane([(0, 0), (0, 3000)], game=[], there_at=1500.0)
+        self.assertAlmostEqual(leg['eff'], 1.0, delta=0.03)
+        self.assertLessEqual(abs(leg['to'][1] - 1500), 260)
+        self.assertLess(leg['s'], 1.8)
+        # (into a mob before getting near: still kept - it got there by the walker's word)
+        rm = self.rm
+        walk(rm, self.clock, (0, 0), (0, 3000), upto=0.5)
+        rm.see(Z, (0.0, 1600.0, 0.0), GOAL, (0.0, 3000.0, 0.0), clean=False, there=True)
+        self.clock.t += 180
+        self.assertIn('kept', done(rm, at=(0.0, 1700.0)))
+
+    def test_next_leg_after_collecting(self):
+        # (review 2: a goal ended collecting, no battle - for a few seconds the walker's still at it, avoidance off, with
+        # the next goal's ids: the next leg begins once it walks on clean)
+        walk(self.rm, self.clock, (0, 0), (0, 3000))
+        for k in range(12):
+            self.rm.see(Z, (0.0, 3000.0, 0.0), NEXT, (0.0, 6000.0, 0.0), clean=False, there=True)
+            self.clock.t += 0.25
+        self.rm.flush()
+        self.assertEqual(len(legs(self.rm)), 1)
+        walk(self.rm, self.clock, (0, 3000), (0, 6000), goal=NEXT)
+        self.assertIn('kept', done(self.rm, at=(0.0, 6000.0), goal='ids 1 9'))
+        self.assertEqual(len(legs(self.rm)), 2)
+
+    def test_tiny_drops_not_said(self):
+        # (review 2: "Wait while I play" off and you at the mouse - every reading played: no line, no count, each time)
+        self.rm.quest(5, 'Q', Z, 'x')
+        said = walk(self.rm, self.clock, (0, 0), (0, 3000), played=True)
+        self.assertEqual(said, [])
+        self.assertEqual(self.rm.qs['dropped'], 0)
 
     def test_file_kept_short_and_bad_lines_skipped(self):
         p = M.zone_file(self.dir, Z)
@@ -272,12 +324,12 @@ class Legs(unittest.TestCase):
             for k in range(2 * M.KEEP):
                 f.write(json.dumps({'t': self.clock.t, 'eff': 1.0, 'pts': [[0, k], [0, k + 40]]}) + '\n')
         self.assertIsNotNone(self.rm.zone_grid(Z))           # (read - and made shorter: it had over 2 x KEEP lines)
-        self.assertEqual(len(legs(self.dir)), M.KEEP)
-        walk(self.rm, self.clock, (0, 0), (0, 3000))
-        self.assertIn('(%d legs there)' % (M.KEEP + 1), done(self.rm))
-        got = legs(self.dir)
+        self.assertEqual(len(legs(self.rm)), M.KEEP)
+        walk(self.rm, self.clock, (0, 0), (0, 3000), label='Talk to Groundskeeper Verne')
+        self.assertIn('kept', done(self.rm))
+        got = legs(self.rm)
         self.assertEqual(len(got), M.KEEP + 1)
-        self.assertEqual(got[-1]['goal'], GOAL)
+        self.assertEqual(got[-1]['goal'], 'Talk to Groundskeeper Verne')
         with open(p, 'rb') as f:
             self.assertNotIn(b'\r\n', f.read())
 
@@ -293,6 +345,7 @@ class Heat(unittest.TestCase):
             walk(self.rm, self.clock, a, b, dt=dt)
             self.rm.see(Z, (float(b[0]), float(b[1]), 0.0), NEXT, (0.0, 9000.0, 0.0))
             self.rm.leg = None
+        self.rm.flush(5.0)
 
     def at(self, x, y):
         return self.rm.heat01(Z, x - 10.0, y - 10.0, 1, 1, 20.0)[0, 0]
@@ -323,7 +376,7 @@ class Heat(unittest.TestCase):
             walk(rm, self.clock, (0, 1500), (0, 3000))
             done(rm)
             rm.leg = None
-        eff = legs(rm.folder)[0]['eff']
+        eff = legs(rm)[0]['eff']
         self.assertLess(eff, 0.6)
         self.assertAlmostEqual(self.at(0, 1500), eff, delta=0.03)
 
@@ -375,7 +428,7 @@ class Heat(unittest.TestCase):
         os.remove(M.zone_file(self.dir, Z))
         self.assertIsNone(self.rm.heat01(Z, 0, 0, 2, 2, 20.0))
         self.kept(1, a=(3000, 0), b=(3000, 3000))
-        self.assertEqual(len(legs(self.dir)), 1)
+        self.assertEqual(len(legs(self.rm)), 1)
         self.assertEqual(self.at(0, 1500), 0.0)
         # (changed by someone else - a line taken out: read again)
         self.kept(1)
@@ -409,8 +462,42 @@ class Heat(unittest.TestCase):
             t.join()
         finally:
             M.build_heat = was
-        self.assertEqual(len(legs(self.dir)), 4)
+        self.assertEqual(len(legs(rm)), 4)
         self.assertAlmostEqual(rm.heat01(Z, -10.0, 1490.0, 1, 1, 20.0)[0, 0], 1.0, delta=0.02)
+
+    def test_see_never_waits_for_the_files(self):
+        # (review 2: a kept leg was written from /nav's own request, waiting on the files' lock another reader held)
+        self.kept(1)
+        got = []
+        with self.rm.flock:
+            t0 = time.perf_counter()
+            walk(self.rm, self.clock, (0, 0), (0, 3000))
+            got.append(self.rm.see(Z, (0.0, 3000.0, 0.0), NEXT, (0.0, 9000.0, 0.0)))
+            self.assertLess(time.perf_counter() - t0, 0.2)
+            self.assertIn('kept', got[0])
+        self.assertTrue(self.rm.flush(5.0))
+        self.assertEqual(len(legs(self.rm)), 2)
+
+    def test_one_read_of_a_zone_at_a_time(self):
+        # (review 2: the planner's thread and the Map's both read a zone neither had yet, one after the other)
+        self.kept(3)
+        rm = M.RouteMem(self.dir, clock=self.clock)
+        reads, was = [], rm._read
+
+        def slow(zone):
+            reads.append(zone)
+            time.sleep(0.3)
+            return was(zone)
+        rm._read = slow
+        out = []
+        ts = [threading.Thread(target=lambda: out.append(rm.heat01(Z, -10.0, 1490.0, 1, 1, 20.0))) for _ in range(3)]
+        for t in ts:
+            t.start()
+        for t in ts:
+            t.join()
+        self.assertEqual(reads, [Z])
+        self.assertEqual(len(out), 3)
+        self.assertTrue(all(o is not None and abs(o[0, 0] - 1.0) < 0.02 for o in out))
 
     def test_trail_cells(self):
         # (the squares a trail passes, as a slow walk along it every few units finds them)
@@ -447,6 +534,7 @@ class Quests(unittest.TestCase):
         rm.quest(111, '', Z, 'Talk to Groundskeeper Verne')
         said = rm.quest(222, 'Next One', Z, 'Go To Crystal Tower')
         self.assertIn("the quest 'In-Flight Meals' over", said)
+        self.assertTrue(rm.flush(5.0))
         with open(os.path.join(d, M.QUESTS), encoding='utf-8') as f:
             q = [json.loads(line) for line in f]
         self.assertEqual(len(q), 1)
@@ -462,8 +550,26 @@ class Quests(unittest.TestCase):
         # (a quest followed a few seconds: not written)
         clock.t += 5
         rm.quest(333, 'Third', Z, 'x')
+        self.assertTrue(rm.flush(5.0))
         with open(os.path.join(d, M.QUESTS), encoding='utf-8') as f:
             self.assertEqual(len(f.readlines()), 1)
+
+
+class QuestsLast(unittest.TestCase):
+    def test_its_last_battle_counted(self):
+        # (review 2: the reading after a quest's boss battle is the next quest's - the battle was the old one's)
+        d, clock = tempfile.mkdtemp(), Clock()
+        rm = M.RouteMem(d, clock=clock)
+        for _ in range(10):
+            rm.quest(1, 'Boss', Z, 'Defeat the Boss')
+            clock.t += 2.5
+        clock.t += 240
+        self.assertIn("the quest 'Boss' over - followed 4 min", rm.quest(2, 'Next', Z, 'x'))
+        self.assertTrue(rm.flush(5.0))
+        with open(os.path.join(d, M.QUESTS), encoding='utf-8') as f:
+            q = json.loads(f.readline())
+        self.assertGreater(q['s'], 260)
+        self.assertGreater(q['span'], 260)
 
 
 class Planner(unittest.TestCase):
@@ -507,6 +613,7 @@ class Planner(unittest.TestCase):
                 walk(rm, clock, a, b, target=(0.0, 2000.0, 0.0), zone='Test/Flat', ahead=None)
             rm.see('Test/Flat', (0.0, 2000.0, 0.0), NEXT, (0.0, 9000.0, 0.0))
             rm.leg = None
+        rm.flush(5.0)
         return rm
 
     def test_a_much_longer_lane_isnt(self):
@@ -547,6 +654,7 @@ class Planner(unittest.TestCase):
             walk(rm, clock, (300, -500), (300, 2500), target=(300.0, 2500.0, 0.0), zone='Test/Flat')
             rm.see('Test/Flat', (300.0, 2500.0, 0.0), NEXT, (0.0, 9000.0, 0.0))
             rm.leg = None
+        rm.flush(5.0)
         x, _ = self.side(rm.heat01)
         self.assertGreater(x, 150.0)
 
@@ -593,17 +701,24 @@ class HelperWiring(unittest.TestCase):
         was = R.HEAT
         try:
             r = {'zone': Z, 'pos': (0.0, 0.0, 0.0), 'goal': (0.0, 50.0, 0.0), 'quest': 7, 'goalid': 8, 'path': [(30.0, 40.0, 0.0)]}
-            ns['route_heat']({'heat': '1', 'avoid': '1', 'goal': 'screen line'}, r, {'text': 'memory line', 'quest': 'Title'})
+            g = {'text': 'memory line', 'quest': 'Title', 'quest_id': 7, 'goal_id': 8}
+            ns['route_heat']({'heat': '1', 'avoid': '1', 'goal': 'screen line'}, r, g)
             self.assertEqual(R.HEAT, RM.heat01)
             self.assertEqual(seen[-1], ((Z, (0.0, 0.0, 0.0), 'ids 7 8', (0.0, 50.0, 0.0)),
-                                        {'clean': True, 'played': False, 'label': 'memory line', 'ahead': 50.0 + math.sqrt(1000.0)}))
+                                        {'clean': True, 'played': False, 'label': 'memory line',
+                                         'ahead': 50.0 + math.sqrt(1000.0), 'there': False}))
             self.assertEqual(quests[-1], (7, 'Title', Z, 'memory line'))
             self.assertEqual(logs, ['said'])
+            # (review 2: the memory's goal of the goal before - its ids not this reading's: no line, no title)
+            ns['route_heat']({'avoid': '1', 'there': '1'}, r, dict(g, goal_id=7))
+            self.assertEqual(seen[-1][1]['label'], '')
+            self.assertTrue(seen[-1][1]['there'])
+            self.assertEqual(quests[-1], (7, '', Z, ''))
             ns['route_heat']({'user': '1', 'goal': 'screen line'}, dict(r, goalid=None, path=None), None)
             self.assertIsNone(R.HEAT)
             self.assertEqual(seen[-1], ((Z, (0.0, 0.0, 0.0), '', (0.0, 50.0, 0.0)),
-                                        {'clean': False, 'played': True, 'label': 'screen line', 'ahead': 50.0}))
-            self.assertEqual(quests[-1], (7, '', Z, 'screen line'))
+                                        {'clean': False, 'played': True, 'label': '', 'ahead': 50.0, 'there': False}))
+            self.assertEqual(quests[-1], (7, '', Z, ''))
         finally:
             R.HEAT = was
 
@@ -622,6 +737,7 @@ class HelperWiring(unittest.TestCase):
         self.assertIn('NavHandsAt >= last', body)
         self.assertIn('(!HandsOffOn() && UserIdle() < 3000)', body)
         self.assertIn('(Stats.Has("routeheat") && !Stats["routeheat"] ? "" : "&heat=1") (played ? "&user=1" : "")', body)
+        self.assertIn('. (IsSet(WkArrived) && WkArrived ? "&there=1" : "")', body)
         nr = a[a.index('\nNavRead('):]
         nr = nr[:nr.index('\n\t}\n')]
         # (with or without mob avoidance - a fight at the goal has it off)

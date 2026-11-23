@@ -1749,13 +1749,16 @@ NavMobArgs()
 ;ways walked well before a little cheaper for the planner); &user=1 when the wizard maybe wasn't the bot's alone since
 ;the last route ask answered - you played since (PlayerActedAt), the bot or its walking was turned on since (NavHandsAt:
 ;off in between, you may have walked him), or "Wait while I play" is off and you've touched the keyboard or mouse in
-;the last 3 s: the leg being walked isn't kept as one the bot walked well
+;the last 3 s: the leg being walked isn't kept as one the bot walked well; &there=1 while the walker has the goal taken
+;up (WkArrived: arrived, talking, pushing through the way out, at a world gate, a sigil, pressing, collecting - a fight
+;goal's has mob avoidance off from ~1500 out): the walk there ends where this began
 NavRouteArgs()
 	{
 	last := IsSet(NavRouteAt) ? NavRouteAt : ""
 	played := last = "" || (IsSet(PlayerActedAt) && PlayerActedAt != "" && PlayerActedAt >= last)
 		|| (IsSet(NavHandsAt) && NavHandsAt != "" && NavHandsAt >= last) || (!HandsOffOn() && UserIdle() < 3000)
 	return (Stats.Has("routeheat") && !Stats["routeheat"] ? "" : "&heat=1") (played ? "&user=1" : "")
+		. (IsSet(WkArrived) && WkArrived ? "&there=1" : "")
 	}
 
 ;A number off /nav ("" if it isn't one: empty, nan, inf). Python may write a tiny one as 1.5e-08
