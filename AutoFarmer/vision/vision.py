@@ -2582,6 +2582,60 @@ def whole_name(name, item):
     return bool(rx is not None and clean and (rx.fullmatch(clean) or rx.fullmatch('the ' + clean)))
 
 
+NAME_SMALL = {'the', 'a', 'an', 'of'}
+
+
+def name_words(text):
+    """a name's words, lower case, a plural's s dropped ("Books": book) - a template's split at its _ and - and its
+    CamelCase too ("ZF-Library_Book", "LibraryBook": library, book)"""
+    text = re.sub(r'([a-z0-9])([A-Z])', r'\1 \2', text or '')
+    return [w[:-1] if len(w) > 3 and w.endswith('s') and not w.endswith('ss') else w
+            for w in re.findall(r'[a-z0-9]+', text.lower())]
+
+
+def part_by_template(name, template, item):
+    """the thing's name a part of the goal's item and its template naming the rest: "Book" (template ZF-Library_Book) for
+    "Library Book" - 2026-11-22 18:35-19:21 the bot looked about the Library Classroom for 45 minutes with the book on its
+    table, the game's arrow on it. Every one of item's words (not the, a, an, of) among the template's, every one of the
+    name's among item's, and a word of item's the name hasn't (the whole of it: whole_name's). Never a part named alone
+    ('Urn' for 'Urn Piece', 'Teleporter' for 'To Teleporter Hub': whole_name's pairs) - those templates don't name the rest"""
+    iw = {w for w in name_words(item) if w not in NAME_SMALL}
+    nw = {w for w in name_words(name) if w not in NAME_SMALL}
+    tw = set(name_words(template))
+    return bool(iw and nw and tw) and nw <= iw and iw <= tw and not iw <= nw
+
+
+PART_TWIN_NEAR = 50.0        # a same-named thing this near one matched by part of its name: the name doesn't tell them apart
+
+
+def part_twins(things, goal):
+    """a thing taken for an exact goal's item by a part of its name (part_by_template - not its whole name) isn't, with a thing of
+    the same name the goal doesn't take within PART_TWIN_NEAR of it whose template could name the item too (part_twin_named):
+    there the name doesn't tell which is meant (Nastrond's 8 blank
+    stones, GH2-Blank-rune-stone, would answer 'Rune stone' while 4 lettered ones named 'Rune' too, GH2-Runestone-Y/M/I/R,
+    stand on 4 of them - an ordered puzzle). In place: things' 'quest' flags"""
+    item = (goal or {}).get('item') or ''
+    if not (goal and goal.get('text') and goal.get('exact') and item):
+        return
+    iw = [w for w in name_words(item) if w not in NAME_SMALL]
+    for t in things:
+        if not t.get('quest') or not t.get('name') or whole_name(t['name'], item) or not t.get('pos'):
+            continue
+        if any(u is not t and not u.get('quest') and u.get('name') == t['name'] and u.get('pos')
+               and math.hypot(u['pos'][0] - t['pos'][0], u['pos'][1] - t['pos'][1]) <= PART_TWIN_NEAR
+               and part_twin_named(u, iw) for u in things):
+            t['quest'] = False
+
+
+def part_twin_named(u, iw):
+    """could thing u's template name the item too (iw: the item's words) - each of them in its letters, run together or not
+    (GH2-Runestone-R: 'rune', 'stone' in 'gh2runestoner')? Only such a twin makes the name ambiguous: an effect or state object
+    on the same spot doesn't (Tanglewood's PA-PiggleFountState by PA-PiggleFountain - 'fount', not 'fountain'; KT_Obelisk_Tree
+    on KT_Obelisk_Skull for 'Skull Obelisk')"""
+    letters = re.sub(r'[^a-z0-9]', '', (u.get('template') or '').lower())
+    return bool(iw and letters) and all(w in letters for w in iw)
+
+
 def thing_keys(t):
     """a thing's name keys: a placement's display and title keys, a live one's display key"""
     return [k for k in (t.get('keys') or [t.get('key')]) if k]
@@ -2592,8 +2646,9 @@ def quest_item(thing, goal_line, goal=None, key_hit=None):
     The memory's goal (goal_now):
       - its own key (item_key, the TALLYTEXT) is the thing's: when any thing listed has it (key_hit - the caller's, over
         its whole list; None: this thing's alone), only those are (the 4 Inactive Protectors: exact, whatever names say)
-      - else an exact goal: its item - a talk goal's NPC, for an NPC - is the thing's whole name (whole_name); an ambient
-        one (a mob's name on something that doesn't fight) never by its name
+      - else an exact goal: its item - a talk goal's NPC, for an NPC - is the thing's whole name (whole_name), or a part of
+        its item's with the thing's template naming the rest (part_by_template: "Book", ZF-Library_Book, for "Library
+        Book" - not an NPC's or a mob's); an ambient one (a mob's name on something that doesn't fight) never by its name
       - else the goal's line (the HUD's) names it
     Without it goal_line (the OCR's): slips allowed for (name_in_line) - not for one from the zone's file (src "file":
     the whole zone's things, far ones too - exact words only)"""
@@ -2610,7 +2665,11 @@ def quest_item(thing, goal_line, goal=None, key_hit=None):
             return False
         if goal.get('exact'):
             want = [goal.get('item')] + ([goal.get('npc')] if kind == 'npc' else [])
-            return any(whole_name(name, w) for w in want if w)
+            # (or a part of its item's name, its template naming the rest - "Book" for "Library Book": part_by_template;
+            # never an NPC or a mob that way)
+            return (any(whole_name(name, w) for w in want if w)
+                    or (kind not in ('npc', 'mob') and bool(goal.get('item'))
+                        and part_by_template(name, t.get('template') or '', goal['item'])))
         return name_matches(name, goal['text'])
     if not goal_line or not name or kind == 'ambient':
         return False
@@ -3554,6 +3613,8 @@ def items_now(goal_line='', goal=None, r=None, far=False):
     key_hit = bool(ik) and any(ik in thing_keys(t) for t in things)
     for it in things:
         it['quest'] = quest_item(it, goal_line, goal, key_hit)
+    if not key_hit:
+        part_twins(things, goal)
     return things, '' if things else why
 
 
@@ -3956,7 +4017,9 @@ def navto_lines(target, game_dir, avoid=False, mob_near=None, cone=None, spare=0
         res = {'why': f'the planner failed ({e!r})'}
     if res.get('aim') is None:
         return lines + ['route|||', 'routewhy|' + (res.get('why') or '?')]
-    return lines + [f"route|{res['aim'][0]:.1f}|{res['aim'][1]:.1f}|{res['left']:.0f}"]
+    # (escape|<mob>: the aim leads out of that mob's ring or sight - the bot doesn't stand and turn in it; an older bot skips it)
+    return (lines + [f"route|{res['aim'][0]:.1f}|{res['aim'][1]:.1f}|{res['left']:.0f}"]
+            + ([f"escape|{goal_cell(res['escape'])}"] if res.get('escape') else []))
 
 
 # ---------------------------------------------------------------- a blocked way (vision\puzzlefile.py)

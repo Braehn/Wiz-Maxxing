@@ -1676,7 +1676,7 @@ PartyNavTo(p, avoid)
 	answer := VisionGet("/navto?x=" Round(V1N(p.x), 1) "&y=" Round(V1N(p.y), 1) "&z=" Round(V1N(p.z), 1) (avoid ? NavMobArgs() : ""), 2500, true)
 	if (answer = "" || SubStr(answer, 1, 3) = "ERR")
 		return ""
-	nav := V1Obj({x: "", y: "", z: "", yaw: "", ax: "", ay: "", left: "", why: "", zone: ""})
+	nav := V1Obj({x: "", y: "", z: "", yaw: "", ax: "", ay: "", left: "", why: "", zone: "", escape: ""})
 	Loop Parse, answer, "`n", "`r"
 		{
 		f := StrSplit(A_LoopField, "|")
@@ -1691,6 +1691,9 @@ PartyNavTo(p, avoid)
 			nav.ax := f[2], nav.ay := f[3], nav.left := f[4]
 		else if (f[1] = "routewhy")
 			nav.why := Trim(SubStr(A_LoopField, 10))
+		;(the route's aim leads out of a mob's ring or sight - its name; a newer helper's)
+		else if (f[1] = "escape")
+			nav.escape := f[2]
 		}
 	return (nav.x = "" || nav.yaw = "") ? "" : nav
 	}

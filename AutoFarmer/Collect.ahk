@@ -35,7 +35,7 @@ global UsLastCount, UsD, UsNearCount, UsFails
 global UsVols, UsVolsZone, UsVolsAt, UsAtFrom, UsThrough, UsNoted, UsTalkXs, UsHandAt
 ;(a fight goal's item: its prompt last looked at - CollectItemStep; a use goal's things near a prompt met outside its own step, the
 ;goal they were read for and when - UseOwnPromptNear)
-global CiPromptAt, CiXn, UopnThings, UopnGoal, UopnAt
+global CiPromptAt, CiXn, UopnThings, UopnGoal, UopnAt, UsPromptSaidAt
 
 ;The zone's quest items by the game's memory, for goal line goal: [{name, x, y, z, dist, quest, gid, key, template, src, kind}]
 ;nearest first (quest: the goal names it; key the thing's display key, template its template, src "mem" the game's memory's or
@@ -229,7 +229,7 @@ CollectItemStep(goal)
 	else
 		CiStillAt := A_TickCount, CiStillX := nav.x, CiStillY := nav.y
 	SetStatus("collecting - walking to " it.name " (" Round(d) " away)")
-	DgSteer(nav, V1Obj({x: it.x, y: it.y}), d)
+	DgSteer(nav, V1Obj({x: it.x, y: it.y}), d, true)
 	return true
 	}
 
@@ -610,6 +610,7 @@ UseStep(goal)
 	{
 	global UsNoneFrom, UsLastCount, UsAskAt, UsThings, UsIt, UsD, UsPromptAt, UsFrom, UsBudget, UsXs, UsBlind, UsBareAt ; (v1 globals it sets)
 	global UsTries, UsStillAt, UsPrompt, UsNearCount ; (v1 globals it sets)
+	global UsPromptSaidAt ; (v2-only: the port tools don't know it)
 	if ((Stats.Has("collectmem") && !Stats["collectmem"]) || !VisionOn)
 		return false
 	usKey := UseBegin("use")
@@ -713,6 +714,14 @@ UseStep(goal)
 		;in a day: a "Press X to <the goal's verb>" within 300 of it, nothing else named nearer - its own: UseOwnPrompt)
 		if (UsPrompt = "press" && usDist <= 300 && UseOwnPrompt(usNav, usDist, goal))
 			return UseX(UsIt, "the prompt by it ('" SubStr(WkPromptDest, 1, 30) "' - to " WkPromptVerb ", nothing else named nearer), " Round(usDist) " off", usKey)
+		;(a prompt by it not taken for its own - said every 5 s at most: whether its prompt was read and turned down shows in the log
+		;(2026-11-22 Evil Magma Peas: prompts came and went by them, no X and nothing said)
+		if (UsPrompt = "press" && (!UsPromptSaidAt || A_TickCount - UsPromptSaidAt >= 5000))
+			{
+			UsPromptSaidAt := A_TickCount
+			WalkLog("use: a prompt by " UsIt.name " " Round(usDist) " off - '" SubStr(WkPromptDest, 1, 40) "'" (WkPromptVerb != "" ? " (to " WkPromptVerb ")" : "")
+				. " - not its own by its words" (usDist <= 300 ? " (or something else named nearer)" : "") ": no X")
+			}
 		}
 	;Right by it (within 120, or held up within 300 - its body): stood there once stood on, held up, or 3 s by it; no prompt at all
 	;on the last look - one X in case (never into another's prompt); another's prompt all the while (6 s) - not it: left
@@ -738,7 +747,7 @@ UseStep(goal)
 	if (UseStuck(usNav, usDist, "use"))
 		return true
 	SetStatus("using - walking to " UsIt.name " (" Round(usDist) " away)")
-	DgSteer(usNav, V1Obj({x: UsIt.x, y: UsIt.y}), usDist)
+	DgSteer(usNav, V1Obj({x: UsIt.x, y: UsIt.y}), usDist, true)
 	return true
 	}
 
@@ -935,7 +944,7 @@ GoStep(goal)
 		if (A_TickCount - UsThrough < 2500)
 			{
 			if (gsD > 40)
-				DgSteer(gsNav, V1Obj({x: UsIt.x, y: UsIt.y}), gsD)
+				DgSteer(gsNav, V1Obj({x: UsIt.x, y: UsIt.y}), gsD, true)
 			else
 				HoldW(1)
 			SetStatus("going - through " UsIt.name)
@@ -966,7 +975,7 @@ GoStep(goal)
 	if (UseStuck(gsNav, gsD, "go"))
 		return true
 	SetStatus("going - walking to " UsIt.name " (" Round(gsD) " away)")
-	DgSteer(gsNav, V1Obj({x: UsIt.x, y: UsIt.y}), gsD)
+	DgSteer(gsNav, V1Obj({x: UsIt.x, y: UsIt.y}), gsD, true)
 	return true
 	}
 
@@ -1103,7 +1112,7 @@ TalkStep(goal)
 	if (UseStuck(tsNav, tsD, "talk"))
 		return true
 	SetStatus("finding - walking to " UsIt.name " (" Round(tsD) " away)")
-	DgSteer(tsNav, V1Obj({x: UsIt.x, y: UsIt.y}), tsD)
+	DgSteer(tsNav, V1Obj({x: UsIt.x, y: UsIt.y}), tsD, true)
 	return true
 	}
 
@@ -1117,5 +1126,5 @@ CollectBlank()
 	global UsBareAt := "", UsNoneFrom := "", UsPromptAt := "", UsPrompt := "", UsStillAt := "", UsStillX := "", UsStillY := "", UsTries := ""
 	global UsStepAt := "", UsCountAt := "", UsGoalWas := "", UsLastCount := "", UsD := "", UsNearCount := "", UsFails := "", UsVols := ""
 	global UsVolsZone := "", UsVolsAt := "", UsAtFrom := "", UsThrough := "", UsNoted := "", UsTalkXs := "", UsHandAt := ""
-	global CiPromptAt := "", CiXn := "", UopnThings := "", UopnGoal := "", UopnAt := ""
+	global CiPromptAt := "", CiXn := "", UopnThings := "", UopnGoal := "", UopnAt := "", UsPromptSaidAt := ""
 	}

@@ -860,11 +860,32 @@ DgDialogs()
 	return WalkAcceptQuest("a dungeon run")
 	}
 
-;Steers at spot p (the route's aim when there's one): a big turn close to it on the spot, else walking on
-DgSteer(nav, p, d)
+;Steers at spot p (the route's aim when there's one): a big turn close to it on the spot, else walking on. tight (a walk to a
+;thing - Collect.ahk): the thing inside the circle the wizard can't run round to (closer than twice his turning circle's radius
+;times the sine of how far off it is - TurnRadius, measured at 1x), or a turn of more than 90 degrees: on the spot first, then
+;walking - run round, it orbits the thing (2026-11-22 18:28-18:31: Evil Magma Peas 92 off, 921 off 30 s later, W held 82-100%
+;of the time, no turn on the spot - and the arcs swept him into the Redbands Hut's doorway twice). Not while the route leads out of
+;a mob's ring or sight (nav.escape)
+DgSteer(nav, p, d, tight := false)
 	{
 	h := WalkNavHeading(nav.x, nav.y, nav.yaw, nav.ax != "" ? nav.ax : p.x, nav.ay != "" ? nav.ay : p.y)
 	h := (h = "") ? 0 : h
+	;(not while the route leads out of a mob's ring or sight - nav.escape, /navto's: standing turning in it is how it catches the
+	;wizard - as the walker's own spot turns, the running turn below)
+	if (tight && Abs(h) > 25 && d != "" && nav.escape = "")
+		{
+		dsR := (TurnRadius != "" && TurnRadius > 0) ? TurnRadius : 400
+		if (Abs(h) > 90 || d < Min(700, 2 * dsR * Sin(Abs(h) * 0.0174533) + 60))
+			{
+			HoldW(0)
+			if (IsObject(WkMet))
+				WkMet.spot += 1
+			if (!((WkNavTrusted || WkNavChecked) && NavTurn(h)))
+				PotionTurnBy(h)
+			Sleep(60)
+			return
+			}
+		}
 	;(close by and well off to one side: by the mouse while he's still running - its turn is tight, no circling round
 	;it (2026-10-24: you asked); standing - the mouse turns only the camera then - or the mouse can't: on the spot, A/D)
 	if (Abs(h) > 60 && d < 250)

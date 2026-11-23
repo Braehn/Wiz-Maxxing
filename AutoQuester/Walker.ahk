@@ -173,6 +173,10 @@ global WkNavDoor
 ;(WalkApproach) from this close; a talk goal's NPC stopped this far off, its prompt taken as the quest's this close; the
 ;approach's tries at this goal, and the route followed instead till (tick)
 global ApproachUnits, TalkUnits, TalkReach, WkApTries, WkApOffUntil
+;(v2-only - not known to the port tools: set in WalkerInit, blank in WalkerBlank)
+global TalkStop, TalkXReach
+;(the NPCs by the wizard by the game's memory - NavItems - for a talk prompt's name read garbled: WalkGoalNpcByMem)
+global WkNpcNearAt, WkNpcNear
 ;The quest's goal from the game's memory (NavGoal, kept by WalkGoalText): its kind (PERSONA - talk to...), the NPC it names
 ;and its id; X at a talk goal's NPC ([{at, id}] - 3 in 2 minutes per goal); the goal id at the last X of a talk, at an
 ;arrival wait, last seen (a new one ends the no-X time after a dialogue), and the one the "talking didn't work" notice was for
@@ -197,6 +201,7 @@ global WkArr1Key, WkArr1Look, WkPromptText
 WalkerInit(prefix := "AutoQuester")
 	{
 	global WkGoalQuest ; (v2-only: the port tools don't know it)
+	global TalkStop, TalkXReach ; (v2-only: the port tools don't know them)
 	global ArriveDist, ArriveUnits, PushUnits, ApproachUnits, TalkUnits, TalkReach, TurnRate, TurnSettle, AheadAngle, AheadMem ; (v1 globals it sets)
 	global SpotTurnMem, ArcBlind, TurnRadius, TurnInPlace, StuckTime, UnstickTries, UnreadLimit, MinMatch, NearDist, TalkMax ; (v1 globals it sets)
 	global TalkGap, PushTime, PushStraightDist, PushStraightTime, BackupTime, UnstickTurn, UnstickBias, BiasTime ; (v1 globals it sets)
@@ -231,7 +236,11 @@ WalkerInit(prefix := "AutoQuester")
 	ApproachUnits := 1500 ;by the game's memory, the goal in this zone and straight ahead (no wall, no mob): the last this
 	                     ;many units walked closed loop - 1x, turned to face it on the spot, W held while its place is read
 	                     ;every ~40 ms, let go at it (WalkApproach). A step a second apart walked 900-1800 units over it
-	TalkUnits := 300     ;...a talk goal's NPC: stopped this far off, then X (the NPC's in the way closer in)
+	TalkUnits := 300     ;...a talk goal's NPC this close: by it (on top of it, stuck by it - the NPC's in the way closer in)
+	TalkStop := 120      ;...walked up this close to it, then X - the approach lets it go 20-50 early (from 300 it stopped
+	                     ;313-347 off: X there talked 7 times in 26 on 2026-11-22, one from 211 didn't; from 127-185 16 of 16)
+	TalkXReach := 185    ;...X again from this close, else walked up first - 185 the furthest off an X talked; the approach
+	                     ;stopped short (past it, off to the side, the time up): X from 40 closer (read on the move, it drifts on)
 	TalkReach := 700     ;...a prompt this close to the goal is the goal's (a talk goal's: its NPC's name too)
 	TurnRate := 0.15     ;degrees the wizard turns per ms of holding A/D (measured: 22.5 degrees per 150 ms)
 	TurnSettle := 500    ;ms the camera takes to catch up after a turn: don't steer on the arrow before then
@@ -2725,7 +2734,7 @@ WalkRouteRound(r)
 	}
 
 ;Near the goal by the game's memory (WalkApproachWanted - gn its WalkGoalNear): the last bit walked closed loop (WalkApproach),
-;then X - a talk goal's NPC from TalkUnits off, anything else ArriveUnits. Past it, off to the side, the time up: turned and
+;then X - a talk goal's NPC from TalkStop off (TalkXReach if it stopped short), anything else ArriveUnits. Past it, off to the side, the time up: turned and
 ;walked again the next step (3 tries, then the route as before for 8 s); stopped by something (a wall, the NPC itself) within
 ;TalkReach: X from there. A talk goal whose 3 tries in 2 minutes are used: waiting by it (WalkTalkWait). Just out of a
 ;dialogue: a moment for the goal to move on first. dist: the step's distance (arrow units) for the log
@@ -2740,7 +2749,7 @@ WalkApproachStep(gn, dist)
 		return true
 		}
 	asTalk := WalkTalkGoal()
-	asStop := IsObject(asTalk) ? TalkUnits : ArriveUnits
+	asStop := IsObject(asTalk) ? TalkStop : ArriveUnits
 	asWhy := gn.r <= asStop ? "there" : WalkApproach(asStop)
 	if (!Walking)
 		return false
@@ -2751,9 +2760,13 @@ WalkApproachStep(gn, dist)
 	;(AutoFarmer's Puzzle.ahk: stopped by something well short of the goal - a blocked way's evidence; it may take over)
 	if (asWhy = "blocked" && V1IsFunc("PuzzleEvidence") && %"PuzzleEvidence"%.Call("approach", asNow.r))
 		return true
-	;("there": let go a look's walking early - it may read a few dozen units over stopR; "blocked" with the route going round -
-	;a fence, a wall: a try that didn't get there, the route's way after 3)
-	if (asWhy = "there" || asNow.r <= asStop || (asWhy = "blocked" && asNow.r <= TalkReach && !WalkRouteRound(asNow.r)))
+	;("there": let go a look's walking early - it may read a few dozen units over stopR; a talk goal's NPC stopped short of it
+	;but within TalkXReach - 40 - past it, off to the side, the time up: X reaches from there (the reading's on the move: it drifts
+	;on a dozen or so); stopped by something within TalkUnits of a talk goal's NPC - its counter, itself: X there, as before;
+	;"blocked" with the route going round - a fence, a wall: a try that didn't get there, the route's way after 3)
+	if (asWhy = "there" || asNow.r <= asStop || (IsObject(asTalk) && asNow.r <= TalkXReach - 40 && (asNow.dz = "" || Abs(asNow.dz) <= 150))
+		|| (asWhy = "blocked" && IsObject(asTalk) && asNow.r <= TalkUnits && (asNow.dz = "" || Abs(asNow.dz) <= 150))
+		|| (asWhy = "blocked" && asNow.r <= TalkReach && !WalkRouteRound(asNow.r)))
 		{
 		WkApTries := 0
 		if (IsObject(asTalk) && !WalkTalkTriesLeft())
@@ -2765,7 +2778,7 @@ WalkApproachStep(gn, dist)
 	if (WkApTries >= 3)
 		{
 		WkApTries := 0, WkApOffUntil := A_TickCount + 8000
-		WalkLog("approach: 3 tries didn't get within " asStop " of the goal (" Round(asNow.r) " off, the last: " asWhy ") - the route as before for 8 s")
+		WalkLog("approach: 3 tries didn't get within " (IsObject(asTalk) ? TalkXReach - 40 : asStop) " of the goal (" Round(asNow.r) " off, the last: " asWhy ") - the route as before for 8 s")
 		}
 	return true
 	}
@@ -3146,7 +3159,64 @@ WalkIsGoalNpc(key, tg)
 	;(only the name's part of the key - the letters before "PRESS": the prompt's own "PRESSXTOTALK" can pass for a short surname
 	;(TALBOT, WALKER 3 off it); 2 letters in 5 at most, a surname of 6 letters or more - LEWIS is 2 off "BEATRICEWILDWIND")
 	inName := InStr(key, "PRESS") > 4 ? SubStr(key, 1, InStr(key, "PRESS") - 1) : key
-	return StrLen(inSur) >= 6 && WalkWordIn(inSur, inName) <= StrLen(inSur) * 2 // 5
+	if (StrLen(inSur) >= 6 && WalkWordIn(inSur, inName) <= StrLen(inSur) * 2 // 5)
+		return true
+	;(or its surname garbled past that, but the game's memory has the goal's NPC the one by the wizard - 2026-11-22 19:22 Hannibal
+	;Onetusk's own prompt 138 off read 'HANNIEALMCTUSKCORTOTALKPRESS': "ONETUSK" 3 letters off, "HANNIBAL" 1 - no X, NEEDS YOU)
+	return WalkGoalNpcByMem(tg, inName)
+	}
+
+;The talk goal's NPC (tg: WalkTalkGoal) the one whose prompt is up, by the game's memory (NavItems - AutoFarmer's; asked at most
+;every 1.5 s, measured from where the wizard is now): one of its name within 200 of the wizard, everybody else who may own a talk
+;prompt 100 further off at least - and a word of its name (4 letters or more) in the prompt's name letters (inName) with 2 in 5 off
+;at most, so another's prompt read well isn't hers
+WalkGoalNpcByMem(tg, inName)
+	{
+	global WkNpcNearAt, WkNpcNear ; (v2-only: the port tools don't know them)
+	if (!IsObject(tg) || tg.npc = "" || !V1IsFunc("NavItems"))
+		return false
+	gbWord := false
+	for each, gbW in StrSplit(RegExReplace(tg.npc, "[^A-Za-z]+", " "), " ")
+		{
+		gbW := WalkLetters(gbW)
+		if (StrLen(gbW) >= 4 && WalkWordIn(gbW, inName) <= StrLen(gbW) * 2 // 5)
+			gbWord := true
+		}
+	if (!gbWord)
+		return false
+	if (!WkNpcNearAt || A_TickCount - WkNpcNearAt > 1500)
+		WkNpcNearAt := A_TickCount, WkNpcNear := %"NavItems"%.Call("", false, 800)
+	if (!IsObject(WkNpcNear))
+		return false
+	gbWant := WalkLetters(tg.npc), gbGoal := "", gbOther := ""
+	;(measured from where the wizard is now - the list may be 1.5 s old - by its things' places; else as the list was read)
+	gbMe := (IsObject(WkNavObj) && WkNavObj.x != "" && WkNavObj.y != "") ? WkNavObj : ""
+	for each, gbT in WkNpcNear
+		{
+		;(never a mob, an item lying about or a nameless use thing)
+		if (gbT.kind = "mob" || gbT.kind = "item" || gbT.kind = "use")
+			continue
+		gbD := (IsObject(gbMe) && gbT.x != "" && gbT.y != "") ? Sqrt((gbT.x - gbMe.x) ** 2 + (gbT.y - gbMe.y) ** 2) : gbT.dist
+		if (gbD = "")
+			continue
+		gbName := WalkLetters(gbT.name)
+		;(its own name - or one with a title before it: "Captain Hannibal Onetusk"), whatever kind the game files it under: an
+		;ambient one (a mob's key - Fae Victus), an object (Mr. Lincoln)
+		if (gbName != "" && (gbName = gbWant || (StrLen(gbWant) >= 8 && InStr(gbName, gbWant))))
+			{
+			if (gbGoal = "" || gbD < gbGoal)
+				gbGoal := gbD
+			}
+		;(another who may own the prompt: an NPC - its name not read yet too -, one of no kind, an ambient one with a name, an object
+		;whose template is an NPC's or a shop's. Not every object: the Zafarian Queen's spot by Hannibal would block his own case)
+		else if (gbT.kind = "npc" || gbT.kind = "" || (gbT.kind = "ambient" && gbT.name != "")
+			|| RegExMatch(gbT.template, "i)npc|shopkeep|vendor|merchant|stand-?in"))
+			{
+			if (gbOther = "" || gbD < gbOther)
+				gbOther := gbD
+			}
+		}
+	return gbGoal != "" && gbGoal <= 200 && (gbOther = "" || gbOther >= gbGoal + 100)
 	}
 
 ;A try at the talk goal's NPC - X there (StartTalk, StartPressX at its prompt), by the game's memory within TalkReach on the
@@ -3211,7 +3281,7 @@ WalkNoDialogNext()
 	return WalkRouteRound(ndGoal.r) ? "walk" : "again"
 	}
 
-;What WalkNoDialogNext said for a talk goal: "again" - walked up within 150 if it's over 200 off (WalkApproach), turned to face
+;What WalkNoDialogNext said for a talk goal: "again" - walked up within TalkStop if it's over TalkXReach off (WalkApproach), turned to face
 ;the NPC if it's over 45 degrees off, X again (2026-10-25 11:36:55: X from right over him worked, so close by is enough); "wait"
 ;- WalkTalkWait; "walk" - walking on (the approach takes it there). dist: the step's distance, for the log
 WalkTalkAgain(what, dist)
@@ -3227,10 +3297,10 @@ WalkTalkAgain(what, dist)
 		WkArrived := 0, WkBestTime := A_TickCount, WkLastRead := A_TickCount
 		return true
 		}
-	if (IsObject(taGoal) && taGoal.r > 200)
+	if (IsObject(taGoal) && taGoal.r > TalkXReach)
 		{
 		taFrom := taGoal.r
-		taWhy := WalkApproach(150)
+		taWhy := WalkApproach(TalkStop)
 		if (!Walking)
 			return false
 		taGoal := WalkTalkGoal()
@@ -7166,7 +7236,7 @@ WalkerBlank()
 	global WkGoalNpc := "", WkGoalId := "", WkTalkXs := "", WkTalkGoal := "", WkArrGoal := "", WkGoalIdWas := "", WkTalkNoted := "", WkGoalItem := ""
 	global WkGoalCount := "", WkGoalTotal := "", WkGoalItemKey := "", WkGoalMobKey := "", WkGoalNpcFirst := "", WkGoalNpcLast := ""
 	global WkNavNoPlace := "", WkNpN := "", WkNpGoal := "", WkNpAt := "", WkNavLast := "", WkNpTarget := "", WkArr1Key := "", WkArr1Look := ""
-	global WkPromptText := ""
+	global WkPromptText := "", TalkStop := "", TalkXReach := "", WkNpcNearAt := "", WkNpcNear := ""
 	;(v2-only - the stuck episodes counted and timed, a sigil that doesn't start)
 	global WkSigilSpots := "", WkSigilXAt := "", WkSigilGoal := "", SigilFails := "", SigilFailsRelog := "", SigilRelogMs := "", SigilResetEvery := ""
 	global WkLostOn := "", WkLostMs := "", WkLostAt := "", WkLostKind := "", WkLostWhy := "", WkLostTries := "", WkLostBad := ""
