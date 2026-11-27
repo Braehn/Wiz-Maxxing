@@ -30,6 +30,11 @@ global PlayForMe
 ;Going to and fro (WalkFroNote): the last big turns ([{at, x, y, d}]), the course held till then, the holds this minute, the
 ;third hold in a minute just made (1: taken as stuck in that same step - WalkStep - not after a turn that puts the watch off)
 global WkFroTurns, WkFroUntil, WkFroHolds, WkFroStuck
+;Not moving with a dialogue box up, Spaced through (WalkStuckDialog): when, the last 2 minutes' ([ticks])
+global WkStuckDlg
+;The pressed-X step (WkArrived 6) kept over your play (WalkResume) - 1: only a dialogue box is Spaced through, nothing else
+;acted on (a window up then may be yours: the Spiral Map, a shop)
+global WkXResumed
 global NearDist, TalkMax, TalkGap, PushTime, PushStraightDist, PushStraightTime, BackupTime, UnstickTurn, UnstickBias, BiasTime
 global HiddenWalkTime, PushHiddenTime, LoadSpaceWait, LoadSpaceMax, GateDist, GateWait, SigilWait
 global FastStuckTime, StillFrac, MemNear, MemAhead, TurnSettle, TransportWait, WkAcceptLook
@@ -413,6 +418,7 @@ WalkStep()
 	global Refocus, WkFrontLook, WkBestTime, WkLastRead, WkNoArrowFrom, WkNoGuideFrom, WkWaitFrom, WkGateLook, WkArrived ; (v1 globals it sets)
 	global WkPressAt, WkTalk, WkDialog, WkSpaceAt, WkLoadAt, WkSeenAt, WkHidden, WkLastBoxOff, WkLastMode, WkQuietUntil ; (v1 globals it sets)
 	global WkGoalIdWas, WkJumpStuck, Walking, WkNavByArrow, WkNavRest, WkNavRestKey, WkRealSeenAt, WkStandIn, WkDlgLook ; (v1 globals it sets)
+	global WkXResumed ; (sets)
 	global WkLastDist, WkLastDistAt, WkEscTried, WkArr1Key, WkArr1Look, WkAcceptLooks, WkAcceptLook, WkFarAt, WkSigilSeen ; (v1 globals it sets)
 	global WkQuietLogged, WkAfterXLooked, WkFar, WkOnTopBacked, WkOnTop, WkHiddenAt, WkGateAt, WkGateClicks, WkGateX ; (v1 globals it sets)
 	global WkStuckTalk, WkStraight, WkStraightAt, WkPushes, WkGoneSpaces, WkOnTopDone, WkOnTopAt, WkBackups, WkBackupsFrom ; (v1 globals it sets)
@@ -504,7 +510,7 @@ WalkStep()
 				if (WalkDialogOpen())
 					{
 					WalkLog("sigil: X opened a dialogue, not a dungeon - pressing Space through it")
-					WkArrived := 6, WkPressAt := A_TickCount, WkTalk := 0, WkDialog := 0, WkSpaceAt := 0
+					WkArrived := 6, WkPressAt := A_TickCount, WkTalk := 0, WkDialog := 0, WkSpaceAt := 0, WkXResumed := 0
 					return true
 					}
 				}
@@ -878,7 +884,8 @@ WalkStep()
 		{
 		;(X opened the Spiral Map - a World Gate's prompt read as a plain one, 'WORLDGATE' (2026-11-13 00:16): Go To World, not
 		;Space - by the game's memory, WalkSpiralMapUp)
-		if (A_TickCount - WkPressAt > 700 && WalkSpiralMapUp("pressed X"))
+		;(not over your play - WkXResumed: a map up now may be one you opened)
+		if (!WkXResumed && A_TickCount - WkPressAt > 700 && WalkSpiralMapUp("pressed X"))
 			return true
 		;What X opened: an OK box or a window - a shop, a vendor's list - is closed first (WalkCloseAfterX: OK, or
 		;Escape - nothing in it is ever clicked); looked at once, a moment after X
@@ -897,8 +904,9 @@ WalkStep()
 		;arrow to go by - Pigswick's carpet - only a dialogue box that's read)
 		;(by the goal by the game's memory - apNear - only the dialogue box read: the NPC and its prompt hide the arrow there
 		;anyway. 2026-10-25 11:42:01-16: 28 Space presses with nothing open, then an Escape into the game's menu)
-		;(nor a goal the game shows no way to - WkNavNoPlace: there's no arrow to go by at all)
-		if ((((apNear || WkNavNoPlace) ? false : standIn ? WkArrowAtX : !seen) || WalkDialogOpen()) && A_TickCount - WkPressAt < 60000)
+		;(nor a goal the game shows no way to - WkNavNoPlace: there's no arrow to go by at all; nor kept over your play -
+		;WkXResumed: only the box that was up then)
+		if ((((apNear || WkNavNoPlace || WkXResumed) ? false : standIn ? WkArrowAtX : !seen) || WalkDialogOpen()) && A_TickCount - WkPressAt < 60000)
 			{
 			if (!WkDialog)
 				WalkLog("pressed X: something opened (arrow covered) - pressing Space")
@@ -912,7 +920,7 @@ WalkStep()
 		if (WkDialog || A_TickCount - WkPressAt > 1200)
 			{
 			WalkLog("pressed X: " (WkDialog ? "done after " WkTalk " Space presses" : "nothing opened") " - walking on" (WkDialog ? " (no X at prompts for " Round(DialogQuiet / 1000) " s)" : ""))
-			WkArrived := 0, WkBestTime := A_TickCount, WkLastRead := A_TickCount
+			WkArrived := 0, WkBestTime := A_TickCount, WkLastRead := A_TickCount, WkXResumed := 0
 			if (WkDialog)
 				WkQuietUntil := A_TickCount + DialogQuiet, WkQuietLogged := 0
 			}
@@ -1722,6 +1730,12 @@ WalkStep()
 	;(not moving: a quest offer's window up holds the wizard still - accepted, not counted as stuck)
 	if ((slowStuck || stillStuck) && WalkAcceptQuest("the wizard isn't moving"))
 		return Walking ? true : false
+	;(nor a dialogue box up - the wizard can neither walk nor turn while it's open: Spaced through, not stuck, nor a remembered
+	;way's failing - twice in 2 minutes at most: a box Space won't close is stuck as before. 2026-11-26 18:31:45-18:33:15: X at
+	;Sobaka's quest marker with your keys or mouse that second - WalkResume dropped the pressed-X step and its Space -, 5 tries
+	;round "an obstacle", End, NEEDS YOU "Stuck" with his box up all the while)
+	if ((slowStuck || stillStuck) && WalkStuckDialog())
+		return Walking ? true : false
 	if (slowStuck || stillStuck)
 		{
 		zone := WalkZone()
@@ -1979,11 +1993,11 @@ StartGate(why)
 ;through whatever it opens and walks on
 StartPressX(key)
 	{
-	global WkArrived, WkPressAt, WkTalk, WkDialog, WkSpaceAt, WkAfterXLooked, WkArrowAtX, WkPreXText, WkLastX ; (v1 globals it sets)
+	global WkArrived, WkPressAt, WkTalk, WkDialog, WkSpaceAt, WkAfterXLooked, WkArrowAtX, WkPreXText, WkLastX, WkXResumed ; (v1 globals it sets)
 	if (KeysDown || HeldW || SpeedNow > 1)
 		ReleaseKeys()
 	WkPromptUsed[key = "" ? "?" : key] := A_TickCount
-	WkArrived := 6, WkPressAt := A_TickCount, WkTalk := 0, WkDialog := 0, WkSpaceAt := 0, WkAfterXLooked := 0
+	WkArrived := 6, WkPressAt := A_TickCount, WkTalk := 0, WkDialog := 0, WkSpaceAt := 0, WkAfterXLooked := 0, WkXResumed := 0
 	WkArrowAtX := (WkRealSeenAt && A_TickCount - WkRealSeenAt < 1500)
 	;(what's on screen before X: what X opens is what's new - WalkCloseAfterX)
 	WkPreXText := WalkAfterXText(&preLines)
@@ -2153,12 +2167,78 @@ WalkDialogAccept()
 	return (ErrorLevel || RegExMatch(t, "i)cr[o0]wn")) ? "" : btn
 	}
 
-;True if a dialogue box is open at the bottom of the game: its DONE / NEXT / BACK / MORE buttons, read by OCR
+;True if a dialogue box is open at the bottom of the game: its DONE / NEXT / BACK / MORE buttons - by the game's memory
+;(WalkDialogMem), else read by OCR. 2026-11-26 18:32:05: Sobaka's box up with DONE, the OCR read none - Escape (which
+;doesn't close it), then "stuck" with the wizard held by it
 WalkDialogOpen()
 	{
+	dmo := WalkDialogMem()
+	if (dmo != "")
+		return dmo
 	s := ArrowScale().scale
 	t := OcrRect(Round(GameLeft + GameW / 2 - 480 * s), Round(GameTop + GameH - 170 * s), Round(960 * s), Round(168 * s))
 	return !ErrorLevel && RegExMatch(t, "\b(DONE|D0NE|NEXT|BACK|MORE)\b")
+	}
+
+;Not moving with a dialogue box up (WalkDialogOpen): Space through it (WalkSkipDialog - its no-X time after it too), the stuck
+;watch started afresh - true. At most twice in 2 minutes (WkStuckDlg: the times): a box Space doesn't close is left to the
+;stuck steps (false - logged once)
+WalkStuckDialog()
+	{
+	global WkStuckDlg, WkBestTime, WkLastRead, WkStill, WkSnapPrev ; (v1 globals it sets)
+	if (!IsObject(WkStuckDlg))
+		WkStuckDlg := []
+	sdKeep := []
+	for each, sdAt in WkStuckDlg
+		if (A_TickCount - sdAt < 120000)
+			sdKeep.Push(sdAt)
+	WkStuckDlg := sdKeep
+	if (!WalkDialogOpen())
+		return false
+	if (sdKeep.Length >= 2)
+		{
+		if (sdKeep.Length = 2)
+			WkStuckDlg.Push(A_TickCount), WalkLog("not moving - a dialogue box still open after Space through it twice: stuck as before")
+		return false
+		}
+	WkStuckDlg.Push(A_TickCount)
+	WalkLog("not moving - a dialogue box is open (the wizard can't walk while it is): Space through it")
+	SetStatus("not moving - a dialogue box open: Space through it")
+	if (!WalkSkipDialog())
+		return true
+	WkBestTime := A_TickCount, WkLastRead := A_TickCount, WkStill := 0, WkSnapPrev := ""
+	return true
+	}
+
+;A dialogue box by the game's memory (AutoFarmer's NavGui - read-only): 1 its box (wndDialogMain, a DialogWindow) shown with a
+;button saying DONE / NEXT / BACK / MORE; 0 shown with its buttons saying something else (a quest offer's last page -
+;WalkDialogAccept's ACCEPT, as the OCR way has it); "" can't say (no helper - AutoQuester on its own -, navmem off, the box not
+;found, no button's words read - or the box hidden: a box of another class isn't known, the OCR's to say - review). Read 2026-11-26 18:4x with Sobaka's box up (UI 0.856, the GUI 1827x1027):
+;wndDialogMain 514,847-1314,1027 - imgPortrait (GUI/NpcPortraits/Art_Portrait_Sobaka_NPC.dds), txtArea, wndTitleBackground,
+;btnRight "DONE" 1130,995-1258,1027 shown, btnLeft "LEFT" (GUI_00000488) hidden, MarkButton
+WalkDialogMem()
+	{
+	if (!V1IsFunc("NavGui"))
+		return ""
+	g := %"NavGui"%.Call("wndDialogMain,wndDialogMain/btnRight,wndDialogMain/btnLeft", 600)
+	if (!IsObject(g) || !g.rootW || !g.rootH)
+		return ""
+	dmW := g.win["wndDialogMain"]
+	if (!IsObject(dmW) || !dmW.found)
+		return ""
+	if (!dmW.shown)
+		return ""
+	dmRead := 0
+	for each, dmP in ["wndDialogMain/btnRight", "wndDialogMain/btnLeft"]
+		{
+		dmB := g.win[dmP]
+		if (!IsObject(dmB) || !dmB.found || !dmB.shown || dmB.text = "")
+			continue
+		if (RegExMatch(dmB.text, "i)^\W*(DONE|NEXT|BACK|MORE)\W*$"))
+			return 1
+		dmRead := 1
+		}
+	return dmRead ? 0 : ""
 	}
 
 ;A turn of 140 degrees or more about to be made (WalkStep): three of them in 12 s with the wizard no further on (within 500
@@ -2313,17 +2393,25 @@ WalkSigilTriesLeft(key)
 	}
 
 ;You've stopped playing (AutoFarmer's PlayerActing): the walker's watch starts afresh - but a sigil's or a boat's wait goes
-;on (walking off a sigil stops its countdown)
+;on (walking off a sigil stops its countdown), and so does an X's at a prompt (6) within the last minute while a dialogue
+;box is up by the game's memory: Spaced through yet - that box only (WkXResumed: no Spiral Map clicked, no window closed, no
+;Space by the arrow - what's up now may be yours). 2026-11-26 18:31:45: your keys or mouse the second the bot X'd Sobaka -
+;the step and its Space dropped, his box left up, the wizard held by it. (Review: kept on time alone, a Spiral Map you opened
+;in that minute got its Go To World clicked)
 WalkResume()
 	{
-	global WkArrived, WkSigilUntil, WkWaitWhat ; (v1 globals it sets)
+	global WkArrived, WkSigilUntil, WkWaitWhat, WkTalk, WkDialog, WkSpaceAt, WkAfterXLooked, WkXResumed ; (v1 globals it sets)
 	keepUntil := (WkArrived = 5 && A_TickCount < WkSigilUntil) ? WkSigilUntil : 0, keepWhat := WkWaitWhat
+	keepX := WkArrived = 6 && WkPressAt && A_TickCount - WkPressAt < 60000
+	xTalk := WkTalk, xDialog := WkDialog, xSpaceAt := WkSpaceAt
 	WalkReset()
 	if (keepUntil)
 		WkArrived := 5, WkSigilUntil := keepUntil, WkWaitWhat := keepWhat
 	;(held at a blocked way - AutoFarmer's Puzzle.ahk: still waiting there, not walked back into the gate)
 	else if (V1IsFunc("PuzzleHeld") && %"PuzzleHeld"%.Call())
 		WkArrived := 1
+	else if (keepX && WalkDialogMem() = 1)
+		WkArrived := 6, WkTalk := xTalk, WkDialog := xDialog, WkSpaceAt := xSpaceAt, WkAfterXLooked := 1, WkXResumed := 1
 	}
 
 ;Walked right past the goal, by the game's memory: it was ahead and close, and is now behind and as close - its point a
@@ -7218,6 +7306,7 @@ WalkerBlank()
 	global WkBackupsFrom := "", WkDialog := "", WkPushes := "", WkPushStart := "", WkStraight := "", WkStraightAt := "", WkTalkDist := ""
 	global WkArrDist := "", WkLoadAt := "", WkSpaceAt := "", WkGoneSpaces := "", WkGateAt := "", WkGateClicks := "", WkGateX := "", WkGateLook := ""
 	global WkMapLook := ""
+	global WkStuckDlg := "", WkXResumed := 0
 	global WkSigilUntil := "", WkFarAt := "", WkSigilSeen := "", WkSigilZones := "", WkSigilAt := "", WkSigilKey := "", WkSigilFromZone := ""
 	global WkSigilTries := "", WkSnapPrev := "", WkSnapAt := "", WkTurnAt := "", WkWalkFrom := "", WkStill := "", WkMotion := "", WkMem := ""
 	global WkMemFile := "", WkEsc := "", MovingStuckTime := "", MoveFrac := "", WkMoveLog := "", WkMoveZone := "", WkMovedAt := "", WkMoveNow := ""

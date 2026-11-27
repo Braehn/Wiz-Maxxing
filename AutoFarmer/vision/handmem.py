@@ -310,26 +310,31 @@ def class_props(img, name, max_len=0x6000):
     return out, gt, vts
 
 
+ENUM_STORE = re.compile(rb"\xC7\x44\x24\x30(....)|\x44?\x89[\x44\x4C\x54\x5C\x64\x6C\x74\x7C]\x24\x30", re.DOTALL)
+ENUM_NAME = re.compile(rb"k[A-Za-z0-9_]{2,}")
+
+
 def read_enum(img, first, prop, cls, log=None):
     """{value: 'kName'} of a reflected enum property's options: the option names run in .rdata after the first one, each
     followed by the property's name (the linker pools some elsewhere); in cls's registration code each name is loaded
     (RIP-relative) and its value stored just after - mov dword [rsp+30h], imm32 (or a register kept at 0: mov
-    [rsp+30h], esi - ebx in build 6AF1C8A0-3B69000, 2026-11-12: any 32-bit register taken). {} when it can't be read"""
+    [rsp+30h], esi - ebx in build 6AF1C8A0-3B69000, 2026-11-12: any 32-bit register taken). What that leaves unnamed is
+    read by the property's own name (enum_by_prop: build 6B05FDF0-37BB000, 2026-11-26 - no run any more, 2 effect names
+    of 152 read and the cards unread from the game's patch on). {} when it can't be read"""
     import numpy as np
     try:
         at0 = img.strings(first) or img.strings(first, loose=True)    # (a copy right after other bytes: find_types)
-        if not at0:
-            return {}
         r0, rdata = img.secs[".rdata"]
-        i = at0[0] - r0
         names, prev = [], prop
-        for mt in re.finditer(rb"([\x20-\x7e]+)\x00+", rdata[i:i + 0x4000]):
-            s = mt.group(1).decode()
-            if s != prop and not re.fullmatch(r"k[A-Za-z0-9_]+", s):
-                break
-            if s != prop and prev == prop:
-                names.append((r0 + i + mt.start(), s))
-            prev = s
+        if at0:
+            i = at0[0] - r0
+            for mt in re.finditer(rb"([\x20-\x7e]+)\x00+", rdata[i:i + 0x4000]):
+                s = mt.group(1).decode()
+                if s != prop and not re.fullmatch(r"k[A-Za-z0-9_]+", s):
+                    break
+                if s != prop and prev == prop:
+                    names.append((r0 + i + mt.start(), s))
+                prev = s
         t0, text = img.secs[".text"]
         gt = class_props(img, cls)[1]
         if gt is None:
@@ -341,7 +346,7 @@ def read_enum(img, first, prop, cls, log=None):
         tgt = np.arange(len(d)) + t0 + lo + 4 + d
         out, at = {}, []
         # (mov [rsp+30h], r32: 89 /r, modrm 01 reg 100 - eax..edi; with REX 44 r8d..r15d)
-        store = re.compile(rb"\xC7\x44\x24\x30(....)|\x44?\x89[\x44\x4C\x54\x5C\x64\x6C\x74\x7C]\x24\x30", re.DOTALL)
+        store = ENUM_STORE
         for addr, s in names:
             hit = np.flatnonzero(tgt == addr)
             if not len(hit):
@@ -351,6 +356,14 @@ def read_enum(img, first, prop, cls, log=None):
             m = store.search(text, k, k + 0x40)
             if m:
                 out.setdefault(struct.unpack("<i", m.group(1))[0] if m.group(1) else 0, s)
+        # (what the run didn't name: by the property's own name, each option's code bounded by its loads of it - never a
+        # value or a name taken already. Before the look back below, which isn't bounded: with the names built in place
+        # their loads can be too near the store for it - it took the option before's name, one value off)
+        used = set(out.values())
+        for v, s in enum_by_prop(img, prop, lo, tgt).items():
+            if v not in out and s not in used:
+                out[v] = s
+                used.add(s)
         # (names pooled elsewhere in .rdata - kStun, kSelf - aren't in the run: each value stored among the options' code
         # that has no name yet takes the k-string loaded RIP-relative just before it)
         if at:
@@ -372,6 +385,43 @@ def read_enum(img, first, prop, cls, log=None):
         if log:
             log("handmem: the %s names couldn't be read (%r)" % (prop, e))
         return {}
+
+
+def enum_by_prop(img, prop, lo, tgt):
+    """{value: 'kName'} of a reflected enum property's options by the property's own name, which the registration code
+    loads RIP-relative once for each option (build 6B05FDF0-37BB000, 2026-11-26: a copy of the name of its own for each,
+    the option names no longer one run in .rdata, the short ones built in place - movups xmm0,[rip+name] - the long ones
+    lea rdx,[rip+name]). From one load of it to the next: the value stored first (ENUM_STORE - a register: 0) and the
+    option's name, the last k-string loaded RIP-relative before that store (a whole one - a NUL before it - by an operand
+    with modrm mod 00 r/m 101). The last load's code isn't bounded by another - the property's own after its options, the
+    next property's options after it (SpellEffect: m_disposition's kBoth): not read. lo: GetType's offset in .text, tgt:
+    the RIP-relative target a disp32 at each byte from there on would have (read_enum's)"""
+    import numpy as np
+    addrs = img.strings(prop)
+    if not addrs:
+        return {}
+    r0, rdata = img.secs[".rdata"]
+    t0, text = img.secs[".text"]
+    pos = [int(p) for p in np.flatnonzero(np.isin(tgt, np.array(addrs, dtype=np.int64)))]
+    out = {}
+    for p, end in zip(pos, pos[1:]):
+        m = ENUM_STORE.search(text, lo + p + 4, lo + end)
+        if not m:
+            continue
+        name = None
+        for q in range(p + 4, min(m.start() - lo - 3, len(tgt))):
+            if (text[lo + q - 1] & 0xC7) != 0x05:
+                continue
+            tg = int(tgt[q])
+            if tg <= r0 or not img.m.in_section(tg, ".rdata") or rdata[tg - r0 - 1] != 0:
+                continue
+            s = rdata[tg - r0: tg - r0 + 80].split(b"\0")[0]
+            if ENUM_NAME.fullmatch(s):
+                name = s.decode()
+        v = struct.unpack("<i", m.group(1))[0] if m.group(1) else 0
+        if name is not None and 0 <= v < 0x10000:
+            out.setdefault(v, name)
+    return out
 
 
 # ============================================================================ the game without navmem's signatures
