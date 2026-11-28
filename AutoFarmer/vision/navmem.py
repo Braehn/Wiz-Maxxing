@@ -1351,7 +1351,7 @@ class NavMem:
                     self._light = None
                 hm = self._hand
                 if hm is not None and hm.st is st:
-                    return hm.read(want_effects), ""
+                    return self._hand_read(hm, want_effects)
                 fst, again, fwhy = self._hand_fail
                 if fst is st and time.monotonic() < again:
                     return None, fwhy
@@ -1364,13 +1364,23 @@ class NavMem:
             with self.lock:
                 hm = self._hand
                 if hm is not None and hm.st is st:
-                    return hm.read(want_effects), ""
+                    return self._hand_read(hm, want_effects)
                 fst, again, fwhy = self._hand_fail
                 if fst is st:
                     return None, fwhy
             return None, "reading the game's card classes (once, about a second)"
         except Exception as e:  # noqa: BLE001 - never into the server
             return None, "reading the hand failed (%r)" % (e,)
+
+    @staticmethod
+    def _hand_read(hm, want_effects):
+        """(hm.read(want_effects), ""), or (None, why) when the hand's reader was made without its cards (handmem's
+        cards_why: the effect names not read in this build - the GUI, backpack, deck, gear and pet readers still built on
+        it), as cards() answered when the reader wasn't made at all. Under the lock"""
+        why = getattr(hm, "cards_why", "")
+        if why:
+            return None, why
+        return hm.read(want_effects), ""
 
     def _hand_make(self, st):
         """the hand's reader for game st (its code looked through once - outside the lock, then kept under it)"""
@@ -1990,6 +2000,11 @@ class NavMem:
             st, dm, why = self._deck_readers(wait)
             if dm is None:
                 return None, why
+            # (kinds asked for, the hand's reader made without the effect names - handmem's cards_why: not read, as when
+            # the reader wasn't made at all - /decks none|<why>, no deck profile learned from cards with no kinds)
+            cwhy = getattr(dm.hm, "cards_why", "") if kinds else ""
+            if cwhy:
+                return None, cwhy
             # (one fresh read at a time - _deck_busy: a second one run in the first one's gap would leave the rest of
             # the first unpaced; the second waits queue s for the first to end or give way, else gives way itself - its
             # caller reads again later as after any giving way)

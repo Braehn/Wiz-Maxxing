@@ -234,19 +234,153 @@ StatsWrite(got, school, charID := "")
 
 ;---- Which wizard is logged in, and its school ----
 
-;The logged-in character's id, from the game's log ("MSG_LoginComplete CharID:..."), "" if not found.
-;Looked up again at most every 20 s
-StatsCharID()
+;The logged-in character's id, from the game's log ("MSG_LoginComplete CharID:..." - the last one in it), "" if not
+;found. Looked up again at most every 20 s, and only when the log has grown: the log gets to 2 GB in a long session
+;(texture error spam, about 70 MB an hour - WizardClient.261124_0018.log, 2,146,435,246 bytes), and reading all of it
+;stopped every thread for seconds each time (a walker holding W ran on blind, F6 waited). So it's read from its end
+;backwards a MB at a time until a login line turns up, and after that only what's been added since
+;again: look now, not waiting out the 20 s - StatsReader.exe, which looks once and exits, carries on down a big log so
+StatsCharID(again := false)
 	{
-	static charNow := "", readAt := 0
-	if (readAt && A_TickCount - readAt < 20000)
+	static charNow := "", readAt := 0, logWas := "", headWas := "", sizeWas := 0, scanDown := 0, scanFloor := 0
+	static svPend := "", svSavedId := "", svSavedSize := 0
+	if (!again && readAt && A_TickCount - readAt < 20000)
 		return charNow
 	readAt := A_TickCount
 	logPath := SrLogPath()
-	text := V1FileRead(logPath)  ; (v1: no log - blank, ErrorLevel 1)
-	at := InStr(text, "MSG_LoginComplete CharID:", false, -1)
-	charNow := (at && RegExMatch(SubStr(text, at, 80), "CharID:(\d+)", &m)) ? m[1] : ""
+	;(v1: no log - blank. FileOpen gave 0 when it couldn't open it - v2 throws)
+	try
+		logFile := FileOpen(logPath, "r", "CP0")
+	catch
+		logFile := ""
+	if (!IsObject(logFile))
+		{
+		charNow := "", logWas := "", headWas := "", sizeWas := 0, scanDown := 0, scanFloor := 0, svPend := ""
+		return charNow
+		}
+	logSize := logFile.Length
+	;The game starts a new log each time it starts (and at 2 GB), with a new time stamp on its first line: a new log
+	;(or another game's, or a shorter one) is looked through from its end again, with nothing known yet
+	logHead := logFile.Read(17)
+	if (logPath != logWas || logHead != headWas || logSize < sizeWas)
+		{
+		charNow := "", logWas := logPath, headWas := logHead, sizeWas := 0, scanDown := 0, scanFloor := 0
+		svPend := "", svSavedId := "", svSavedSize := 0
+		;(this log's id as an earlier run of the bot (or StatsReader) found it - kept with the log's first line and its size
+		;then, StatsCharSave: only what's been added since is looked through, and that id taken once it's all been looked
+		;through with no newer login line in it (svPend, below) - not before: another character logged in meanwhile wins. A
+		;restart on a long log isn't left without it while the 256 MB looks work their way down to the login line)
+		svId := "", svSize := 0
+		if (StatsCharSaved(logPath, logHead, logSize, &svId, &svSize))
+			svPend := svId, sizeWas := svSize, svSavedId := svId, svSavedSize := svSize
+		}
+	else if (logSize = sizeWas && scanDown <= scanFloor)
+		{
+		logFile.Close()
+		return charNow
+		}
+	;What's been added since last time first, down to what was read then (less 120 bytes, so a login line it ended in the
+	;middle of is read whole) - all of a new log. At most 256 MB a look: when that runs out first, the part below where it
+	;got to (scanDown, down to scanFloor) is still to look through, and the looks after carry on down it, 256 MB each, after
+	;what's been added by then - a login line there is newer than any further down. Till then a new log's "" (a log
+	;already read keeps the id it had), and "" for good only once it's all been looked through, as when the whole log was
+	;searched (a 2 GB log in 9 looks, under 3 minutes - one whole read stopped everything for seconds)
+	floorAt := sizeWas > 120 ? sizeWas - 120 : 0, readSum := 0, id := "", downTo := 0, newer := false
+	if (StatsLoginScan(logFile, logSize, floorAt, &readSum, &id, &downTo))
+		charNow := id, scanDown := 0, scanFloor := 0, newer := true
+	else if (downTo > floorAt)
+		{
+		;(an older part still to do as well: one part, from the bottom of that up to here - some of it looked at twice)
+		if (scanDown <= scanFloor)
+			scanFloor := floorAt
+		scanDown := downTo
+		DebugLog("  stats: no login line in the last 256 MB of the game's log (" logSize " bytes) - looking further back 256 MB every 20 s, character id `"" charNow "`" till then")
+		}
+	else if (scanDown > scanFloor)
+		{
+		if (StatsLoginScan(logFile, scanDown, scanFloor, &readSum, &id, &downTo))
+			charNow := id, scanDown := 0, scanFloor := 0, newer := true
+		else
+			scanDown := downTo  ; (scanFloor when it got to the bottom - nothing left to look through)
+		}
+	;(the id kept from an earlier run: taken once all that's been added since it was found has been looked through with no
+	;newer login line in it; a newer one found drops it)
+	if (svPend != "")
+		{
+		if (newer)
+			svPend := ""
+		else if (scanDown <= scanFloor)
+			charNow := svPend, svPend := ""
+		}
+	;(kept for the next run - when it changes, and each 32 MB the log grows, so a restart looks through only what's been
+	;added after that; only once nothing older is left to look through, when it's sure)
+	if (charNow != "" && scanDown <= scanFloor && (charNow != svSavedId || logSize - svSavedSize >= 33554432))
+		StatsCharSave(logPath, logHead, logSize, charNow), svSavedId := charNow, svSavedSize := logSize
+	logFile.Close()
+	sizeWas := logSize
 	return charNow
+	}
+
+;StatsCharID's look through the log: backwards from readTo down to floorAt, a MB at a time, each MB overlapping the one
+;after it by 120 bytes (the line and its id are under 80), till a login line turns up or what's been read this look
+;(readSum, added to) gets to 256 MB. 1 if one did - the last one in that part, its id in id ("" if no id follows it) -
+;else 0, with downTo where to carry on from next time (floorAt when it got all the way down)
+StatsLoginScan(logFile, readTo, floorAt, &readSum, &id, &downTo)
+	{
+	while (readTo > floorAt && readSum < 268435456)
+		{
+		readFrom := Max(floorAt, readTo - 1048576)
+		logFile.Pos := readFrom
+		chunk := logFile.Read(readTo - readFrom)
+		readSum += readTo - readFrom
+		at := InStr(chunk, "MSG_LoginComplete CharID:", false, -1)
+		if (at)
+			{
+			id := RegExMatch(SubStr(chunk, at, 80), "CharID:(\d+)", &m) ? m[1] : ""
+			return 1
+			}
+		readTo := readFrom > floorAt ? readFrom + 120 : floorAt
+		}
+	downTo := readTo
+	return 0
+	}
+
+;StatsCharID's last find kept for the next run (stats_char.ini beside the bot - a cache, nothing of yours): true, with its
+;id and the log's size then, when it was found in this same log (its path and the start of its first line) and the log is
+;no shorter since
+StatsCharSaved(logPath, logHead, logSize, &id, &size)
+	{
+	f := A_ScriptDir "\stats_char.ini"
+	try
+		{
+		if (IniRead(f, "log", "path", "") != logPath || IniRead(f, "log", "head", "") != StatsIniSafe(logHead))
+			return false
+		id := IniRead(f, "log", "id", ""), size := IniRead(f, "log", "size", "")
+		}
+	catch
+		return false
+	return id != "" && IsInteger(size) && size + 0 <= logSize
+	}
+
+;Keeps id, found in the log at logPath (logSize long then), for the next run - StatsCharSaved
+StatsCharSave(logPath, logHead, logSize, id)
+	{
+	if (id = "")
+		return
+	f := A_ScriptDir "\stats_char.ini"
+	try
+		{
+		IniWrite(logPath, f, "log", "path")
+		IniWrite(StatsIniSafe(logHead), f, "log", "head")
+		IniWrite(logSize, f, "log", "size")
+		IniWrite(id, f, "log", "id")
+		}
+	}
+
+;The log's first bytes as an ini value can hold them (no line breaks, no spaces the ini would trim)
+StatsIniSafe(text)
+	{
+	return RegExReplace(text, "[^!-~]", "_")
 	}
 
 SrLogPath()

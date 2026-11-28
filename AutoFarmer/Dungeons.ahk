@@ -624,7 +624,10 @@ DgTurn(h)
 		}
 	if ((WkNavTrusted || WkNavChecked) && NavTurn(h))
 		return
-	PotionTurnBy(h)
+	;(the keys by time only with the bot on: after F6 NavTurn and the mouse turn nothing - Walker.ahk WalkBotOn - and this
+	;would still hold A or D for up to 800 ms)
+	if (WalkBotOn())
+		PotionTurnBy(h)
 	}
 
 ;One step of a dungeon run (the main loop, out of a battle round, instead of the quest walker's)
@@ -880,7 +883,7 @@ DgSteer(nav, p, d, tight := false)
 			HoldW(0)
 			if (IsObject(WkMet))
 				WkMet.spot += 1
-			if (!((WkNavTrusted || WkNavChecked) && NavTurn(h)))
+			if (!((WkNavTrusted || WkNavChecked) && NavTurn(h)) && WalkBotOn())
 				PotionTurnBy(h)
 			Sleep(60)
 			return
@@ -900,7 +903,7 @@ DgSteer(nav, p, d, tight := false)
 		HoldW(0)
 		if (d < 150)
 			{
-			if (!((WkNavTrusted || WkNavChecked) && NavTurn(h)))
+			if (!((WkNavTrusted || WkNavChecked) && NavTurn(h)) && WalkBotOn())
 				PotionTurnBy(h)
 			}
 		else

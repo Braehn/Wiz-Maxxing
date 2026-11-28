@@ -25,7 +25,10 @@ why, the others still read), and 'ms' and 'planning' are always set. A value tha
 never a guess. The hand is only "settled" - the cards to play - when the cards on screen are exactly the wizard's
 own hand list (see read); while the game is dealing, discarding or laying the cards out it says 'hand changing'
 (callers ask again every 100 ms, up to 1.5 s). The constructor raises (LookupError: a reflected class or property
-isn't in this build) - NavMem.cards() catches that and answers (None, why).
+isn't in this build) - NavMem.cards() catches that and answers (None, why). The effect / target names that don't check
+out (a patch's new enum layout - 6B05FDF0) raise nothing: the reader is made all the same - the GUI root, the template
+map, the name tables the GUI, backpack, deck, gear and pet readers are built on need no effect name - and cards_why says
+why the cards can't be read (read() answers it, NavMem.cards() too; DeckMem gives no kinds), the rest reads.
 
 WHAT IS READ (offsets of the client of 2026-10-13, build HAND_BUILD; each is found again by name or checked by type
 or window name - in another build a place that fails is looked for, and kept once a second card window agrees):
@@ -497,13 +500,19 @@ class HandMem:
         if none:
             raise LookupError("reflected classes not found in this build (%s): %s" % (self.build, ", ".join(none)))
         self.etype = read_enum(img, "kInvalidSpellEffect", "m_effectType", "SpellEffect", self.log)
-        # (names that don't check out: no reader at all - read as numbers every hit would come out "keep", and still say
-        # it was read from the game)
-        if not (self.etype.get(0) == "kInvalidSpellEffect" and self.etype.get(1) == "kDamage" and self.etype.get(3) == "kHeal"):
-            raise LookupError("the spell effect names couldn't be read in this build (%s)" % self.build)
         self.etarget = read_enum(img, "kInvalidTarget", "m_effectTarget", "SpellEffect", self.log)
-        if not (self.etarget.get(0) == "kInvalidTarget" and {"kEnemySingle", "kEnemyTeam", "kSelf"} <= set(self.etarget.values())):
-            raise LookupError("the effect target names couldn't be read in this build (%s)" % self.build)
+        # (names that don't check out: no cards read - read as numbers every hit would come out "keep", and still say it
+        # was read from the game. Only the cards: the GUI root, the template map and the name tables below need no effect
+        # name, and the GUI, backpack, login box, deck, gear and pet readers are built on them - so the reader is made all
+        # the same, cards_why saying why the cards aren't read: 2026-11-26, build 6B05FDF0, one enum layout turned them all
+        # off for a day)
+        self.cards_why = ""
+        if not (self.etype.get(0) == "kInvalidSpellEffect" and self.etype.get(1) == "kDamage" and self.etype.get(3) == "kHeal"):
+            self.cards_why = "the cards can't be read in this build: the spell effect names couldn't be read in this " \
+                             "build (%s)" % self.build
+        elif not (self.etarget.get(0) == "kInvalidTarget" and {"kEnemySingle", "kEnemyTeam", "kSelf"} <= set(self.etarget.values())):
+            self.cards_why = "the cards can't be read in this build: the effect target names couldn't be read in this " \
+                             "build (%s)" % self.build
         self.o = {}                  # places found (and checked) this attach
         self.how = {}
         self._cand = {}              # a place found in one window, waiting for a second: key -> {offset: {windows}}
@@ -516,6 +525,8 @@ class HandMem:
         self.school_of_id = dict(SCHOOL_IDS)
         del img                      # (the code copy: only for finding the places above)
         self.attach_s = time.perf_counter() - t0
+        if self.cards_why:
+            self.log("handmem: %s - the GUI, backpack, decks (no kinds), gear and pets still read" % self.cards_why)
         self.log("handmem: ready in %.2f s - template map %s, %d effect names, %d target names" % (
             self.attach_s, self.how.get("template_map"), len(self.etype), len(self.etarget)))
 
@@ -1012,6 +1023,11 @@ class HandMem:
         t0 = time.perf_counter()
         out = {"in_battle": False, "planning": False, "settled": False, "state": "none", "why": "", "ms": 0.0,
                "me": None, "cards": [], "root": None}
+        # (the effect names not read in this build: no cards - their kinds would be guesses - why said, as before the
+        # reader was made in spite of it; phase() still reads, it needs no spell)
+        if getattr(self, "cards_why", ""):
+            out["why"] = self.cards_why
+            return out
         try:
             self._read(out, want_effects)
         except Exception as e:  # noqa: BLE001 - never into the caller

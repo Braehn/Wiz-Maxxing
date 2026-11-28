@@ -5,8 +5,9 @@
 ; from the screen's), so the best match wins instead of ImageSearch's found / not found at a fixed
 ; tolerance. It's started with AutoFarmer (pythonw, no window), answers on 127.0.0.1:47128, and stops
 ; when AutoFarmer does. Whenever it can't be asked (Python missing, not started, an error three times
-; in a row), Find / Tri / FindEnchant / BestBadge use ImageSearch as before. debug.log: "Vision: ...";
-; the helper's own log: vision\vision.log.
+; in a row), Find / Tri / FindEnchant / BestBadge use ImageSearch as before. Three in a row, or its process gone, only
+; pauses it (and every game-memory feature with it): VisionRetry asks again in a while and restarts it when it's gone or
+; still doesn't answer (VisionBackOff). debug.log: "Vision: ..."; the helper's own log: vision\vision.log.
 ;
 ; Needs from the including script: GameLeft/GameTop/GameW/GameH, ScreenX/ScreenY, UiScale, HandHalf,
 ; Px(), hitschool, DebugLog(), Stat() (KillCalc.ahk).
@@ -27,6 +28,10 @@ global VisionPhaseWhy, VisionPhaseWaitUntil
 ;How many fresh looks at the hand VisionFind has taken (CardLearn.ahk LearnBoostPicFix: one miss a look) - declared only:
 ;a top-level := never runs here
 global VisionLookN
+;The helper paused (VisionBackOff): when VisionRetry asks again ("" not paused); how many asks in a row its process was
+;there but didn't answer; the restarts in the 30 min from VisionRestartsFrom (at most 3 - a broken helper isn't
+;restarted over and over)
+global VisionRetryAt, VisionStuck, VisionRestarts, VisionRestartsFrom
 
 ;Starts the helper (after stopping one left over from before, and waiting till it has stopped) and waits up to 8 s
 ;for it to answer - when it doesn't, debug.log says why: the line it wrote in vision\vision.log (VisionStartWhy)
@@ -167,20 +172,21 @@ VisionPython()
 	}
 
 ;One request to the helper. Returns its answer, "" if it couldn't be asked (3 of those in a row and
-;the helper is left alone - ImageSearch from then on; VisionErr says why). noCount: an ERR or no answer
+;the helper is paused - VisionOn 0, ImageSearch for the cards and no game-memory reads till VisionRetry finds it
+;answering again or restarts it: VisionBackOff; VisionErr says why). noCount: an ERR or no answer
 ;doesn't count towards that (/nav: the game not running is no reason to stop asking about cards)
 VisionGet(path, timeoutMs := 1500, noCount := false)
 	{
 	global VisionErr, ErrorLevel, VisionOn, VisionFails ; (v1 globals it sets)
 	VisionErr := ""
-	;(the helper's gone: no point asking - a closed port costs 2 s)
+	;(the helper's gone: no point asking - a closed port costs 2 s; restarted in a few seconds)
 	if (VisionOn && VisionPid)
 		{
 		ErrorLevel := ProcessExist(VisionPid)
 		if (!ErrorLevel)
 			{
-			VisionOn := 0, VisionErr := "the helper has stopped"
-			DebugLog("Vision: the helper has stopped - cards are found with ImageSearch from now on")
+			VisionErr := "the helper has stopped"
+			VisionBackOff("the helper has stopped (its process is gone)", 5000)
 			return ""
 			}
 		}
@@ -196,9 +202,8 @@ VisionGet(path, timeoutMs := 1500, noCount := false)
 			if (A_TickCount - sentAt > timeoutMs)
 				{
 				req.Abort()
-				;(a timeout counts double: the second one turns the helper off)
-				if (!noCount)
-					VisionFails := V1N(VisionFails) + 1   ; (v1: a blank counted as 0)
+				;(counted once, by the catch below, like an ERR - it counted twice before, so two slow /cards in a row
+				;switched every game-memory feature off for the rest of the run)
 				throw "no answer in " timeoutMs " ms"
 				}
 			Sleep(10)
@@ -213,13 +218,153 @@ VisionGet(path, timeoutMs := 1500, noCount := false)
 	catch Any as e   ; (v1: catch caught anything thrown - the strings thrown above too)
 		{
 		VisionErr := Trim(IsObject(e) ? e.Message : e, " `t`r`n")
-		if (VisionOn && !noCount && ++VisionFails >= 3)
-			{
-			VisionOn := 0
-			DebugLog("Vision: the helper stopped answering (" (IsObject(e) ? e.Message : e) ") - cards are found with ImageSearch from now on")
-			}
+		;(v1: a blank counted as 0)
+		if (VisionOn && !noCount)
+			VisionFails := V1N(VisionFails) + 1
+		if (VisionOn && !noCount && VisionFails >= 3)
+			VisionBackOff("the helper stopped answering (" RegExReplace(path, "\?.*") " - " SubStr(VisionErr, 1, 200) ")")
 		return ""
 		}
+	}
+
+;The helper paused: 3 counted asks in a row got nothing, or its process is gone (VisionGet). VisionOn 0 - every caller gets
+;its "no answer" at once, as when the helper never ran: the cards are found with ImageSearch and every game-memory read
+;(the walker's position and routes, mobs, items, the GUI checks, the bag and selling, the hand, the party, the network,
+;the battle recorder) waits - till VisionRetry, delayMs from now, finds it answering again or restarts it. why: for
+;debug.log
+VisionBackOff(why, delayMs := 45000)
+	{
+	global VisionOn, VisionFails, VisionRetryAt, VisionStuck ; (v1 globals it sets)
+	VisionOn := 0, VisionFails := 0, VisionStuck := 0
+	VisionRetryAt := A_TickCount + delayMs
+	DebugLog("Vision: " why " - the game-memory features (the walker's memory and routes, mobs, the GUI checks, selling, the hand, the party...) are paused and cards are found with ImageSearch - asked again in " Round(delayMs / 1000) " s")
+	SetTimer(VisionRetry, -delayMs)
+	}
+
+;(a timer, VisionBackOff's) The paused helper asked again: answering (/ping) - on again; its process there but still not
+;answering - asked once more, then it's stopped and restarted; its process gone - restarted (VisionStart, as at the
+;bot's start). At most 3 restarts in 30 min: past that, asked again when those 30 min are up. A restart takes seconds
+;(up to 14) and the bot's own thread this timer interrupted waits that long: not in a battle, a round or while the mouse
+;lock holds your mouse (the round's clicks, its timer) - asked again in 2 s till it's out of them - and what the walker
+;holds let go first (no wizard running on unsteered with W down, nor against your own keys while it can't yield)
+VisionRetry()
+	{
+	local v1Keep := V1Thread() ; (v1: each thread had its own ErrorLevel)
+	global VisionOn, VisionFails, VisionPid, VisionRetryAt, VisionStuck, VisionRestarts, VisionRestartsFrom ; (v1 globals it sets)
+	static vrWaitSaid := 0
+	VisionRetryAt := ""
+	;(on again meanwhile - restarted some other way: nothing to do)
+	if (VisionOn)
+		return
+	;(its process there - and still the helper: a pid Windows has given another process since is neither pinged nor stopped)
+	vrUp := 0
+	if (VisionPid && ProcessExist(VisionPid))
+		try vrUp := (ProcessGetName(VisionPid) = "pythonw.exe") ? 1 : 0
+	;(asked twice already - the restart decided on, waiting for a battle to end: not pinged again, 1 s each 2 s would hold
+	;up the battle)
+	if (vrUp && V1N(VisionStuck) < 2)
+		{
+		if (SubStr(VisionGet("/ping", 1000, true), 1, 2) = "OK")
+			{
+			VisionOn := 1, VisionFails := 0, VisionStuck := 0
+			DebugLog("Vision: the helper answers again - the game-memory features and the card vision are back on")
+			return
+			}
+		VisionStuck := V1N(VisionStuck) + 1
+		;(busy for a while - a slow zone file, a long plan: given one more wait before it's stopped)
+		if (VisionStuck < 2)
+			{
+			VisionRetryAt := A_TickCount + 45000
+			DebugLog("Vision: the helper still doesn't answer (" VisionErr ") - the game-memory features stay paused, asked again in 45 s, then it's restarted")
+			SetTimer(VisionRetry, -45000)
+			return
+			}
+		}
+	;(the restarts of the last 30 min: a helper that stops again and again isn't restarted in a loop)
+	if (VisionRestartsFrom = "" || A_TickCount - VisionRestartsFrom > 1800000)
+		VisionRestarts := 0, VisionRestartsFrom := A_TickCount
+	if (V1N(VisionRestarts) >= 3)
+		{
+		vrWait := Max(VisionRestartsFrom + 1800000 - A_TickCount, 45000)
+		VisionRetryAt := A_TickCount + vrWait
+		DebugLog("Vision: the helper was restarted 3 times in 30 min and still doesn't work - the game-memory features stay paused, cards are found with ImageSearch - tried again in " Round(vrWait / 60000) " min (vision\vision.log says why)")
+		SetTimer(VisionRetry, -vrWait)
+		return
+		}
+	;(not now - in a battle, a round open (BattleRec.ahk) or your mouse locked (Settings.ahk MouseLockOn): the seconds the
+	;restart takes would hold up the round's clicks and its timer, and your mouse with them. Cards meanwhile: ImageSearch)
+	if (inbattle == 1 || (IsSet(MouseLocked) && MouseLocked) || (IsSet(BrecOpen) && BrecOpen))
+		{
+		if (!vrWaitSaid)
+			DebugLog("Vision: the helper's restart waits till the battle's over - it takes seconds, and the bot waits for it")
+		vrWaitSaid := 1
+		VisionRetryAt := A_TickCount + 2000
+		SetTimer(VisionRetry, -2000)
+		return
+		}
+	;(waited for a battle to end: asked once more first - a helper that was only busy for a while answers by now, and isn't
+	;stopped and restarted for nothing)
+	if (vrWaitSaid && vrUp && SubStr(VisionGet("/ping", 500, true), 1, 2) = "OK")
+		{
+		vrWaitSaid := 0
+		VisionOn := 1, VisionFails := 0, VisionStuck := 0
+		DebugLog("Vision: the helper answers again - not restarted; the game-memory features and the card vision are back on")
+		return
+		}
+	vrWaitSaid := 0
+	;(the walker's W, turn keys and the mouse turn's button let go, the speed kept - its own short stop, ReleaseKeys: it
+	;holds them again on its next step, once this thread is done)
+	if (V1IsFunc("ReleaseKeys") && (KeysDown || HeldW))
+		%"ReleaseKeys"%.Call(true)
+	VisionRestarts := V1N(VisionRestarts) + 1
+	DebugLog("Vision: restarting the helper (" (vrUp ? "it hasn't answered for over 45 s - stopped" : "its process is gone") ") - restart " VisionRestarts " of at most 3 in 30 min")
+	;(a helper that doesn't answer may not hear /quit either: stopped, so it doesn't hold the port beside the new one)
+	if (vrUp)
+		ProcessClose(VisionPid)
+	if (VisionStart())
+		{
+		VisionStuck := 0
+		;(the client to read told again - the new helper reads the one in front: Carry.ahk)
+		VisionRepin()
+		;(the new helper hasn't been told whether to record battles - BattleRec.ahk, sent after VisionStart at the bot's start
+		;too. "later": sent by BrecRoundClose out of a round, never between a round's clicks)
+		if (V1IsFunc("BrecHello"))
+			%"BrecHello"%.Call("later")
+		DebugLog("Vision: the helper was restarted - the game-memory features and the card vision are back on")
+		return
+		}
+	VisionRetryAt := A_TickCount + 45000
+	DebugLog("Vision: the helper didn't start again - the game-memory features stay paused, tried again in 45 s")
+	SetTimer(VisionRetry, -45000)
+	}
+
+;A restarted helper (VisionRetry) told which client to read, as Carry.ahk told the old one: carry mode's two clients'
+;readers and the one whose turn it is (CarryStart, CarryFront), else the main picked (Alt+M - MainPin). None picked: the
+;window in front, as a new helper reads anyway. CarryPin still named the old helper's pin - MainTick's and CarryFront's
+;"not pinned yet" never saw a new helper - so it's set afresh here
+VisionRepin()
+	{
+	global CarryPin ; (v1 globals it sets)
+	CarryPin := ""
+	if (IsSet(CarryOn) && CarryOn)
+		{
+		VisionGet("/client?pids=" CarryMainPid "," CarryPid, 1500, true)
+		vpP := CarryTurn ? CarryPid : CarryMainPid
+		CarryPin := SubStr(VisionGet("/client?pid=" vpP, 1500, true), 1, 2) = "OK" ? vpP : ""
+		}
+	else if (IsSet(MainPid) && MainPid)
+		MainPin()
+	}
+
+;The helper's state for the dashboard: "on", "paused (asked again in 30 s)" (VisionBackOff), or "off" (it never started,
+;or it was stopped)
+VisionStatus()
+	{
+	if (VisionOn)
+		return "on"
+	if (VisionRetryAt != "")
+		return "paused (asked again in " Max(Round((VisionRetryAt - A_TickCount) / 1000), 0) " s)"
+	return "off"
 	}
 
 ;The card pictures the bot looks for, as "dir/name"
@@ -1810,4 +1955,5 @@ VisionBlank()
 	global NavGearWhy := "", NavGearWaitUntil := ""
 	global NavPetsWhy := "", NavPetsWaitUntil := ""
 	global VisionPhaseWhy := "", VisionPhaseWaitUntil := ""
+	global VisionRetryAt := "", VisionStuck := "", VisionRestarts := "", VisionRestartsFrom := ""
 	}

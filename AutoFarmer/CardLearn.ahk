@@ -68,6 +68,10 @@ global LearnedThisRound ;(v1 never ran: LearnedThisRound := 0 - blank at start: 
 ;again - LearnSeenAgain)
 global LearnMemWait
 global LearnedCards ;(v1 never ran: LearnedCards := "" - blank at start: CardLearnBlank)
+;1 while learned\cards.txt is there but couldn't be read (LearnLoad): the catalog an empty stand-in - never saved over the
+;file (LearnSave), nothing learned anew or put in a slot by it (LearnNew, LearnBoostPicFix); read again each round and
+;between battles till it is (blank at start: CardLearnBlank)
+global LearnLoadFailed
 ;Whether each slot is free (LearnFree), asked once a round
 global LearnFreeCache ;(v1 never ran: LearnFreeCache := "" - blank at start: CardLearnBlank)
 ;The hand as the helper read it this round (/hand's answer; "" till it's read - RoundStart clears it), and
@@ -572,7 +576,8 @@ LearnCards(picFix := 1)
 	global LearnFreeCache, LearnRereadsLeft, LastHandAnswer, SlotGame, HeadsMemo, PicMade ; (v1 globals it sets)
 	if (!VisionOn || hitschool = "")
 		return false
-	if (!IsObject(LearnedCards))
+	;(learned\cards.txt not read yet - or not readable when it was: tried again - LearnLoadFailed)
+	if (!IsObject(LearnedCards) || LearnLoadFailed)
 		LearnLoad()
 	;(this school's learned cards - and shields, which go in a slot of every school's - also by
 	;themselves: copies of a card differ a little, so a picture cut from one copy is compared leaving out
@@ -714,6 +719,10 @@ LearnCards(picFix := 1)
 ;A card the bot doesn't know: saved, read and put to use. 1 if it went into a slot
 LearnNew(card)
 	{
+	;(learned\cards.txt there but not read - LearnLoadFailed: the catalog in memory is empty, so every card learned before
+	;would look new, be learned again and go in a slot over its own picture; none learned till the file's read)
+	if (LearnLoadFailed)
+		return 0
 	setDir := LearnSetDir()
 	stamp := FormatTime(, "yyMMddHHmmss")
 	id := "c" stamp "_" Mod(Round(card.left), 10000)
@@ -1767,6 +1776,9 @@ LearnBoostPicFix(card, f)
 	static misses := V1Obj(), said := V1Obj(), lookOf := V1Obj()
 	global LearnFreeCache ; (v1 globals it sets)
 	m := card.mem
+	;(no slot's picture written while learned\cards.txt couldn't be read - LearnLoadFailed: which learned card has it isn't known)
+	if (LearnLoadFailed)
+		return 0
 	if (!IsObject(m) || (m["kind"] != "blade" && m["kind"] != "trap" && m["kind"] != "ward") || card.grey || !card.isCard || card.tc || m["ench"] != "" || m["tc"] || m["item"])
 		return 0
 	if (m["kind"] = "ward")
@@ -2260,6 +2272,10 @@ LearnOutOfBattle()
 		return 0
 	if (!IsObject(LearnRunDone))
 		LearnRunDone := V1Obj()
+	;(learned\cards.txt couldn't be read - LearnLoadFailed: read again now. The once-a-run jobs below are done again
+	;on the catalog once it is, whichever read gets it - LearnLoad clears them)
+	if (LearnLoadFailed)
+		LearnLoad()
 	if (!LearnRunDone.Has("load"))
 		{
 		LearnRunDone.load := 1
@@ -3150,9 +3166,10 @@ LearnWritten(paths, add)
 		if (list.Has(p))
 			out .= p "`r`n"
 	V1Do(DirCreate, A_WorkingDir "\learned")
-	V1Do(FileDelete, file ".tmp")
-	V1Do(FileAppend, out, file ".tmp")
-	V1Do(FileMove, file ".tmp", file, 1)
+	;(written whole or not at all - LearnFileReplace: a cut list would let an update put the release's pictures over slots
+	;an arrangement wrote)
+	if (!LearnFileReplace(file, out))
+		DebugLog("  couldn't write learned\slots_written.txt (the disk full?) - the file kept as it was")
 	}
 
 ;---- The Spells tab's (Spells.ahk) - call on the main thread, out of battle ----
@@ -3470,12 +3487,48 @@ LearnSetDir(create := true)
 	return dir
 	}
 
-;learned\cards.txt -> LearnedCards (lines of 12 fields from older versions too)
+;learned\cards.txt -> LearnedCards (lines of 12 fields from older versions too). 1 if read (or not there - a first run),
+;0 if it couldn't be: the catalog kept as it was, or the empty stand-in (LearnLoadFailed)
 LearnLoad()
 	{
-	global LearnedCards ; (v1 globals it sets)
+	global LearnedCards, LearnLoadFailed ; (v1 globals it sets)
+	path := A_WorkingDir "\learned\cards.txt"
+	;(the file there but not read - held by another program a moment, a disk error: tried twice more the first time; none
+	;there is a first run - an empty catalog, as always. ErrorLevel kept at once: Sleep lets another thread set it)
+	Loop (LearnLoadFailed ? 1 : 3)
+		{
+		if (A_Index > 1)
+			Sleep(150)
+		text := V1FileRead(path), failed := ErrorLevel
+		if (!failed || !FileExist(path))
+			break
+		}
+	if (failed && FileExist(path))
+		{
+		;(a catalog read before - the Spells tab's reload: kept as it is, never one emptied by a read that failed)
+		if (IsObject(LearnedCards) && !LearnLoadFailed)
+			{
+			DebugLog("  couldn't read learned\cards.txt again - the learned cards as they were read before are kept")
+			return 0
+			}
+		;(else an empty stand-in, so what goes through the catalog still works - but LearnLoadFailed: never saved over the
+		;file, nothing learned anew; read again each round and between battles)
+		if (!LearnLoadFailed)
+			DebugLog("  couldn't read learned\cards.txt - no learned card is used, learned or saved till it's read (tried again each round)")
+		LearnedCards := [], LearnLoadFailed := 1
+		return 0
+		}
+	if (LearnLoadFailed)
+		{
+		DebugLog("  learned\cards.txt read now - its learned cards are used again")
+		;(the once-a-run jobs - LearnOutOfBattle's stray-picture reconcile, text recheck and catalog check - done again on
+		;it, whichever read got it: this round's (LearnCards), the Spells tab's or between battles. On the stand-in they
+		;did nothing)
+		if (IsObject(LearnRunDone))
+			LearnRunDone.Delete("load"), LearnRunDone.Delete("check")
+		}
+	LearnLoadFailed := 0
 	LearnedCards := []
-	text := V1FileRead(A_WorkingDir "\learned\cards.txt")
 	Loop Parse, text, "`n", "`r"
 		{
 		if (A_LoopField = "" || SubStr(A_LoopField, 1, 1) = ";")
@@ -3504,6 +3557,7 @@ LearnLoad()
 			}
 	if (back)
 		LearnSave()
+	return 1
 	}
 
 ;The slot whose picture is learned card c's own (a copy of it - its .raw.png, never made see-through, the same - in the
@@ -3525,6 +3579,13 @@ LearnSlotWithPicture(c)
 LearnSave()
 	{
 	global SpDirty ; (v1 globals it sets)
+	;(the file couldn't be read - LearnLoadFailed: the catalog in memory is an empty stand-in, and written it'd take the
+	;place of every card learned before. The file kept as it is)
+	if (LearnLoadFailed)
+		{
+		DebugLog("  learned\cards.txt not saved: it couldn't be read, so the learned cards in it would be lost - kept as it is")
+		return
+		}
 	out := "; Cards AutoFarmer learned by itself (CardLearn.ahk), one per line:`r`n"
 		. "; id|school it was learned for|kind (damage = one enemy, aoe = all, heal, ward = a shield, absorb, blade, trap, aura, bubble = a global, negaura = a negative aura, enchant, sharpen, potent, prism; not played: dot = damage over time, stun, dispel, clear, weakness, curse, charm, enchantother, mutate, polymorph, shadow, minion, pips, manipulation, xpip, keep; blank = unknown)|pips|pips guessed (1)|number on the card|single target (1)|slot it's used as|UI scale|picture set|when|text read off it|name|flags`r`n"
 		. "; flags: ok = checked, it's a card; icon=<its type icon>; tc = a treasure card; item = an item card (the game's); two = two reads agreed; dot=<damage over time>; xpip; mem = read from the game's memory (kind, number, pips); game=<its name in the game>; school=<its own school>; user = set on the Spells tab (never changed by itself); hold = never discarded; out=<id> = taken out of its slot by that card; snap=<backups folder of the hits it was put in by>`r`n"
@@ -3536,11 +3597,32 @@ LearnSave()
 		}
 	V1Do(DirCreate, A_WorkingDir "\learned")
 	path := A_WorkingDir "\learned\cards.txt"
-	V1Do(FileDelete, path ".tmp")
-	V1Do(FileAppend, out, path ".tmp")
-	V1Do(FileMove, path ".tmp", path, 1)
+	if (!LearnFileReplace(path, out))
+		DebugLog("  couldn't write learned\cards.txt (the disk full?) - the file kept as it was; the learned cards in memory are written with the next change")
 	;(the Spells tab fills its list again - DashRefresh; never a GUI call from here)
 	SpDirty := 1
+	}
+
+;Text out written over file path whole or not at all: to path.tmp first, moved over path only when all of it got there -
+;a full disk makes FileAppend create the .tmp and fail partway, and an empty or cut .tmp moved over the file would lose
+;it. On a failure the .tmp taken away, the file as it was. True if written
+LearnFileReplace(path, out)
+	{
+	V1Do(FileDelete, path ".tmp")
+	failed := V1Do(FileAppend, out, path ".tmp")
+	;(at least a byte a character: the text's printable ASCII - LearnClean - in any encoding; a BOM only adds to it)
+	if (!failed)
+		{
+		try
+			failed := FileGetSize(path ".tmp") < StrLen(out)
+		catch
+			failed := 1
+		}
+	if (!failed)
+		failed := V1Do(FileMove, path ".tmp", path, 1)
+	if (failed)
+		V1Do(FileDelete, path ".tmp")
+	return !failed
 	}
 
 ;Learned card c's cards.txt line (14 fields)
@@ -3729,5 +3811,5 @@ CardLearnBlank()
 	global heal2X := "", blade := "", BladeX := "", blade3 := "", Blade3X := "", blade4 := "", Blade4X := "", sharpen := "", SharpX := ""
 	global potent := "", PotentX := "", trap := "", trapX := "", trap3 := "", trap3X := "", aura := "", auraX := "", tower := "", towerX := ""
 	global reshuffle := "", reshuffleX := "", feint := "", feintX := "", bubble := "", bubbleX := "", convert := "", convertX := "", absorb := ""
-	global absorbX := "", BoostMemOk := "", Stats := "", GameLeft := "", GameTop := "", HalfPitch := ""
+	global absorbX := "", BoostMemOk := "", Stats := "", GameLeft := "", GameTop := "", HalfPitch := "", LearnLoadFailed := ""
 	}

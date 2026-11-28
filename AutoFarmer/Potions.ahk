@@ -229,7 +229,7 @@ PotionCheck()
 	DebugLog("Potions: no potion left - going to buy some")
 	if (PotionRun())
 		PotionNoneAt := 0, PotionResting := 0
-	else
+	else if (WalkBotOn())  ; (a run stopped because you turned the bot off (PotionOk) isn't a failed buy: tried again once it's on)
 		PotionFailUntil := A_TickCount + 10 * 60000
 	}
 
@@ -979,6 +979,12 @@ PotionReplay(route)
 ;Fine to carry on with a run: Wizard101 in front, your hands off, no battle
 PotionOk(watchHands := true, since := 0)
 	{
+	;(the bot turned off (F6, or from another PC) - a run from the tray goes on: Walker.ahk WalkBotOn, BotOn || PotionManual)
+	if (!WalkBotOn())
+		{
+		DebugLog("Potions: the bot was turned off - stopping the run")
+		return false
+		}
 	;(Wizard101 behind another window: brought to the front if "Bring Wizard101 to the front" is on - without waiting for
 	;you to leave the keyboard alone: the run's under way)
 	if (!GameActive() && !(V1IsFunc("GameToFront") && GameToFront.Call("the potion run is under way", false)))
@@ -1098,7 +1104,7 @@ PotionNavTo(s)
 PotionHoldW(on)
 	{
 	global KeysDown, HeldW ; (v1 globals it sets)
-	if (on && !HeldW && GameActive())
+	if (on && !HeldW && GameActive() && WalkBotOn())
 		{
 		KeysDown := 1
 		Send("{Blind}{w down}")
@@ -1115,7 +1121,8 @@ PotionHoldW(on)
 PotionTurnBy(h)
 	{
 	global KeysDown ; (v1 globals it sets)
-	if (!GameActive())
+	;(nor with the bot turned off - F6 mid-run: WalkBotOn)
+	if (!GameActive() || !WalkBotOn())
 		return
 	key := h < 0 ? "a" : "d"
 	;(v1: TurnRate blank till WalkerInit - not > 0)
@@ -1235,9 +1242,12 @@ PotionWalkTo(s, since := 0, door := false)
 				}
 			DebugLog("Potions: no closer in 6 s (" Round(d) " away) - backing up and turning")
 			PotionHoldW(0)
-			Send("{Blind}{s down}")
-			Sleep(700)
-			Send("{Blind}{s up}")
+			if (WalkBotOn())
+				{
+				Send("{Blind}{s down}")
+				Sleep(700)
+				Send("{Blind}{s up}")
+				}
 			PotionTurnBy(Mod(unstuck, 2) ? 90 : -90)
 			if (!PotionOk(true, since))
 				{

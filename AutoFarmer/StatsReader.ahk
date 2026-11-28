@@ -80,6 +80,14 @@ if (!DetectPicSet())
 	}
 
 charID := StatsCharID()
+;(a look is at most 256 MB of the game's log: run once, it carries on down a bigger one - 9 looks cover 2 GB - as the bot's
+;looks every 20 s do; "" once it's all been looked through)
+Loop 8
+	{
+	if (charID != "")
+		break
+	charID := StatsCharID(true)
+	}
 if (School = "")
 	{
 	School := StatsSchoolOf(charID)

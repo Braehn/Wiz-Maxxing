@@ -33,5 +33,7 @@ updater.log
 AutoFarmer/decks/
 # Quick sell's count per character and its hold after a dungeon (QuickSell.ahk)
 AutoFarmer/quicksell.ini
+# The character id last found in the game's log, for the next run (StatsRead.ahk StatsCharSave)
+AutoFarmer/stats_char.ini
 # The battle recorder's records (BattleRec.ahk, vision\battlerec.py) - they stay on the PC
 AutoFarmer/learned/battles/

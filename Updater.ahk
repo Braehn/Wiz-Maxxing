@@ -26,10 +26,13 @@ global UpTestApi, UpTestToken, UpTestYes
 global UpQuiet, UpBotsClosed, UpHandedOver, UpHandArgs
 
 ;(the repo, and the token's name in Credential Manager - functions, since a global's starting value in an
-;#Included file never runs)
+;#Included file never runs). Every GitHub address the bot and Setup use - the update check, updating by itself, Setup's
+;Version list, the token test, Report a bug - is built from this one. The account's new name: its old one only reached
+;the repo through GitHub's redirect from a renamed account, and a freed name can be taken by anyone - whose release
+;would then be put in here
 UpRepo()
 	{
-	return "Joshuasbraincells/Wiz-Maxxing"
+	return "Braehn/Wiz-Maxxing"
 	}
 
 UpApi()

@@ -54,6 +54,9 @@ MouseSteerWhyNot(needW := true, byMem := true, slows := false)
 		return "off for now (the mouse didn't turn the wizard)"
 	if (!Walking || (needW && !HeldW) || inbattle)
 		return "not walking"
+	;(AutoFarmer's F6: the bot off - Walker.ahk WalkBotOn; AutoQuester has none)
+	if (!WalkBotOn())
+		return "the bot's off"
 	;(the wizard running already - the right button turns him while he runs; standing, it turns the camera)
 	if (needW && WkWalkFrom && A_TickCount - WkWalkFrom < 600)
 		return "just set off"
@@ -330,11 +333,11 @@ MouseTurn(h, byMem := true)
 	wasCrit := A_IsCritical
 	Critical()
 	;(the window and the read let other threads run: F6, F8, you - looked at again before anything's pressed)
-	if (!Walking || !HeldW || inbattle || !GameActive() || PlayerActive || UserIdle() < 3000)
+	if (!Walking || !HeldW || inbattle || !WalkBotOn() || !GameActive() || PlayerActive || UserIdle() < 3000)
 		{
 		if (!wasCrit)
 			Critical("Off")
-		MouseSteerNote("not now - " ((!Walking || !HeldW || inbattle) ? "not walking" : !GameActive() ? "Wizard101 not in front" : "you're at the keyboard or mouse") " (just before the press)")
+		MouseSteerNote("not now - " ((!Walking || !HeldW || inbattle) ? "not walking" : !WalkBotOn() ? "the bot's off" : !GameActive() ? "Wizard101 not in front" : "you're at the keyboard or mouse") " (just before the press)")
 		return ""
 		}
 	MouseGetPos(&msX0, &msY0)
@@ -627,11 +630,11 @@ MouseStandTurn(h)
 	MsTriedAt := A_TickCount
 	wasCrit := A_IsCritical
 	Critical()
-	if (!Walking || inbattle || !GameActive() || PlayerActive || UserIdle() < 3000)
+	if (!Walking || inbattle || !WalkBotOn() || !GameActive() || PlayerActive || UserIdle() < 3000)
 		{
 		if (!wasCrit)
 			Critical("Off")
-		MouseSteerNote("not now (from standing) - " ((!Walking || inbattle) ? "not walking" : !GameActive() ? "Wizard101 not in front" : "you're at the keyboard or mouse") " (just before the press)")
+		MouseSteerNote("not now (from standing) - " ((!Walking || inbattle) ? "not walking" : !WalkBotOn() ? "the bot's off" : !GameActive() ? "Wizard101 not in front" : "you're at the keyboard or mouse") " (just before the press)")
 		return ""
 		}
 	MouseGetPos(&msX0, &msY0)

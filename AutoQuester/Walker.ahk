@@ -1854,7 +1854,7 @@ DistChanged(dist, was)
 StartTalk(d, door := true)
 	{
 	global WkArrived, WkBestTime, WkLastRead, WkNavDoor, WkTalk, WkFar, WkNear, WkDialog, WkTalkDist, WkTalkAt, WkTalkGoal ; (v1 globals it sets)
-	global WkPreXText, WkAfterXLooked, WkLastX ; (v1 globals it sets)
+	global WkPreXText, WkAfterXLooked, WkLastX, WkArrDist, WkArrGoal ; (v1 globals it sets)
 	;(a goal the game shows no way to - WkNavNoPlace - has no "at it": no X at nothing (2026-10-25 "Use Inactive Protector": X, then a
 	;push, then waiting there for good) - its kind's own way instead (CollectNoPlace); a talk goal's NPC found by name standing in
 	;for its place - TalkStep - is X'd as any talk goal's)
@@ -1929,6 +1929,28 @@ StartTalk(d, door := true)
 			return
 			}
 		}
+	;(Crowns on the prompt up at the goal (WalkPromptCrowns): never an X there - as StartPressX's on the way. Waiting by it for
+	;the next goal, as WalkTalkWait does - not walked up to and refused again every few seconds with nobody told: the waiting's
+	;own look X's the quest's prompt once it reads without Crowns, WalkTalkRetry asks again a minute after this (WkPromptUsed
+	;"crownsno", each time), and a notice once for this goal. Said once in 30 s)
+	static stCrownsLog := 0, stCrownsNoted := ""
+	if (prompt = "press" && WalkPromptCrowns())
+		{
+		WkPromptUsed["crownsno"] := A_TickCount
+		if (A_TickCount - stCrownsLog > 30000)
+			stCrownsLog := A_TickCount, WalkLog("talk: at the goal (distance " d "), the prompt up ('" SubStr(WkPromptDest, 1, 30) "') has Crowns on it - no X, waiting by it for the next goal")
+		if (KeysDown || HeldW)
+			ReleaseKeys()
+		WkArrived := 1, WkFar := 0, WkArrDist := (d = "?" ? "" : d), WkArrGoal := (WkNavOk && IsObject(WkNavObj)) ? WkNavObj.goalid : ""
+		SetStatus("arrived - no X, Crowns on the goal's prompt: waiting for the next goal")
+		if (stCrownsNoted != WkGoalLine "|")
+			{
+			stCrownsNoted := WkGoalLine "|"
+			WalkNotify("wait", "Crowns on the quest goal's prompt", "The prompt at the quest goal ('" SubStr(WkPromptDest, 1, 30) "') shows Crowns, so the bot won't press X there - it never spends Crowns. It waits by it: press X yourself if it's free, or sort it out - it walks on by itself once there's a new goal.")
+			}
+		Sleep(400)
+		return
+		}
 	if (KeysDown || HeldW || SpeedNow > 1)
 		ReleaseKeys()
 	WkArrived := 2, WkTalk := 0, WkFar := 0, WkNear := 0, WkDialog := 0, WkTalkDist := d, WkTalkAt := A_TickCount
@@ -1990,10 +2012,21 @@ StartGate(why)
 	}
 
 ;A "Press X ..." prompt on the way: stop, press X, then WalkStep (WkArrived = 6) presses Space
-;through whatever it opens and walks on
+;through whatever it opens and walks on. Never at one with Crowns on it (WalkPromptCrowns - the prompt InteractPrompt
+;read just before): every prompt X goes through here - the prompt on the way, a quest marker's, the talk goal's NPC, the
+;use goal's spot, waiting at the goal - so none presses X there. That prompt counted as used for a minute instead
+;(WalkPromptFree): walked past, not looked at again at every step; said once a minute. False: no X
 StartPressX(key)
 	{
+	static pxCrownsSaid := 0
 	global WkArrived, WkPressAt, WkTalk, WkDialog, WkSpaceAt, WkAfterXLooked, WkArrowAtX, WkPreXText, WkLastX, WkXResumed ; (v1 globals it sets)
+	if (WalkPromptCrowns())
+		{
+		WkPromptUsed[key = "" ? "?" : key] := A_TickCount
+		if (A_TickCount - pxCrownsSaid > 60000)
+			pxCrownsSaid := A_TickCount, WalkLog("prompt '" SubStr(key, 1, 40) "' - Crowns on it: no X, walking on")
+		return false
+		}
 	if (KeysDown || HeldW || SpeedNow > 1)
 		ReleaseKeys()
 	WkPromptUsed[key = "" ? "?" : key] := A_TickCount
@@ -2009,6 +2042,7 @@ StartPressX(key)
 	WalkLog("prompt '" SubStr(key, 1, 40) "' - pressed X" WalkGoalSay())
 	SetStatus("pressed X at a prompt")
 	Sleep(400)
+	return true
 	}
 
 ;True if that prompt hasn't been used (X pressed) in the last ms. The key is the prompt's letters as
@@ -2516,7 +2550,7 @@ WalkTransport(dest, arrowSeen := false)
 	WalkLog("transport: '" dest "' covers the arrow - " (recent ? "used it in the last 10 minutes" : leads = 0 ? "it doesn't go to the quest's zone" : "can't tell where it goes yet") ", stepping out of it")
 	SetStatus("stepping out of the " dest " prompt")
 	BackUp(900)
-	if (!Walking || !GameActive())
+	if (!WalkMayPress())
 		return true
 	Turn(60 * WkSide)
 	HoldW(1)
@@ -3334,11 +3368,13 @@ WalkTalkTriesLeft()
 	}
 
 ;X at this prompt (key: its name's letters) - the talk goal's own NPC by the game's memory, within TalkReach on the same floor -
-;even right after a dialogue or an X there (no DialogQuiet, no once a minute): 3 s after the last X, while its tries last
+;even right after a dialogue or an X there (no DialogQuiet, no once a minute): 3 s after the last X, while its tries last. Never
+;one with Crowns on it (WalkPromptCrowns - the prompt InteractPrompt just read): left to the once-a-minute way (WalkPromptFree),
+;whose StartPressX says no X - not refused again at every look (~700 ms)
 WalkTalkPromptOk(key)
 	{
 	tpGoal := WalkTalkGoal()
-	if (!IsObject(tpGoal) || tpGoal.r > TalkReach || (tpGoal.dz != "" && Abs(tpGoal.dz) > 150) || !WalkIsGoalNpc(key, tpGoal))
+	if (!IsObject(tpGoal) || tpGoal.r > TalkReach || (tpGoal.dz != "" && Abs(tpGoal.dz) > 150) || !WalkIsGoalNpc(key, tpGoal) || WalkPromptCrowns())
 		return false
 	return (!WkLastX || A_TickCount - WkLastX >= 3000) && WalkTalkTriesLeft()
 	}
@@ -3432,14 +3468,16 @@ WalkTalkWait(dist, why)
 	}
 
 ;Waiting at a talk goal's NPC (WkArrived = 1) by the game's memory, within TalkReach: X again once its tries have come free
-;and a minute's gone since the last X. True if it did
+;and a minute's gone since the last X - or since StartTalk last said no X there for Crowns on its prompt. True if it did
 WalkTalkRetry(dist)
 	{
 	trGoal := WalkTalkGoal()
 	if (!IsObject(trGoal) || trGoal.r > TalkReach || (trGoal.dz != "" && Abs(trGoal.dz) > 150) || inbattle
-		|| (WkLastX && A_TickCount - WkLastX < 60000) || !WalkTalkTriesLeft())
+		|| (WkLastX && A_TickCount - WkLastX < 60000) || !WalkTalkTriesLeft()
+		|| (WkPromptUsed.Has("crownsno") && A_TickCount - WkPromptUsed["crownsno"] < 60000))
 		return false
-	WalkLog("talk: still by " (trGoal.npc != "" ? trGoal.npc : "the goal's NPC") " with the goal as it was - X again")
+	;("trying": StartTalk may still press no X - Crowns on the prompt, another NPC's prompt up... - and says why itself)
+	WalkLog("talk: still by " (trGoal.npc != "" ? trGoal.npc : "the goal's NPC") " with the goal as it was - trying X again")
 	StartTalk(dist = "" ? "?" : dist, false)
 	return true
 	}
@@ -3494,10 +3532,10 @@ WalkQuestMarkerTalk(key)
 		WalkLog("quest marker (?) over " qmName " - its prompt went before X: walking on")
 		return false
 		}
+	;(Crowns on its prompt: StartPressX says no X - not said here as pressed, nor taken as done)
 	WkQmTalked[key] := A_TickCount
-	WalkLog("prompt '" SubStr(key, 1, 40) "' - a quest marker (?) over " qmName ": pressing X")
-	StartPressX(WkPromptDest)
-	return true
+	WalkLog("prompt '" SubStr(key, 1, 40) "' - a quest marker (?) over " qmName (WalkPromptCrowns() ? ", Crowns on its prompt" : ": pressing X"))
+	return StartPressX(WkPromptDest)
 	}
 
 ;Two names' letters (WalkLetters) alike, allowing for OCR's misreadings: one inside the other (4 letters at least), or
@@ -3673,7 +3711,7 @@ WalkCloseAfterX()
 			&& !RegExMatch(WkPreXText, "i)\b(ok|okay)\b"))
 			{
 			w := line.words[1]
-			if (!Walking || !GameActive())
+			if (!WalkMayPress())
 				return false
 			WalkLog("pressed X: an OK box opened - OK")
 			ReleaseKeys()
@@ -3705,7 +3743,7 @@ WalkCloseAfterX()
 WalkCloseWindow(why, now := false)
 	{
 	global WkCloseLook, WkBestTime, WkLastRead ; (v1 globals it sets)
-	if (!V1IsFunc("PicOpt") || !Walking || !GameActive() || (!now && A_TickCount - WkCloseLook < 5000))
+	if (!V1IsFunc("PicOpt") || !WalkMayPress() || (!now && A_TickCount - WkCloseLook < 5000))
 		return false
 	WkCloseLook := A_TickCount
 	V1ImageSearch(&cwX, &cwY, Round(GameLeft + GameW * 0.3), Round(GameTop + GameH * 0.3), Round(GameLeft + GameW * 0.92), Round(GameTop + GameH * 0.95), %"PicOpt"%.Call("resources\closewin.png", 50))
@@ -3724,6 +3762,9 @@ WalkCloseWindow(why, now := false)
 		WalkNotify("window", "A window is open", "A window is open over the game (" why ") and Crowns are in sight, so the bot doesn't click its close button. Close it yourself.")
 		return false
 		}
+	;(the read lets other threads in: F6, F8, focus - looked at again before the click)
+	if (!WalkMayPress())
+		return false
 	ReleaseKeys()
 	;(the picture's middle - it's 60 px at UI 1.144; the mouse back where it was afterwards, in AutoFarmer: mousereturn)
 	;(UiScale: AutoFarmer's - this needs PicOpt, AutoFarmer's too)
@@ -3840,12 +3881,31 @@ WalkSpiralMapUp(why)
 	return true
 	}
 
-;Moves the mouse there and clicks (screen coordinates), only while walking is on and Wizard101 has focus
+;The bot on, in AutoFarmer: its WalkHostOn without the look for you - F6 on, or a potion run you started from the tray.
+;F6 sets only BotOn, not Walking: the step under way when you pressed it would go on pressing W/A/D/S, X and clicking
+;till it returned to the main loop - each key and click of the walker's looks here too (WalkMayPress, HoldFor), so
+;F6 stops it there and then. You at the keyboard or mouse isn't looked at here: that's the main loop's (PlayerActing,
+;the handsoff seconds), as before. AutoQuester has no F6: always on. (Looked up once - it's asked every 10-50 ms)
+WalkBotOn()
+	{
+	static hostOn := "-"
+	if (hostOn = "-")
+		hostOn := V1IsFunc("WalkHostOn") ? %"WalkHostOn"% : 0
+	return hostOn ? hostOn.Call() : true
+	}
+
+;May the walker press a key or click now: walking on (F8), Wizard101 in front and the bot on (F6 - WalkBotOn)
+WalkMayPress()
+	{
+	return Walking && GameActive() && WalkBotOn()
+	}
+
+;Moves the mouse there and clicks (screen coordinates), only while walking is on, the bot on and Wizard101 has focus
 WalkClick(x, y)
 	{
 	global MsWinAt ; (v1 globals it sets)
 	MsWinAt := 0
-	if (!Walking || !GameActive())
+	if (!WalkMayPress())
 		return
 	;(the mouse back where it was afterwards, in AutoFarmer: mousereturn)
 	ownGrab := V1IsFunc("MouseGrab") ? %"MouseGrab"%.Call() : false
@@ -3857,7 +3917,7 @@ WalkClick(x, y)
 	if (V1IsFunc("MouseLockMoved"))
 		%"MouseLockMoved"%.Call()
 	Sleep(40)
-	if (Walking && GameActive())
+	if (WalkMayPress())
 		Click()
 	Sleep(100)
 	if (ownGrab)
@@ -3866,14 +3926,14 @@ WalkClick(x, y)
 		%"MouseLockOff"%.Call("walker")
 	}
 
-;One key press (down, 80 ms, up), only while walking is on and Wizard101 has focus
+;One key press (down, 80 ms, up), only while walking is on, the bot on (F6) and Wizard101 has focus
 PressKey(key)
 	{
 	global MsWinAt ; (v1 globals it sets)
 	Critical()
 	;(a window may open: the mouse's look for one done afresh - MouseSteer.ahk)
 	MsWinAt := 0
-	if (Walking && GameActive())
+	if (WalkMayPress())
 		{
 		;(held a moment: the game reads its keys once a frame and misses a bare tap - 2026-11-14 the Ctrl+O tap 6 times of 6,
 		;and an X at the Icy Wall's open prompt, 17:33:30)
@@ -3986,7 +4046,7 @@ Turn(h)
 	if (WkNavUse && NavTurn(h))
 		return
 	Critical()
-	if (!Walking || !GameActive())
+	if (!WalkMayPress())
 		{
 		Critical("Off")
 		return
@@ -4033,10 +4093,11 @@ Unstick(side, walkMs)
 	WkSpeedHold := A_TickCount + walkMs + 1500
 	SpeedSet(0, "getting round an obstacle")
 	BackUp(BackupTime)
-	if (!Walking || !GameActive())
+	;(the bot off meanwhile too - F6: no turn or walk after it - WalkMayPress)
+	if (!WalkMayPress())
 		return
 	Turn(UnstickTurn * side)
-	if (!Walking || !GameActive())
+	if (!WalkMayPress())
 		return
 	WkSpeedHold := A_TickCount + walkMs + 1500
 	HoldW(1)
@@ -4069,6 +4130,9 @@ BackUp(ms)
 			;(walked off - long enough that the mouse turns him back running, not standing with a step back in)
 			HoldW(1, true)
 			HoldFor(Max(Round(ms / SpeedNow), 650))
+			;(the bot off meanwhile - F6: no turn back, nothing more pressed - HoldFor let go of W)
+			if (!WalkBotOn())
+				return false
 			;(running: turned back by the mouse - not running long enough for that yet: standing, MouseStandTurn, then A/D)
 			back := MouseTurnAny(-round1)
 			;(the turn back by the mouse missed: standing, by the mouse again - else A/D - he mustn't walk on the wrong way)
@@ -4087,7 +4151,7 @@ BackUp(ms)
 		}
 	HoldW(0)
 	Critical()
-	if (!Walking || !GameActive())
+	if (!WalkMayPress())
 		{
 		Critical("Off")
 		return false
@@ -4098,6 +4162,9 @@ BackUp(ms)
 	HoldFor(Round(ms / SpeedNow))
 	Send("{Blind}{s up}")
 	WkTurnAt := A_TickCount
+	;(the bot off meanwhile - F6: false, so what was to come after it (a turn, a walk along) doesn't)
+	if (!WalkBotOn())
+		return false
 	return true
 	}
 
@@ -4121,7 +4188,7 @@ NavTurnOrKeys(h)
 	ms := Round(Abs(h) / (TurnRate * (SpeedNow ? SpeedNow : 1)))
 	ms := ms < 30 ? 30 : ms > 800 ? 800 : ms
 	Critical()
-	if (!Walking || !GameActive())
+	if (!WalkMayPress())
 		{
 		Critical("Off")
 		return
@@ -4134,7 +4201,8 @@ NavTurnOrKeys(h)
 	WkTurnAt := A_TickCount
 	}
 
-;Waits ms, but returns early (false) once walking is stopped or Wizard101 loses focus
+;Waits ms, but returns early (false) once walking is stopped, the bot's off (F6 - WalkBotOn: what's held let go at
+;once, and the caller - Unstick, a turn - goes no further) or Wizard101 loses focus
 HoldFor(ms)
 	{
 	global Refocus ; (v1 globals it sets)
@@ -4143,6 +4211,12 @@ HoldFor(ms)
 		{
 		if (!Walking)
 			return false
+		if (!WalkBotOn())
+			{
+			if (KeysDown || HeldW)
+				ReleaseKeys()
+			return false
+			}
 		if (!GameActive())
 			{
 			if (KeysDown || HeldW)
@@ -4159,8 +4233,16 @@ HoldFor(ms)
 HoldW(on, noSpeed := false)
 	{
 	global KeysDown, HeldW, WkWalkFrom ; (v1 globals it sets)
+	;(the bot off - F6, WalkBotOn: no W, nor the speed key after it - and anything still held let go)
+	if (on && !WalkBotOn())
+		{
+		if (KeysDown || HeldW)
+			ReleaseKeys()
+		return
+		}
 	Critical()
-	if (on && !HeldW && Walking && GameActive())
+	;(asked again in here: F6 between the look above and Critical let go of the keys - no W down after it, nor the speed key)
+	if (on && !HeldW && WalkMayPress())
 		{
 		KeysDown := 1
 		Send("{Blind}{w down}")
@@ -6280,12 +6362,22 @@ WalkMemLoad()
 
 WalkMemSave()
 	{
+	static wmsSaid := 0
 	text := "; Walker.ahk's remembered obstacles, one per line (delete a line, or the file, to forget):`n"
 		. "; zone|distance to the goal where it got stuck|side that got round it (1 right, -1 left)|ms walked along it|times it worked|times it didn't`n"
 	for i, spot in WkMem
 		text .= spot.zone "|" spot.dist "|" spot.side "|" spot.walkMs "|" spot.wins "|" spot.fails "`n"
 	V1Do(FileDelete, WkMemFile ".tmp")
-	V1Do(FileAppend, text, WkMemFile ".tmp", "`n")  ; (v1 wrote each `n as `r`n)
+	;(the .tmp not written whole - a full disk: it creates the file, then the write fails - is never moved over the file: an
+	;empty or cut one would forget every obstacle remembered. Deleted, the old file kept - said once a minute; the obstacles
+	;stay in memory, and the next save writes them all again)
+	if (V1Do(FileAppend, text, WkMemFile ".tmp", "`n"))  ; (v1 wrote each `n as `r`n)
+		{
+		V1Do(FileDelete, WkMemFile ".tmp")
+		if (A_TickCount - wmsSaid > 60000)
+			wmsSaid := A_TickCount, WalkLog("walk memory: " WkMemFile " couldn't be written (a full disk?) - the file kept as it was")
+		return
+		}
 	V1Do(FileMove, WkMemFile ".tmp", WkMemFile, 1)
 	}
 
@@ -6968,7 +7060,7 @@ NavTurn(h)
 	if (!IsObject(first) || first.yaw = "")
 		return false
 	Critical()
-	if (!Walking || !GameActive())
+	if (!WalkMayPress())
 		{
 		Critical("Off")
 		return true
@@ -6986,6 +7078,12 @@ NavTurn(h)
 		if (!Walking)
 			{
 			ending := "walking off"
+			break
+			}
+		;(the bot off - F6, WalkBotOn: the key let go below, at once - not held to the end of the turn)
+		if (!WalkBotOn())
+			{
+			ending := "bot off"
 			break
 			}
 		if (!GameActive())
@@ -7096,7 +7194,7 @@ NavTurn(h)
 		WkNavTrusted := 0, WkNavAgree := 0
 		WalkLog("memory turn: the wizard's facing didn't change with " key " held, twice - not steering by the game's memory till it agrees with the arrow again, or the wizard turns or walks the way it says")
 		}
-	else if (!WkNavTurns || (ending != "" && ending != "walking off" && ending != "focus lost" && V1Gt(V1Ago(WkNavTurnLog), 60000)))  ; (v1: WkNavTurnLog blank before WalkerInit - false)
+	else if (!WkNavTurns || (ending != "" && ending != "walking off" && ending != "bot off" && ending != "focus lost" && V1Gt(V1Ago(WkNavTurnLog), 60000)))  ; (v1: WkNavTurnLog blank before WalkerInit - false)
 		{
 		if (ending != "")
 			WkNavTurnLog := A_TickCount
@@ -7248,6 +7346,7 @@ WalkNavLoad()
 
 WalkNavSave()
 	{
+	static wnsSaid := 0
 	global WkNavSignSaved ; (v1 globals it sets)
 	text := "; What Walker.ahk has learned about the game's memory (read-only). Delete this file to make it learn again.`n"
 		. "; scale: the game's distance per unit of the distance printed on the quest arrow (the middle of the zones')`n"
@@ -7260,7 +7359,16 @@ WalkNavSave()
 	for zone, sc in WkNavZScales
 		text .= "zone:" zone "|" Round(sc, 4) "`n"
 	V1Do(FileDelete, WkNavFile ".tmp")
-	V1Do(FileAppend, text, WkNavFile ".tmp", "`n")  ; (v1 wrote each `n as `r`n)
+	;(the .tmp not written whole - a full disk - never moved over the file: an empty or cut one would lose what's learned (its
+	;sign, the zones' scales). Deleted, the old file kept - said once a minute; WkNavSignSaved left as it was, so the next
+	;check of the sign saves again)
+	if (V1Do(FileAppend, text, WkNavFile ".tmp", "`n"))  ; (v1 wrote each `n as `r`n)
+		{
+		V1Do(FileDelete, WkNavFile ".tmp")
+		if (A_TickCount - wnsSaid > 60000)
+			wnsSaid := A_TickCount, WalkLog("the game's memory: " WkNavFile " couldn't be written (a full disk?) - the file kept as it was")
+		return
+		}
 	V1Do(FileMove, WkNavFile ".tmp", WkNavFile, 1)
 	WkNavSignSaved := WkNavSign
 	}

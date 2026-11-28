@@ -1738,7 +1738,7 @@ DashRefresh()
 	else
 		doing := "Watching"
 	;(the window's title says "Wizard101 bot")
-	DashSet("DashHead", BotVersion() "  |  up " upText "  |  vision " (VisionOn ? "on" : "off") "  |  " SubStr(doing, 1, 70))
+	DashSet("DashHead", BotVersion() "  |  up " upText "  |  vision " VisionStatus() "  |  " SubStr(doing, 1, 70))
 	;The version, and whether a newer one is out (the last look-up: UpdState) - the menu bar's "Update to vX" too
 	;(DashMenuTicks)
 	upd := UpdState()
@@ -2097,7 +2097,7 @@ DashMapGot(kind, text, answered)
 DashMapWhy(text)
 	{
 	if (text = "")
-		return VisionOn ? "no answer from the vision helper (see vision\vision.log)" : "the vision helper isn't running (debug.log says why)"
+		return VisionOn ? "no answer from the vision helper (see vision\vision.log)" : InStr(VisionStatus(), "paused") = 1 ? "the vision helper is paused - it didn't answer; " VisionStatus() " (debug.log says why)" : "the vision helper isn't running (debug.log says why)"
 	return InStr(text, "ERR") = 1 ? Trim(SubStr(text, 4)) : "an odd answer: " SubStr(text, 1, 60)
 	}
 

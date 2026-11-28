@@ -320,7 +320,7 @@ FleeRefillMana(why)
 			return true
 			}
 		}
-	else
+	else if (WalkBotOn())  ; (a run stopped because you turned the bot off isn't a failed buy - Potions.ahk PotionCheck)
 		PotionFailUntil := A_TickCount + 10 * 60000
 	DebugLog(why ": couldn't get mana back (no potions, and the run to buy some didn't work)")
 	return false

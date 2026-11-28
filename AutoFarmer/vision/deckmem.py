@@ -417,9 +417,14 @@ class DeckMem:
         if hit is not None:
             return dict(hit)
         c = dict(self.brief(tid))
+        # (the hand's reader made without the effect names - this build's enum not read, handmem's cards_why: no kind,
+        # rather than one guessed from effect numbers; the brief - name, school, type, pips - still read)
+        cwhy = getattr(self.hm, "cards_why", "")
         try:
             import handmem as H
-            info = self.hm.tpl_info(tid)
+            info = self.hm.tpl_info(tid) if not cwhy else None
+            if cwhy:
+                c["kind_why"] = cwhy
             if info:
                 c.update({k: v for k, v in info.items() if k not in ("display",) or c.get("display") is None})
                 c["treasure"] = bool(c.get("tc_flag"))
@@ -661,8 +666,15 @@ class DeckMem:
                "spellbook_n": None, "treasure_book_n": None, "player_gid": None}
         self._walk_left = NAME_WALK_S
         self._pace = pace
+        # (kinds asked for, the hand's reader made without the effect names - handmem's cards_why: not read at all, why
+        # says so - a reading whose cards have no kinds would teach the deck profiles (battlesim.learn_decks) no hits,
+        # heals or blades; kinds=False - the recorder's worn deck, /book - still reads)
+        cwhy = getattr(self.hm, "cards_why", "") if kinds else ""
         try:
-            self._read(out, books, kinds, only_equipped)
+            if cwhy:
+                out["why"] = cwhy
+            else:
+                self._read(out, books, kinds, only_equipped)
         except Exception as e:  # noqa: BLE001 - never into the caller
             out["why"] = "the decks couldn't be read (%r)" % (e,)
         finally:

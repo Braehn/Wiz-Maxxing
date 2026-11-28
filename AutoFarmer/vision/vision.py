@@ -551,6 +551,12 @@ Requests (all GET, answers are plain text lines, "ERR <why>" on a problem):
                                              out again (Decks.ahk DeckForZone, Settings: deckzone, off). Every deck
                                              rolls the same dice against a group: the same main deck scores the same
   /quit                                   -> stops
+A web page's request - an Origin, a Sec-Fetch-Site other than none / same-origin, another site's Referer, or a Host
+other than 127.0.0.1:<port> / localhost:<port> (DNS rebinding) - is answered 403 "ERR refused: ..." and does nothing
+(request_refused); AutoFarmer's and the tools' are answered, and a browser's (any Sec-Fetch-*) only for the read-only
+pages in BROWSER_PAGES (/book, /quests, /decks, /items...), typed in or a site's link clicked. Paths written to are
+full paths in their folder (/navmap's out, /hand's thumbs, /cut's <set>\learned\<id>); /hand's here and learned= hold
+names in the AutoFarmer folder (rel_ok).
 Add &file=<path> to /cards, /badge, /hand, /cut or /plate to look at a saved screenshot instead of the screen (for
 tests; the rectangle is then in that picture's pixels).
 /cards (memory) and /battle hand the battle recorder a copy of their reading (a queue put, no read): it writes every
@@ -1483,6 +1489,10 @@ def learned_pic(ent, scale, here=''):
     try:
         cid, setdir, slot = ent.split(':', 2)
     except ValueError:
+        return None
+    # (names in the AutoFarmer folder only - what's here is written to when it's made see-through or cut at this size
+    # (refine, cut_here): a full path or a .. in them would write elsewhere)
+    if not (cid and rel_ok(cid, name=True) and rel_ok(setdir) and rel_ok(slot) and rel_ok(here)):
         return None
     # (still its slot's card where it was learned?)
     if slot and not same_picture(os.path.join(ROOT, setdir, slot + '.png'), os.path.join(ROOT, setdir, 'learned', cid + '.png')):
@@ -4949,15 +4959,48 @@ def save_png(img, out):
 
 
 def inside_temp(path):
-    """whether path is inside the temp folder"""
+    """whether path is inside the temp folder (a full path only: a relative one would be taken from the helper's own
+    working folder, vision\\, so ..\\resources\\x.png got into the AutoFarmer folder without naming it)"""
+    if not path or not os.path.isabs(path):
+        return False
     tmp = os.path.normcase(os.path.abspath(tempfile.gettempdir()))
     p = os.path.normcase(os.path.abspath(path))
     return p.startswith(tmp + os.sep)
 
 
 def inside_root(path):
+    """whether path is inside the AutoFarmer folder - a full path only, as inside_temp's; the folder's own name then a
+    separator, so a folder beside it (AutoFarmerX) isn't"""
+    if not path or not os.path.isabs(path):
+        return False
     p = os.path.normcase(os.path.abspath(path))
     return p.startswith(os.path.normcase(ROOT) + os.sep)
+
+
+def rel_ok(rel, name=False):
+    """whether a caller's relative name - /hand's here= (a picture set folder, ui1.144; "" the main set), a learned=
+    entry's set folder and slot (balance\\hit1) - stays inside the AutoFarmer folder once joined to it: no drive, not
+    rooted, no ':' (a file's other stream), no .. out of it. name: one plain name, no folder in it (a learned card's
+    id). "" is the folder itself"""
+    if not rel:
+        return True
+    if '\0' in rel or ':' in rel or rel[0] in '\\/' or os.path.isabs(rel) or os.path.splitdrive(rel)[0]:
+        return False
+    # (no . or .. - nor ... or ". .", which Windows trims to them - and no empty part)
+    parts = re.split(r'[\\/]', rel)
+    if any(p.rstrip('. ') == '' for p in parts) or (name and len(parts) > 1):
+        return False
+    return inside_root(os.path.join(ROOT, rel))
+
+
+def cut_out_ok(out):
+    """/cut writes <out>.png, .raw.png, .card.png... only as a learned card: <a picture set>\\learned\\<id>, a full path
+    in the AutoFarmer folder (CardLearn.ahk LearnNew's) - never over a slot's picture or anything else"""
+    if not inside_root(out):
+        return False
+    p = os.path.normpath(out)
+    return (os.path.basename(os.path.dirname(p)).lower() == 'learned'
+            and bool(re.fullmatch(r'[\w-][\w.-]*', os.path.basename(p))))
 
 
 # ---------------------------------------------------------------- the overlay over the game (overlay.py, Overlay.ahk)
@@ -5013,9 +5056,88 @@ def ovlog_reply(q, body):
 
 # ---------------------------------------------------------------- the server
 
+# Who's answered: AutoFarmer (WinHttp - Vision.ahk VisionGet, Dashboard.ahk's map, Overlay.ahk, BattleRec.ahk's posts),
+# vision\spellplan.py --live and the tests - Host 127.0.0.1:<port>, no Origin, no Sec-Fetch-* - and the user's own
+# browser for the pages below (README.txt's /book, /quests: a top-level navigation, Host 127.0.0.1:<port> or
+# localhost:<port>, Sec-Fetch-Site none - cross-site for a site's link -, no Origin). A web page's request isn't: an
+# <img>, a fetch, a form or a link on a site carries an Origin, a Sec-Fetch-Site cross-site / same-site or the site's
+# Referer, and a DNS-rebinding page's Host is its own name - every endpoint is a GET (/quit, /net, /netcmd signing a
+# LAN command with this PC's PIN, /navmap's file...), so any of those would drive the helper. The LAN's own servers
+# (netmon.py, party.py) have their own handlers and their PIN: not these
+HOST_NAMES = ('127.0.0.1', 'localhost')
+# (the pages a browser is answered for: read-only, what README.txt, LIVE_CHECKS.txt and the notes link to. A browser's
+# request - any Sec-Fetch-* - for anything else is refused even typed in or clicked in a chat or a mail: /quit,
+# /net?on=1, /netcmd, /party, /navmap's file... are AutoFarmer's and its tools', which send none. A link to one of these
+# on a site is answered too - a top-level navigation, no Origin: the site can't read what its link opened)
+BROWSER_PAGES = ('/ping', '/book', '/quests', '/deck', '/decks', '/deckkinds', '/items', '/recstat')
+REFUSED = {'at': 0.0, 'n': 0}     # the web pages' requests refused: when one was last said in vision.log, how many since
+
+
+def host_ok(host, port):
+    """a Host (or an Origin's / Referer's host:port) naming this helper: 127.0.0.1 or localhost, its port or none"""
+    host = (host or '').strip().lower()
+    name, sep, p = host.rpartition(':')
+    if not sep:
+        name, p = host, ''
+    return name in HOST_NAMES and p in ('', str(port))
+
+
+def request_refused(headers, port, path):
+    """why a request for path (no query) is a web page's (cross-site, or DNS rebinding) or a browser's for more than
+    BROWSER_PAGES, and so isn't answered - "" when it's AutoFarmer's, a tool's or the user's own (see HOST_NAMES). No
+    Host at all (HTTP/1.0 - a browser always sends one) is a tool's"""
+    host = headers.get('Host')
+    if host is not None and not host_ok(host, port):
+        return 'Host ' + one_line(host, 60)
+    origin = headers.get('Origin')
+    if origin is not None:
+        o = urlparse(origin.strip())
+        if o.scheme != 'http' or not host_ok(o.netloc, port) or (o.path or '') not in ('', '/'):
+            return 'Origin ' + one_line(origin, 60)
+    fetch = {k: (headers.get('Sec-Fetch-' + k) or '').strip().lower() for k in ('Site', 'Mode', 'Dest', 'User')}
+    page = path in BROWSER_PAGES
+    if not page and any(headers.get('Sec-Fetch-' + k) is not None for k in fetch):
+        return 'a browser asking for ' + one_line(path, 30)
+    site = fetch['Site']
+    # (a site's link to a page, clicked: Chrome's and Edge's Sec-Fetch-Site cross-site, its Referer - answered)
+    if page and site in ('cross-site', 'same-site') and fetch['Mode'] == 'navigate' and fetch['Dest'] == 'document':
+        return ''
+    if site and site not in ('none', 'same-origin'):
+        return 'Sec-Fetch-Site ' + one_line(site, 30)
+    ref = headers.get('Referer')
+    if ref:
+        r = urlparse(ref.strip())
+        if r.scheme != 'http' or not host_ok(r.netloc, port):
+            return 'Referer from ' + one_line(r.netloc or r.scheme or ref, 60)
+    return ''
+
+
+def refused_said(why, path):
+    """a refused request in vision.log - the first, then once a minute at most with how many came meanwhile (a page
+    could send thousands)"""
+    REFUSED['n'] += 1
+    now = time.time()
+    if now - REFUSED['at'] < 60:
+        return
+    log(f"refused {REFUSED['n']} request(s) from a web page or a browser, the last {one_line(path, 60)} ({why}) - only "
+        "AutoFarmer, its tools and, in a browser, the pages " + ' '.join(BROWSER_PAGES) + " are answered")
+    REFUSED.update(at=now, n=0)
+
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
         pass
+
+    def refused(self):
+        """True (and a 403 sent) for a web page's request - request_refused"""
+        path = urlparse(self.path).path
+        why = request_refused(self.headers, self.server.server_address[1], path)
+        if not why:
+            return False
+        refused_said(why, path)
+        self.reply('ERR refused: a web page\'s or a browser\'s request (' + why + ') - only AutoFarmer, its tools and, '
+                   'in a browser, the pages ' + ' '.join(BROWSER_PAGES) + ' are answered', 403)
+        return True
 
     def reply(self, text, code=200):
         body = text.encode('utf-8')
@@ -5026,6 +5148,9 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self):
+        # (a web page's request: refused before anything's read, done or waited for)
+        if self.refused():
+            return
         u = urlparse(self.path)
         q = {k: v[0] for k, v in parse_qs(u.query).items()}
         # (a read of the game's memory the walker waits on: placements' builds in their thread wait at their next step
@@ -5093,8 +5218,12 @@ class Handler(BaseHTTPRequestHandler):
                 scale = float(q['scale'])
                 t0 = time.perf_counter()
                 thumbs = q.get('thumbs', '')
-                if thumbs and not os.path.abspath(thumbs).lower().startswith(ROOT.lower()):
-                    return self.reply('ERR thumbs must be in ' + ROOT, 400)
+                # (both written into: thumbs a full path in the AutoFarmer folder - not a folder beside it, AutoFarmerX -,
+                # here a picture set folder's name in it - not a full path or a .. out of it)
+                if thumbs and not inside_root(thumbs):
+                    return self.reply('ERR thumbs must be a full path in ' + ROOT, 400)
+                if not rel_ok(q.get('here', '')):
+                    return self.reply('ERR here must be a picture set folder in ' + ROOT + ' (its name: ui1.144)', 400)
                 cards = read_hand(x1, y1, x2, y2, scale, [p for p in q.get('pics', '').split(',') if p], q.get('file'),
                                   [e for e in q.get('learned', '').split(',') if e], q.get('here', ''), thumbs)
                 lines = ['card|{left}|{top}|{w}|{h}|{known}|{kdist:.1f}|{g}|{kind}|{kinddist:.1f}|{pips}|{pipscore:.2f}|{same}|{liked}|{real}|{tc}'.format(g=int(c['grey']), **c) for c in cards]
@@ -5110,8 +5239,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.reply('\n'.join(lines))
             if u.path == '/cut':
                 out = q['out']
-                if not os.path.abspath(out).lower().startswith(ROOT.lower()):
-                    return self.reply('ERR out must be in ' + ROOT, 400)
+                if not cut_out_ok(out):
+                    return self.reply('ERR out must be a full path <picture set>\\learned\\<id> in ' + ROOT, 400)
                 ok, f = cut_card(float(q['left']), float(q['top']), float(q['scale']), out, q.get('file'))
                 # (not a card: nothing saved - answered plainly, it isn't the helper failing)
                 if not ok:
@@ -5371,7 +5500,7 @@ class Handler(BaseHTTPRequestHandler):
                 # (the temp folder too: the dashboard's map is rewritten every second, which OneDrive would
                 # keep uploading if it were in the bot's folder)
                 if not out.lower().endswith('.png') or not (inside_root(out) or inside_temp(out)):
-                    return self.reply('ERR out must be a .png in ' + ROOT + ' or the temp folder', 400)
+                    return self.reply('ERR out must be a .png full path in ' + ROOT + ' or the temp folder', 400)
                 span = min(100000.0, max(500.0, float(q.get('span', NAV_SPAN))))
                 img, why = map_picture(w, h, span)
                 if img is None:
@@ -5456,6 +5585,9 @@ class Handler(BaseHTTPRequestHandler):
                     if not got:
                         break
                     left -= len(got)
+            # (a web page's post: refused - after its body is read, so the 403 gets to it whole)
+            if self.refused():
+                return None
             if u.path == '/ovlog':
                 return self.reply(*ovlog_reply(q, body))
             if u.path != '/rec':

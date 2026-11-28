@@ -1317,19 +1317,27 @@ MouseLockOnExit(reason, code)
 	}
 
 ;An error the script didn't expect (OnError): your mouse let go before its box shows (and the bot's thread stops).
-;(*: v2 passes the error's Mode too)
+;Run first (-1); 0 on to the next: Autofarmer.ahk BotOnError - registered at the start - lets go of the walking keys,
+;the right mouse button and the game's speed, and logs it. (*: v2 passes the error's Mode too)
 MouseLockOnError(e, *)
 	{
 	global MouseLockOwners, MouseLockHold, MouseLockClicks ; (v1 globals it sets)
 	local v1Keep := V1Thread() ; (v1: each thread had its own ErrorLevel)
-	if (MouseLocked)
-		MouseLockRelease("an error in the script (" (IsObject(e) ? e.Message " at line " e.Line : e) ")")
-	else if (IsObject(MouseLockOwners))
-		MouseLockOwners := V1Obj(), MouseLockHold := 0
-	BlockInput("MouseMoveOff")
-	BlockInput("Off")
-	if (MouseLockClicks)
-		MouseLockKeys(0), MouseLockClicks := 0
+	;(each step tried on its own: one that throws here doesn't keep the rest - nor BotOnError after it - from running)
+	try
+		{
+		if (MouseLocked)
+			MouseLockRelease("an error in the script (" (IsObject(e) ? e.Message " at line " e.Line : e) ")")
+		else if (IsObject(MouseLockOwners))
+			MouseLockOwners := V1Obj(), MouseLockHold := 0
+		}
+	try BlockInput("MouseMoveOff")
+	try BlockInput("Off")
+	try
+		{
+		if (MouseLockClicks)
+			MouseLockKeys(0), MouseLockClicks := 0
+		}
 	return 0
 	}
 

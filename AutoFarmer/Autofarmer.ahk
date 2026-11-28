@@ -42,6 +42,9 @@ CoordMode("ToolTip", "Screen")
 ;Disconnected: it clicks the game's RECONNECT, and if the game closes it can start it and log back in
 ;(Reconnect.ahk). Tray menu: "Auto-reconnect on/off" and "Set Wizard101 login..." (the login it uses then)
 OnExit(WalkerQuit)
+;An error the script didn't expect: never a key, the right mouse button or the game's speed left on (BotOnError - from
+;the start, not only once the mouse has been locked: Settings.ahk MouseLockOnError)
+OnError(BotOnError)
 ;No standard tray menu: its "Pause Script" would freeze the walker with a key held down
 Tray := A_TrayMenu
 Tray.Delete() ; (v1: Menu, Tray, NoStandard - only the standard items are there yet)
@@ -320,6 +323,90 @@ BotToggle()
 	;(the battle recorder told - BattleRec.ahk)
 	if (V1IsFunc("BrecWho"))
 		BrecWho.Call(PlayerActive, 1)
+	;(the main loop stopped by an error in the script - BotLoopGone: started again now, by you - never by itself, an error
+	;that comes back would stop it again and again. Priority -1: it starts only once no other thread is running - the
+	;loop never returns, so a thread it started on top of (a timer waiting in VisionGet, this hotkey's) would never go on)
+	if (BotOn && BotLoopDead)
+		SetTimer(BotLoopAgain, -1, -1)
+	}
+
+;An error the script didn't expect (OnError - from the start; Settings.ahk MouseLockOnError, once your mouse has been
+;locked, runs first): W/A/S/D and the right mouse button let go (a walk's, a mouse turn's - Walker.ahk ReleaseKeys,
+;MouseSteer.ahk MsHeld), the game back to 1x (Cheat Engine - Walker.ahk SpeedSet), your mouse let go, and the error in
+;debug.log (what, which file and line) - all before its box shows, which stays as ever (0: the next callback, then the
+;box - its Continue goes on as before; Exit stops that thread - the main loop's: BotLoopGone). Each step on its own: one
+;that fails doesn't keep the rest from running. (mode: v2's Return, Exit or ExitApp)
+BotOnError(e, mode := "")
+	{
+	local v1Keep := V1Thread() ; (v1: each thread had its own ErrorLevel)
+	beWhat := "?"
+	try beWhat := IsObject(e) ? e.Message : String(e)
+	try beWhat .= (e.Extra != "" ? " (" e.Extra ")" : "")
+	try beWhat .= " - " e.File " line " e.Line
+	try DebugLog("An error in the script: " beWhat (mode != "" ? " [" mode "]" : "") " - the walking keys, the right mouse button and the game's speed let go")
+	;(W/A/S/D up first, on their own - ReleaseKeys lets go of the right button before them: one that throws there keeps
+	;them up all the same; then the right button, then ReleaseKeys for HeldW / KeysDown - the speed after, forced)
+	try Send("{Blind}{w up}{a up}{s up}{d up}")
+	try
+		{
+		if (MsHeld)
+			MouseSteerButton(0)
+		}
+	try ReleaseKeys(true)
+	try SpeedSet(0, "an error in the script", true)
+	try MouseLockRelease("an error in the script")
+	try BlockInput("MouseMoveOff")
+	try BlockInput("Off")
+	return 0
+	}
+
+;The main loop's thread up (StartBot, BotLoopAgain: one held while BattleLoop runs - it never returns). Let go only when
+;that thread ends: an error the script didn't expect, its box's Exit (v2 frees the thread's locals - as V1Thread's).
+;BotLoopDead 1 then, and BotLoopGone leaves the bot off - not on with nothing running, F6 looking as if it does nothing
+class BotLoopMark
+	{
+	__New()
+		{
+		global BotLoopDead
+		BotLoopDead := 0
+		}
+	__Delete()
+		{
+		global BotLoopDead
+		BotLoopDead := 1
+		SetTimer(BotLoopGone, -10)
+		}
+	}
+
+;The main loop's thread stopped by an error (BotLoopMark): the keys, the right button, the speed and your mouse let go
+;again (BotOnError did, before the box - nothing since may have held them), the bot off - its tray tick and the dashboard's
+;button too - and said: F6 (or the dashboard's button) starts the loop again (BotToggle). Not started by itself
+BotLoopGone()
+	{
+	local v1Keep := V1Thread() ; (v1: each thread had its own ErrorLevel)
+	global BotOn ; (v1 globals it sets)
+	if (!BotLoopDead)
+		return
+	try ReleaseKeys(true)
+	try SpeedSet(0, "the main loop stopped", true)
+	try MouseLockRelease("the bot's main loop stopped")
+	BotOn := 0
+	try DebugLog("The bot's main loop stopped after an error in the script - the bot is off: " HkText("bot") " (or the dashboard's button) starts it again")
+	try BotOnShow()
+	try TrayTip("The bot stopped after an error in the script (debug.log has it). " HkText("bot") " starts it again.", "Wizard101 bot", 2)
+	}
+
+;The main loop started again after an error stopped it (BotToggle - you turned the bot on): StartBot's set-up kept, only
+;the loop - from its top, as each pass
+BotLoopAgain()
+	{
+	local v1Keep := V1Thread() ; (v1: each thread had its own ErrorLevel)
+	local loopUp
+	if (!BotLoopDead || !BotOn)
+		return
+	DebugLog("The bot's main loop started again (" HkText("bot") ")")
+	loopUp := BotLoopMark()
+	BattleLoop()
 	}
 
 ;A restart (Windows+1, Alt+Esc, the tray menu) that keeps the bot off or in standby - Reload drops the arguments
@@ -1601,6 +1688,10 @@ Find(title, &card, &X, &Y, &dir)
 			card := 0
 			} else if (Errorlevel == 2)
 				{
+				;(the search couldn't run - the picture missing, the screen not captured: a locked PC, Remote Desktop gone, the
+				;secure desktop. Not in hand - not the flag's old 1 from an earlier look with X, Y blank now: v2 throws on the
+				;caller's sums with them, and a click there lands wherever the mouse is)
+				card := 0, X := "", Y := ""
 				ErrorBox(&_funcn := "Find", &dir, &title)
 				}
 	}
@@ -1610,6 +1701,13 @@ FindAndClick(&title, &click, &dir) ; (v1: Click - renamed: a v2 script function 
 	global
 	Find(title, &click, &clickX, &clickY, &dir)
 	DebugLog("  Click " title ": found=" click " at " V1Sub(clickX, GameLeft) "," V1Sub(clickY, GameTop))  ; (v1: A_ThisFunc - the function was Click)
+	;(found with no spot - nothing to click: not clicked, not counted - v2 throws on a blank's sum)
+	if (click == 1 && (clickX = "" || clickY = ""))
+		{
+		DebugLog("  " title ": found, but where isn't known - not clicked")
+		click := 0
+		return false
+		}
 	if (click == 1)
 		{
 		ClickAt(clickX + Px(5), clickY + Px(5), 100)
@@ -1818,9 +1916,21 @@ UseNegAura()
 		DebugLog("  negaura: in hand (the game), not cast: " unAt.why)
 		return false
 		}
+	;(its target click never on a Crown button - TargetClickSpot, as a hit's: asked before the card's clicked, so it isn't
+	;left picked; the plate's box - moved along it out of the Crown shop's corner)
+	unBox := TargetBoxAt(unX, unY)
+	if (!TargetSpotOk(unX, unY, unBox, "negaura"))
+		return false
 	DebugLog("  negaura: the game's " unAt.name " is card " unAt.n " of " unAt.of " in hand: cast at its box " unAt.x - GameLeft "," unAt.y - GameTop " on " unWho " (" unX - GameLeft "," unY - GameTop ")" unAt.note)
 	ClickAt(unAt.x, unAt.y, 150)
-	ClickAt(unX, unY, 200)
+	;(not clicked after all - the Crown buttons read again meanwhile: not counted, the enemy not noted)
+	if (!TargetClick(unX, unY, unBox))
+		{
+		DebugLog("  negaura: its target not clicked - not counted as cast")
+		CenterMouse()
+		return false
+		}
+	AfterClick(200)
 	NegAuraNote(unKey, roundnumber), negaura := 0
 	return true
 	}
@@ -1988,7 +2098,7 @@ UseTrap(&title, &trap, &Use1, &Use2, &dir)
 	{
 	global
 	local _dir, _funcn ; (v1 passed these literals as temporaries: locals here, not globals)
-	local utKey, utCp, utSrc, utItem, utGo1, utGo2, utMoved, utMem, utAt, utEnch, utFm
+	local utKey, utCp, utSrc, utItem, utGo1, utGo2, utMoved, utMem, utAt, utEnch, utFm, utBox
 	Find(title, &trap, &foundX, &foundY, &dir)
 	DebugLog("  " A_ThisFunc " " title ": found=" trap " at " V1Sub(foundX, GameLeft) "," V1Sub(foundY, GameTop))
 	;(found where the game's memory has it - memclicks, Find: as UseBlade's)
@@ -2043,6 +2153,12 @@ UseTrap(&title, &trap, &Use1, &Use2, &dir)
 		}
 	utGo1 := (utSrc = "") ? (Use1 != 1) : !BoostSrcUsed.Has(utKey "@" utSrc)
 	utGo2 := (utSrc = "") ? (Use2 != 1) : utGo1
+	;(its target click never on a Crown button - TargetClickSpot, as a hit's: the enemy's plate in the Crown shop's corner
+	;with the buttons maybe there - not cast, asked before any card's clicked, so none is left picked; the plate's box -
+	;moved along it out of the corner)
+	utBox := TargetBoxAt(TrapAtX, TrapAtY)
+	if (TrapOn == 1 && trap == 1 && (utGo1 || utGo2) && !TargetSpotOk(TrapAtX, TrapAtY, utBox, title))
+		return false
 	;(a copy already potent - the game's hand finds one: cast as it is, counted potent - as UseBlade's)
 	if (TrapOn == 1) && (potent == 1) && (trap == 1) && utGo1 && !utItem && !utMoved && !utEnch
 		{
@@ -2063,8 +2179,19 @@ UseTrap(&title, &trap, &Use1, &Use2, &dir)
 			{
 			ErrorBox(&_funcn := "UseTrap", &dir, &title)
 			}
+		;(the Crown buttons read again now - the wait for the hand above takes the first read past TargetClickSpot's 1.5 s, and
+		;a fresh one that says otherwise would refuse the target click with the trap picked: asked again before it's clicked, so
+		;a refusal leaves it made potent in hand, nothing picked; TrapTargetClick then takes this read, under 1.5 s old)
+		if (TrapAtX < GameLeft + Px(300) && TrapAtY < GameTop + Px(130))
+			TargetCrownRead()
+		if (!TargetSpotOk(TrapAtX, TrapAtY, utBox, title))
+			{
+			DebugLog("  " title ": made potent, left in hand - not picked")
+			return false
+			}
 		ClickAt(foundX, foundY, 150)
-		ClickAt(TrapAtX, TrapAtY, 200)
+		if (!TrapTargetClick(title, utBox))
+			return false
 		boosts++
 		if (utSrc = "")
 			Use1 := 1
@@ -2090,7 +2217,8 @@ UseTrap(&title, &trap, &Use1, &Use2, &dir)
 				ErrorBox(&_funcn := "UseTrap", &dir, &title)
 				}
 			ClickAt(foundX, foundY, 150)
-			ClickAt(TrapAtX, TrapAtY, 200)
+			if (!TrapTargetClick(title, utBox))
+				return false
 			boosts++
 			if (utSrc != "")
 				BoostSrcUsed[utKey "@" utSrc] := 1
@@ -2140,14 +2268,27 @@ UseHeldBack(kind, title)
 UseConvert(&title, &convert, &dir)
 	{
 	global
+	local ucBox
 	CenterMouse()
 	Find(title, &convert, &foundX, &foundY, &dir)
 	DebugLog("  " A_ThisFunc " " title ": found=" convert " at " V1Sub(foundX, GameLeft) "," V1Sub(foundY, GameTop))
 	UseMemAt(title, dir, &convert, &foundX, &foundY)
 	if (convert != 1)
 		return false
+	;(the boss's click never on a Crown button - TargetClickSpot, as a hit's: asked before the card's clicked, so it isn't left
+	;picked; the boss's plate's box when it's one of the plates read - moved along it out of the Crown shop's corner)
+	ucBox := TargetBoxAt(bossX, bossY)
+	if (!TargetSpotOk(bossX, bossY, ucBox, title))
+		return false
 	ClickAt(foundX, foundY, 150)
-	ClickAt(bossX, bossY, 200)
+	;(not clicked after all - the Crown buttons read again meanwhile: not noted as on the boss)
+	if (!TargetClick(bossX, bossY, ucBox))
+		{
+		DebugLog("  " title ": the boss not clicked - not counted as cast")
+		CenterMouse()
+		return false
+		}
+	AfterClick(200)
 	ConvertOn := V1Obj({hits: PartyHits ? PartyHits : 0, round: roundnumber})
 	return true
 	}
@@ -2644,6 +2785,53 @@ TargetClick(x, y, box := "")
 	return 1
 	}
 
+;The plate's box ({x1, y1, x2, y2} - EnemyPlates', memclicks) of the enemy whose plate's middle is x, y - a trap's, a
+;negative aura's or the prism's target (KillCalc.ahk TrapTarget, NegAuraWhere; the boss's, when it's one of them): where
+;TargetClick may move a click in the Crown shop's corner to. "" not one of them, or no box
+TargetBoxAt(x, y)
+	{
+	global EnemyPlates
+	if (x = "" || y = "" || !IsObject(EnemyPlates))
+		return ""
+	for tbaE in EnemyPlates
+		if (IsObject(tbaE) && V1At(tbaE, "x") = x && V1At(tbaE, "y") = y)
+			return V1At(tbaE, "box")
+	return ""
+	}
+
+;A card's target click at x, y let through (TargetClickSpot - never on a Crown button)? Asked before the card itself is
+;clicked (UseTrap, UseNegAura, UseConvert), so one that can't go isn't left picked till the round runs out. False: said
+;why (what: the card, for the log) - not cast
+TargetSpotOk(x, y, box, what)
+	{
+	if (x = "" || y = "")
+		{
+		DebugLog("  " what ": no plate to put it on - not cast (nowhere to click it onto)")
+		return false
+		}
+	tsoX := x, tsoY := y
+	if (TargetClickSpot(&tsoX, &tsoY, box, &tsoWhy))
+		return true
+	DebugLog("  " what ": its target at " x - GameLeft "," y - GameTop " is in the Crown shop's corner - not cast" (tsoWhy != "" ? " (" tsoWhy ")" : ""))
+	return false
+	}
+
+;A trap's (or Feint's) target clicked - the enemy at TrapAtX, TrapAtY (KillCalc.ahk TrapWhere) - through TargetClick, as a
+;hit's. False: not clicked (the Crown shop's corner, Wizard101 in the tray) - not counted, not noted for the kill check
+;(TrapPut), the mouse off the cards
+TrapTargetClick(title, box)
+	{
+	global TrapAtX, TrapAtY
+	if (!TargetClick(TrapAtX, TrapAtY, box))
+		{
+		DebugLog("  " title ": its target not clicked - not counted as cast")
+		CenterMouse()
+		return false
+		}
+	AfterClick(200)
+	return true
+	}
+
 ;The round's Pass button (resources\roundstart.png) - or as Wizard101 draws it with the mouse on it: white, not yellow
 ;(roundstart_hover.png, cut 2026-10-23 at 1440p - the mouse left on Pass hid two battles' first rounds that afternoon).
 ;ErrorLevel as ImageSearch's - 0 found (x, y its top left), 1 not, 2 the picture can't be opened - and returned;
@@ -2932,6 +3120,7 @@ CheckAfk()
 		;once the 10 minutes after a failed run to buy potions are up (checkmana tries another)
 		;(3 tries at most a hold - each a run and its alert; on again by itself once there's mana, or by your keys)
 		waitRun := (AfkWhy = "mana" && Stat("fleeon") && V1Lt(A_TickCount, PotionFailUntil) && AfkRetries < 3)  ; (v1: no run failed - blank - compared as text: false)
+		afkOffSaid := 0
 		Loop
 			{
 			;(battles only - Settings: battlesonly: a hold for mana let go - one from before it was switched on, or switched on
@@ -2941,8 +3130,21 @@ CheckAfk()
 				DebugLog("no mana: not holding - battles only is on (Settings), the battles are played on")
 				break
 				}
-			ihOutputVar := InputHook("T1","{w} {a} {s} {d}","w, a, s, d"), ihOutputVar.Start(), ErrorLevel := ihOutputVar.Wait(), OutputVar := ihOutputVar.Input
-			if (Errorlevel != "Timeout")
+			;(off - F6: the hold waits with it - no hook on your keys, no reconnecting, as the main loop's off - and on again
+			;it's held as before)
+			if (!BotOn)
+				{
+				if (!afkOffSaid)
+					afkOffSaid := 1, DebugLog("holding: the bot's off (" HkText("bot") ") - the hold waits till it's on again")
+				Sleep(300)
+				continue
+				}
+			afkOffSaid := 0
+			;(V: visible - your keys reach whatever window they're typed in, the game's W walks too: never swallowed, in
+			;Discord, a browser, the game's chat. Only W, A, S or D - no space - and only in Wizard101: one typed in another
+			;program isn't you taking over the game)
+			ihOutputVar := InputHook("V T1","{w}{a}{s}{d}","w, a, s, d"), ihOutputVar.Start(), ErrorLevel := ihOutputVar.Wait(), OutputVar := ihOutputVar.Input
+			if (Errorlevel != "Timeout" && GameActive())
 				{
 				AfkRetries := 0
 				break
@@ -4740,6 +4942,7 @@ ExitApp()
 StartBot() { ; (v1: a label)
 global
 local v1Keep := V1Thread() ; (v1: each thread had its own ErrorLevel)
+local loopUp ; (the main loop's thread up - BotLoopMark: StartBot's own, freed only as its thread ends)
 global on := 1
 ;(the keys - yours from the Keys tab, else F6, F8, Alt+1...: Hotkeys.ahk)
 HkApply()
@@ -5056,6 +5259,9 @@ global Ten := 10000
 global Loading := 15000 
 
 ResetUsed()	
+;(the main loop's thread up while it runs - an error the script didn't expect that ends it leaves the bot off, and F6
+;starts the loop again: BotLoopMark, BotLoopGone, BotToggle)
+loopUp := BotLoopMark()
 ;(v1: on into the label TestRound - the battle loop, for good)
 BattleLoop()
 }
@@ -6615,4 +6821,6 @@ AutofarmerBlank()
 	;bot on then, when, and the window the X's hotkey is for)
 	global GameInTray := 0, GameTrayHwnd := 0, GameTrayPid := 0, GameTrayMin := 0, GameTrayBotWas := 0, GameTrayAt := 0
 	global GameTrayXWin := 0
+	;(v2-only: the main loop's thread stopped by an error the script didn't expect - BotLoopMark, BotLoopGone)
+	global BotLoopDead := 0
 	}
