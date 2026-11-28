@@ -50,6 +50,8 @@ REBIND_GAP = 0.25       # ...this far apart (s): about 1.5 s in all
 REBIND_RECENT = 3.0     # an old server on the port closed this recently (s): the new one's bind is waited and retried too
 FRESH = 3.0             # s a reading of the wizard's place is good for (older: its zone not known - a loading screen?)
 MAX_DOORS = 3           # the leader's last doors kept and sent (a follower behind by up to that many zones)
+DOOR_GAP = 90.0         # s at most between the last reading in a zone and the first in the next for a door (a slow
+                        # loading screen, with room): longer - the game closed, a relog, the party off a while -, no door
 DOOR_WINDOW = 1.5       # s before a zone change its trail is looked at: the door's way on, and walked or not...
 WALK_MIN = 60.0         # ...walked: this many units or more covered in it (walking is ~1000 units a second - Walker.ahk;
                         # stood still before End / Home / a sigil / a friend's teleport: 0)
@@ -912,6 +914,8 @@ class Party:
         """the wizard's zone and place (only while the party's on); the door when the zone changes"""
         with self.lock:
             if self.cfg['role'] == 'off':
+                # (no trail kept through a time off: the zone it's in when the party's on again isn't through a door)
+                self.trail = []
                 return
         r = self.reader()
         # (a reader answering navmem's (reading, why) pair: its reading)
@@ -928,7 +932,13 @@ class Party:
         said = None
         with self.lock:
             last = self.trail[-1] if self.trail else None
-            if last and last[1] != r['zone']:
+            if last and last[1] != r['zone'] and now - last[0] > DOOR_GAP:
+                # (its last reading in the old zone is from long ago - the game closed or unreadable, a relog: where it
+                # was then is no door to this zone, and a follower sent there would push on into nothing)
+                self.trail = []
+                said = (f'party: {last[1]} -> {r["zone"]} after {now - last[0]:.0f} s with no reading - not a door '
+                        '(the game closed or not readable a while)')
+            elif last and last[1] != r['zone']:
                 # (the zone changed: the last spot in the old one, and the way it was going there - from ~1.5 s before;
                 # walked or not - it stood still: a teleport, no door a follower can walk through. Both from its readings
                 # with a body: 1.5 s of frozen zoning reads made a door walked through a teleport, and its way on none.

@@ -59,6 +59,7 @@ DgDir()
 ;fewer than two steps
 DgLoad(file)
 	{
+	static dlSaid := Map()
 	steps := [], name := "", deck := "", slots := "", stopafter := "", nxt := "", untilgear := 0, bosses := []
 	;(v1: a file that can't be read - the loop skipped; v2 throws)
 	try
@@ -87,8 +88,16 @@ DgLoad(file)
 			untilgear := Trim(V1At(f, 2)) = "1" ? 1 : 0
 		else if (f[1] = "boss" && Trim(V1At(f, 2)) != "")
 			bosses.Push(V1Obj({name: Trim(V1At(f, 2)), deck: RegExReplace(V1At(f, 3), "[^\w-]")}))
+		;(a step with a coordinate that isn't a number - blank, "1234,5" - left out, said once a file and line: the walk's sums
+		;and Round on it threw, an error box at Run or mid-run - review 2026-11-27. vision\dglint.py says so too)
 		else if (RegExMatch(f[1], "^(walk|x|fight)$") && f.Length >= 5 && f[3] f[4] f[5] != "")
-			steps.Push(V1Obj({kind: f[1], zone: f[2], x: V1Add(f[3], 0), y: V1Add(f[4], 0), z: V1Add(f[5], 0)}))
+			{
+			dlX := V1Add(f[3], 0), dlY := V1Add(f[4], 0), dlZ := V1Add(f[5], 0)
+			if (V1IsNum(dlX) && V1IsNum(dlY) && V1IsNum(dlZ))
+				steps.Push(V1Obj({kind: f[1], zone: f[2], x: dlX, y: dlY, z: dlZ}))
+			else if (!dlSaid.Has(file "|" A_Index))
+				dlSaid[file "|" A_Index] := 1, DebugLog("Dungeons: " file " line " A_Index " left out - a coordinate isn't a number: " SubStr(line, 1, 100))
+			}
 		}
 	if (steps.Length < 2)
 		return ""
@@ -97,8 +106,8 @@ DgLoad(file)
 	return V1Obj({name: name, file: file, steps: steps, deck: deck, slots: slots, stopafter: stopafter, next: nxt, untilgear: untilgear, bosses: bosses})
 	}
 
-;The distance across (x, y) between two steps or spots - "" when a coordinate isn't a number (a step's blank: DgLoad keeps
-;one with a coordinate or two)
+;The distance across (x, y) between two steps or spots - "" when a coordinate isn't a number (a spot's blank: DgLoad leaves
+;out a step with one since 2026-11-27, a spot read from the game may still have one)
 DgDist(ddA, ddB)
 	{
 	if (!(V1IsNum(ddA.x) && V1IsNum(ddA.y) && V1IsNum(ddB.x) && V1IsNum(ddB.y)))
@@ -372,13 +381,65 @@ DgRecordStop(save := true)
 	name := Trim(RegExReplace(name, "[\\/:*?`"<>|]", "-"))
 	V1Do(DirCreate, DgDir())
 	file := DgDir() "\" name ".txt"
+	;(a run of that name kept already - its file, or another's name| line - the default name's the same for two recordings in
+	;one zone on one day: asked first. Yes: replaced, the old one to the Recycle Bin (its deck|, next|, boss| lines with it);
+	;No: this one saved as "<name> (2)" (3...). It was deleted with no word before - review 2026-11-27)
+	drsOld := DgFindRun(name)
+	if (drsOld != "")
+		{
+		msgResult := MsgBox("A run named '" name "' is kept already - its steps, and its deck, 'then' run and lines added by hand.`n`nReplace it with this recording? (The old one goes to the Recycle Bin.)`n`nNo: this one is saved under another name.", "Save the dungeon run", 262435)
+		if (msgResult = "Cancel")
+			{
+			DebugLog("Dungeons: recording not saved ('" name "' kept already - cancelled)")
+			DgShow("Not saved.")
+			return
+			}
+		if (msgResult = "Yes")
+			{
+			;(the run found, and a file of this name too - another run's name| may be the name)
+			for i, drsF in [drsOld, file]
+				{
+				if (!FileExist(drsF))
+					continue
+				V1Do(FileRecycle, drsF)
+				if (FileExist(drsF))
+					{
+					DebugLog("Dungeons: recording not saved - " drsF " couldn't be moved to the Recycle Bin")
+					DgShow("Not saved: the old run '" name "' couldn't be replaced.")
+					return
+					}
+				DebugLog("Dungeons: '" name "' replaced - the old " drsF " to the Recycle Bin")
+				}
+			}
+		else
+			{
+			drsBase := name
+			Loop 98
+				{
+				name := drsBase " (" A_Index + 1 ")"
+				if (DgFindRun(name) = "")
+					break
+				}
+			file := DgDir() "\" name ".txt"
+			}
+		}
 	text := "; Wiz-Maxxing dungeon run, recorded " A_Now ". One step a line: kind|zone|x|y|z`r`n"
 		. "; walk: walk to this spot; x: press X here (a sigil, a door, someone to talk to); fight: a battle started here`r`n"
 		. "name|" name "`r`n"
 	for i, s in steps
 		text .= s.kind "|" s.zone "|" Round(s.x, 1) "|" Round(s.y, 1) "|" Round(s.z, 1) "`r`n"
-	V1Do(FileDelete, file)
-	V1Do(FileAppend, text, file)
+	;(written beside it, then moved into place - a write that fails leaves nothing half-written)
+	V1Do(FileDelete, file ".tmp")
+	V1Do(FileAppend, text, file ".tmp")
+	if (!ErrorLevel)
+		V1Do(FileMove, file ".tmp", file, 1)
+	if (ErrorLevel)
+		{
+		V1Do(FileDelete, file ".tmp")
+		DebugLog("Dungeons: recording not saved - " file " couldn't be written")
+		DgShow("Not saved: " file " couldn't be written.")
+		return
+		}
 	DebugLog("Dungeons: saved '" name "' - " steps.Length " steps (" file ")")
 	DgListFill()
 	DgShow("Saved '" name "' (" steps.Length " steps). Pick it and click Run.")
@@ -745,7 +806,12 @@ DungeonStep()
 		;then it stops; never on to the way back, which would count a run that didn't happen)
 		if (r.loadUntil && nav.zone = r.fromZone && r.loadStep)
 			{
-			r.loadTries += 1
+			;(a try a battle cut short - battles moved on since it began (r.loadBattles): tried again, not counted - as Party.ahk's
+			;door tries. Mobs by a sigil had it go Home and Recall, then stop "didn't load (3 tries)" with the sigil working before -
+			;review 2026-11-27)
+			dlCut := battles != r.loadBattles
+			if (!dlCut)
+				r.loadTries += 1
 			;(its X twice for nothing at a sigil - 2026-10-26 21:44: one never started after a relog: left and come back to before the
 			;last try, once a run (DgNext clears r.sigilLeft at each new one) - a Mark here, Home, the Recall back: the walker's
 			;WalkSigilReset, which says why not - Settings: sigilhome, off unless you switch it on; only with the mana globe read, the
@@ -765,7 +831,7 @@ DungeonStep()
 				DgStop("the way from " r.fromZone " into " st.zone " didn't load (3 tries)")
 				return
 				}
-			DebugLog("Dungeons: no loading screen into " st.zone " - step " r.loadStep " again (try " r.loadTries + 1 ")")
+			DebugLog("Dungeons: " (dlCut ? "the way into " st.zone " cut short by a battle" : "no loading screen into " st.zone) " - step " r.loadStep " again (try " r.loadTries + 1 (dlCut ? ", the cut one not counted" : "") ")")
 			r.i := r.loadStep, r.push := "", r.loadUntil := 0
 			DgFresh()
 			DgShow()
@@ -930,6 +996,8 @@ DgSteer(nav, p, d, tight := false)
 ;a battle spot - waiting for one
 DgArrive(st)
 	{
+	global WkPreXText ; (the walker's - what's on screen before an X: WalkCloseAfterX)
+	global WkPromptText, WkPromptVerb ; (InteractPrompt's)
 	r := DgRun
 	if (st.kind = "x")
 		{
@@ -937,9 +1005,30 @@ DgArrive(st)
 		r.between := 0
 		ReleaseKeys()
 		Sleep(150)
-		PressKey("x")
-		DebugLog("Dungeons: X at step " r.i " (" st.zone ")")
 		nxt := r.steps[r.i < r.steps.Length ? r.i + 1 : 1]
+		;(the prompt up here read first: never an X at one with Crowns on it (the walker's WalkPromptCrowns) or a vendor's (to
+		;Shop, Buy, Sell...) - the recorded X was a sigil's, a door's or someone's to talk to; standing on the side of it where
+		;another's prompt shows, X opened that blind before (review 2026-11-27). Not pressed: the step goes on as an X that
+		;did nothing - into another zone, the load waited for and tried again as ever. Nothing read: X as recorded. Crowns
+		;looked for in any text read, a prompt of no kind InteractPrompt knows too - 'Click to unlock ... for 495 Crowns')
+		daKind := InteractPrompt()
+		;(the quest's goal line now - WalkGoalLine, at most every 3 s, the game's memory first: WalkPromptCrowns leaves out only
+		;the line of the goal it knows, and the walker that keeps it may not have run this session - a "Collect Crown Shards"
+		;line over every prompt in the run took each X for one with Crowns)
+		if (WkPromptText != "")
+			WalkGoalLine()
+		daCrown := WkPromptText != "" && WalkPromptCrowns()
+		daShop := daKind = "press" && RegExMatch(WkPromptVerb, "i)^(shop|trade|buy|sell|browse|craft|learn|train)")
+		if (daCrown || daShop)
+			DebugLog("Dungeons: no X at step " r.i " (" st.zone ") - the prompt here " (daCrown ? "has Crowns on it" : "is a vendor's (to " WkPromptVerb ")") ": `"" SubStr(RegExReplace(WkPromptText, "\s+", " "), 1, 80) "`"")
+		else
+			{
+			;(what's on screen before it - an inner X step's window closed after: WalkCloseAfterX)
+			if (nxt.zone = st.zone)
+				WkPreXText := WalkAfterXText(&daPre)
+			PressKey("x")
+			DebugLog("Dungeons: X at step " r.i " (" st.zone ")")
+			}
 		if (nxt.zone != st.zone)
 			{
 			k := r.i
@@ -951,6 +1040,11 @@ DgArrive(st)
 		if (WalkDialogOpen())
 			WalkSkipDialog()
 		WalkAcceptQuest("a dungeon run")
+		;(a shop's window or an OK box the X opened: closed - Escape, nothing in it clicked; never anything that could spend.
+		;Not with the dialogue still up - WalkSkipDialog stopped by you, or a box Space didn't close - as the walker's: its
+		;words aren't a window the X opened)
+		if (!daCrown && !daShop && !WalkDialogOpen())
+			WalkCloseAfterX()
 		DgNext()
 		return
 		}
@@ -1130,6 +1224,13 @@ DgSetLine(file, key, value)
 	;(v1: a file that can't be read - blank, ErrorLevel 1; v2 throws)
 	made := V1Try(FileGetTime, file, "M")
 	text := V1FileRead(file)
+	;(not read - held by another program a moment - or no step in it: nothing written. The run was left as the one line before -
+	;review 2026-11-27; CfgWrite's way)
+	if (ErrorLevel || !RegExMatch(text, "(^|\n)\s*(walk|x|fight)\|"))
+		{
+		DebugLog("Dungeons: " file " - its " key "| line not set (the file couldn't be read, or has no steps)")
+		return false
+		}
 	;(v1's newline was `r`n only: in a file with bare `n lines its ^ didn't start a line there - (*CRLF) gives v1's)
 	text := RegExReplace(text, "m)(*CRLF)^" key "\|[^\r\n]*\R?", "")
 	;(a $ in the value - a run's name may have one - is a $ in the replacement, not a group)
@@ -1143,6 +1244,11 @@ DgSetLine(file, key, value)
 	f.Write(text)
 	f.Close()
 	V1Do(FileMove, file ".tmp", file, 1)
+	if (ErrorLevel)
+		{
+		V1Do(FileDelete, file ".tmp")
+		return false
+		}
 	if (made != "")
 		V1Do(FileSetTime, made, file, "M")
 	return true

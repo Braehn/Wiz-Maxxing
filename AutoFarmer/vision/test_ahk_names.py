@@ -185,8 +185,9 @@ def hidden_calls(text, known):
 
 def ahk_files():
     try:
-        out = subprocess.run(['git', 'ls-files', '*.ahk'], cwd=ROOT, capture_output=True, text=True, check=True).stdout
-        files = [os.path.normpath(os.path.join(ROOT, f)) for f in out.split()]   # (git's / -> \ on Windows: the keys the tests look up)
+        out = subprocess.run(['git', 'ls-files', '-z', '*.ahk'], cwd=ROOT, capture_output=True, text=True, check=True).stdout
+        # -z: one name per NUL, never quoted or split at a space; normpath: git's / -> \ on Windows (the keys the tests look up)
+        files = [os.path.normpath(os.path.join(ROOT, f)) for f in out.split('\0') if f]
     except (OSError, subprocess.CalledProcessError):
         files = []
     if not files:   # not a git checkout (an unzipped release): walk the folders

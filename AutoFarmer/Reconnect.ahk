@@ -78,6 +78,12 @@ global RcPwLookAt
 ;(the "login" state: when the game's log said the login went to the login server (0 not yet), the login box's OK clicks
 ;since Enter, and when the last was - RcLoginStep)
 global RcLoginSentAt, RcOkClicks, RcOkAt
+;(typing the login in stopped half way - RcLoginCut: the bot's own letters maybe left in the login box, cleared at the next
+;try rather than taken for a username already there; till the game's logged in or a new one starts)
+global RcCutTyped
+;(the bot off - F6: the game's log read meanwhile, quietly - ReconnectOff: 1 while it reads; when it last did, 0 not since
+;the bot was last on - ReconnectCheck starts Reconnect's waits afresh then)
+global RcOffRead, RcOffAt
 
 ;Call once at start. Picks up a disconnect box that's already showing
 ReconnectInit()
@@ -87,7 +93,7 @@ ReconnectInit()
 	global RcLoadAt, RcLastLineAt, RcHungAsked, RcHungCount, RcHungFirstAt, ErrorLevel, RcPid, RcPos, RcScanning ; (v1 globals it sets)
 	global RcBackAt, RcCharSelAt, RcMaintAt, RcMaintAsked, RcLoggedIn, RcPidAt, RcBoxLookAt, RcBoxSaid ; (v2-only: the port tools don't know them)
 	global RcBoxUpAt, RcLoginTests, RcBoxClicks, RcBoxFound, RcBgWait, RcPwLookAt ; (v2-only: the port tools don't know them)
-	global RcLoginSentAt, RcOkClicks, RcOkAt ; (v2-only: the port tools don't know them)
+	global RcLoginSentAt, RcOkClicks, RcOkAt, RcCutTyped, RcOffRead, RcOffAt ; (v2-only: the port tools don't know them)
 	RcCredTarget := "Wizard101Bot"
 	RcOn := 1, RcState := "", RcStateAt := A_TickCount, RcTries := 0, RcNext := 0, RcLookAt := 0
 	RcCheckAt := 0, RcProcAt := 0, RcClickBg := -1, RcLastBg := 0, RcClickAt := 0, RcCharAt := 0
@@ -97,7 +103,7 @@ ReconnectInit()
 	;(the game already running: how long for isn't known - old enough to look at its login box)
 	RcLoggedIn := 0, RcPidAt := A_TickCount - 60000, RcBoxLookAt := 0, RcBoxSaid := 0
 	RcBoxUpAt := 0, RcLoginTests := 0, RcBoxClicks := 0, RcBoxFound := 0, RcBgWait := 0, RcPwLookAt := 0
-	RcLoginSentAt := 0, RcOkClicks := 0, RcOkAt := 0
+	RcLoginSentAt := 0, RcOkClicks := 0, RcOkAt := 0, RcCutTyped := 0, RcOffRead := 0, RcOffAt := 0
 	;(a saved login the game turned down before - this run of the bot or an earlier one: not typed till it's saved again)
 	if (RcBadStored())
 		RcLogMsg("the saved login was turned down by the game before - it won't be typed until it's saved again (tray menu: Set Wizard101 login...)")
@@ -140,7 +146,7 @@ ReconnectInit()
 ReconnectCheck()
 	{
 	global RcProcAt, ErrorLevel, RcPid, RcNoRelaunch, RcLoadAt, RcLastLineAt, RcHungAsked, RcTries, RcNext, RcCheckAt ; (v1 globals it sets)
-	global RcPidAt ; (v2-only: the port tools don't know it)
+	global RcPidAt, RcOffAt ; (v2-only: the port tools don't know them)
 	;(off: the log still read, for a relog only - the walker's sigil that won't start, RcBackAgo; RcLogLine does nothing else
 	;while off. It also keeps RcPos current: switched back on, the lines from while it was off aren't replayed as new)
 	if (!RcOn)
@@ -148,6 +154,15 @@ ReconnectCheck()
 		if (A_TickCount - RcCheckAt >= 1000)
 			RcCheckAt := A_TickCount, RcReadLog()
 		return false
+		}
+	;(the bot back on after F6 - its log read meanwhile, ReconnectOff: what Reconnect times - a disconnect box's first
+	;minute, the login box's 3 and 15 minutes - starts afresh, as after Wizard101 back from the tray; none ran on while off)
+	if (RcOffAt)
+		{
+		RcOffAt := 0
+		RcAfterTray()
+		if (RcState != "" && RcState != "stopped")
+			RcLogMsg("the bot's on again - carrying on getting back online (" RcState ")")
 		}
 	nowMs := A_TickCount
 	;Is the game still running? A new game process starts a new log, from the top
@@ -164,7 +179,10 @@ ReconnectCheck()
 			if (RcState = "gone" || RcState = "stopped")
 				RcSet("", "the game is running again")
 			}
-		else if (!gamePid && RcPid)
+		;(the picked client gone - Alt+M, Carry.ahk GamePid - and the game the bot started itself running: that's no close -
+		;the new game isn't the main yet, MainTick takes it once its window's up. 2026-11-27 review: taken for closed 2 s after
+		;the start, the restart question asked again and a second Wizard101 started - RcOwnGame)
+		else if (!gamePid && RcPid && !RcOwnGame())
 			{
 			RcPid := 0, RcLoadAt := 0
 			if (RcState != "patch")
@@ -175,6 +193,14 @@ ReconnectCheck()
 				RcSet("gone", "the game has closed")
 				}
 			}
+		;(the game the bot started itself not the main yet - RcOwnGame: MainTick taken now, so its window's the one worked on
+		;once it's up - the AFK hold's loop - AutoFarmer - runs this, not CarryTick: 2026-11-27 review, no login typed there -
+		;no window for the gone main -, and the healthy new game closed by the 3-minute wait). CarryTick when it's there: it
+		;runs MainTick and, in carry mode, ends it for a gone main's client - GamePid's carry pids left on the dead game else)
+		else if (!gamePid && RcPid && V1IsFunc("CarryTick"))
+			CarryTick.Call()
+		else if (!gamePid && RcPid && V1IsFunc("MainTick"))
+			MainTick.Call()
 		}
 	if (nowMs - RcCheckAt >= 1000)
 		{
@@ -190,6 +216,26 @@ ReconnectCheck()
 	if (RcState = "" || RcState = "stopped")
 		return false
 	return RcStep()
+	}
+
+;Call on every pass of the main loop while the bot's off (F6). The game's log read all the same, once a second, as at the
+;start - quietly: no tips, Discord alerts or log lines (RcScanning) - so where things stand is kept (a disconnect box still
+;up is clicked once the bot's on again) and, switched on, the lines from meanwhile aren't taken as new: 2026-11-27 review,
+;"Disconnected... Reconnecting..." and "Back in the game." at once, a relog said 0 s ago - the walker's sigil counting fewer
+;X presses for 30 minutes from then -, a stale Discord alert. A relog meanwhile counted when it happened (RcOffRead); a
+;game message while the login's being answered taken for nothing - no game closed, no login marked bad (RcLogLine)
+ReconnectOff()
+	{
+	global RcCheckAt, RcScanning ; (v1 globals it sets)
+	global RcOffRead, RcOffAt ; (v2-only: the port tools don't know them)
+	if (A_TickCount - RcCheckAt < 1000)
+		return
+	RcCheckAt := A_TickCount, RcOffAt := A_TickCount
+	RcScanning := 1, RcOffRead := 1
+	try
+		RcReadLog()
+	finally
+		RcScanning := 0, RcOffRead := 0
 	}
 
 ;One step of getting back online, by state. True while it's busy
@@ -237,7 +283,8 @@ RcStep()
 		;The game in view but not in front: click it in the background (unless it has ignored that
 		;before). Otherwise bring it to the front to look and click: when it can't be seen (another
 		;window over it), every 20 s in the first minute, after that every 2 minutes and only once
-		;you've left the computer alone for a minute
+		;you've left the computer alone for a minute - and not while the PC's screen isn't there to be brought up on (locked, or
+		;its Remote Desktop session disconnected - RcDeskOk)
 		inFront := RcGameActive()
 		btn := RcFindWord("i)^reconn?ect$", "box", "RECONNECT")
 		if (IsObject(btn) && !inFront && RcClickBg != 0)
@@ -247,7 +294,7 @@ RcStep()
 			RcSet("wait", "try " RcTries ": clicked RECONNECT - waiting to log back in")
 			return true
 			}
-		if (IsObject(btn) || inFront || (early ? nowMs - RcPeekAt > 20000 : nowMs - RcPeekAt > 120000 && UserIdle() > 60000))
+		if (IsObject(btn) || inFront || ((early ? nowMs - RcPeekAt > 20000 : nowMs - RcPeekAt > 120000 && UserIdle() > 60000) && RcDeskOk()))
 			{
 			RcPeekAt := nowMs
 			if (RcFrontClick("i)^reconn?ect$", "box", "RECONNECT", "RECONNECT"))
@@ -321,7 +368,7 @@ RcStep()
 RcReadLog()
 	{
 	global RcPos, RcHead ; (v1 globals it sets)
-	global RcLoggedIn, RcBoxSaid ; (v2-only: the port tools don't know them)
+	global RcLoggedIn, RcBoxSaid, RcCutTyped ; (v2-only: the port tools don't know them)
 	;(v1's FileOpen gave no object when it couldn't open the file; v2 throws)
 	logFile := V1Try(FileOpen, RcLog, "r", "CP0")
 	if (!IsObject(logFile))
@@ -335,8 +382,8 @@ RcReadLog()
 		if (RcHead != "")
 			RcPos := 0
 		RcHead := logHead
-		;(a new game: not logged in yet, and its login box not said about)
-		RcLoggedIn := 0, RcBoxSaid := 0
+		;(a new game: not logged in yet, its login box not said about, nothing of the bot's typed in it)
+		RcLoggedIn := 0, RcBoxSaid := 0, RcCutTyped := 0
 		}
 	if (logSize < RcPos)
 		RcPos := 0
@@ -364,7 +411,7 @@ RcReadLog()
 RcLogLine(logLine)
 	{
 	global RcLastLineAt, RcLoadAt, RcMsg, RcLoginBad, RcTries, RcNext, RcClickBg, RcCharAt, RcTyped ; (v1 globals it sets)
-	global RcBackAt, RcCharSelAt, RcMaintAt, RcMaintAsked, RcLoggedIn, RcLoginSentAt ; (v2-only: the port tools don't know them)
+	global RcBackAt, RcCharSelAt, RcMaintAt, RcMaintAsked, RcLoggedIn, RcLoginSentAt, RcCutTyped ; (v2-only: the port tools don't know them)
 	;(a zone change under way, and the log's last sign of life - RcHungCheck. Its memory notes come every 5 minutes
 	;whatever the game's doing: they don't count)
 	;(not the empty field after the chunk's last line break - RcReadLog's Loop Parse)
@@ -380,7 +427,7 @@ RcLogLine(logLine)
 	;(logged in this run - also while auto-reconnect is off: its login box isn't looked for after this, RcLoginBoxCheck)
 	if (InStr(logLine, "LOGIN RESPONSE: Error=0") || InStr(logLine, "WizardCharacterSelect") || InStr(logLine, "MSG_CharacterSelected: Error=0")
 		|| InStr(logLine, "ConnectComplete destination Zone=") || InStr(logLine, "Finished loading zone"))
-		RcLoggedIn := 1
+		RcLoggedIn := 1, RcCutTyped := 0
 	;(auto-reconnect off: only a relog's lines - ReconnectCheck: the character select's scene, the character picked, back in
 	;the world)
 	if (!RcOn && !InStr(logLine, "MSG_CharacterSelected: Error=0") && !InStr(logLine, "ConnectComplete destination Zone=")
@@ -400,8 +447,11 @@ RcLogLine(logLine)
 			RcSet("outdated", "the game says `"" boxMsg "`" - it needs patching")
 			return
 			}
-		;Kicked because the account logged in somewhere else, or by an admin: don't fight that
-		if (RegExMatch(boxKey, "i)ForceDisconnect|CSRDisconnect|Ban|Suspend")
+		;Kicked because the account logged in somewhere else, or by an admin: don't fight that. ("Ban" a word of the key on its
+		;own - GUI_AccountBanned, GUI_BanAccount -, not in GUI_BankEquipped, GUI_TrashBanking...: the game's confirmations for
+		;the bank - 2026-11-27 review: taken for a ban, auto-reconnect stopped and a Discord alert sent)
+		rcKeyWords := "_" RegExReplace(boxKey, "([a-z0-9])(?=[A-Z])", "$1_") "_"
+		if (RegExMatch(boxKey, "i)ForceDisconnect|CSRDisconnect|Suspend") || RegExMatch(rcKeyWords, "i)_ban(ned)?_")
 			|| RegExMatch(boxMsg, "i)someone else has logged in|logged in (from|on|at) another|by an Administrator|suspended|banned"))
 			{
 			RcMsg := boxMsg
@@ -413,6 +463,24 @@ RcLogLine(logLine)
 		;While typing the login in: whatever the game says is about that
 		if (RcState = "login")
 			{
+			;(the bot off meanwhile - its lines read quietly, ReconnectOff: no answer taken from them - not the game closed for
+			;it, nor the saved login marked bad: the login box may be yours by then, a password of yours mistyped. Left to
+			;RcLoginStep once the bot's on - the answer on screen, the minute's wait for one started afresh. 2026-11-27 review)
+			if (RcOffRead)
+				return
+			;(another Wizard101 open beside it - both write this one log, Carry.ahk: a box the game's memory doesn't show up over
+			;this one is the other's - "You have been disconnected due to inactivity." in the world there, say - not this login's
+			;answer: 2026-11-27 review, the game being logged in closed for it, or the saved login marked bad. The login's own
+			;refusal is still read off the screen - RcLoginStep)
+			if (RcOtherClients())
+				{
+				RcLoginMem(&rcBoxWhy, &rcBoxSeen, , , &rcBoxMemOk, &rcBoxUp)
+				if (rcBoxMemOk && !rcBoxUp)
+					{
+					RcLogMsg("(a game message while logging in, but not over this game's login box - another Wizard101's: `"" boxMsg "`")")
+					return
+					}
+				}
 			;(the servers still down: not the login's fault - before the check below, which a message naming the account would
 			;trip, and the login never typed again. Tried again later, the 4-try limit not counting meanwhile - RcGone)
 			if (RegExMatch(boxKey "|" boxMsg, "i)Shutdown|maintenance|try again later"))
@@ -421,11 +489,14 @@ RcLogLine(logLine)
 				RcFail("logging in: the game says `"" boxMsg "`" - the servers are still down for maintenance")
 				return
 				}
-			if (RegExMatch(boxMsg, "i)invalid|password|username|account"))
+			;(the login's own words - "Invalid username or password", an account locked or closed -, not any message with
+			;"account" in it: "This item will be bound to your account" isn't the login turned down)
+			if (RegExMatch(boxMsg, "i)invalid|incorrect|password|user\s*name|account\W+(is|has been|was)\W+(locked|disabled|closed|deactivated)|no such account|account (not found|does ?n.t exist)"))
 				{
 				RcMarkBad()
 				RcSet("stopped", "the game turned the saved login down (`"" boxMsg "`") - it won't be typed again until it's saved again (tray menu: Set Wizard101 login...)")
-				TrayTip("The game turned the saved login down. Save it again with `"Set Wizard101 login...`" in the tray menu.", "Wizard101 bot", 2)
+				if (!RcScanning)
+					TrayTip("The game turned the saved login down. Save it again with `"Set Wizard101 login...`" in the tray menu.", "Wizard101 bot", 2)
 				}
 			else
 				RcFail("logging in: the game says `"" boxMsg "`"")
@@ -505,7 +576,10 @@ RcLogLine(logLine)
 		{
 		;(a character picked - yours too: the world it goes into next is a relog's - not the start's replay of the log. Only
 		;with the character select's scene up before it: the game writes the same line - with a SERVER TRANSFER - at every
-		;zone change onto another of its servers (2026-11-22: "a relog" said at each of them))
+		;zone change onto another of its servers (2026-11-22: "a relog" said at each of them). The bot off meanwhile - its
+		;lines read quietly, ReconnectOff: counted all the same, when it happened)
+		if (RcOffRead && RcCharAt)
+			RcCharSelAt := A_TickCount
 		if (!RcScanning && RcCharAt)
 			RcCharSelAt := A_TickCount
 		RcCharAt := 0
@@ -517,7 +591,7 @@ RcLogLine(logLine)
 		{
 		;(back in the world after a relog - the bot's reconnect, or a character picked in the last 2 minutes: when, for the walker's sigil
 		;that won't start - RcBackAgo. 2026-10-26 21:44: one never started after a relog)
-		if (!RcScanning && ((RcOn && RcState != "") || (RcCharSelAt && A_TickCount - RcCharSelAt < 120000)))
+		if ((!RcScanning || RcOffRead) && ((RcOn && RcState != "") || (RcCharSelAt && A_TickCount - RcCharSelAt < 120000)))
 			{
 			RcBackAt := A_TickCount
 			if (!RcOn || RcState = "")
@@ -856,6 +930,8 @@ RcStartStep()
 			}
 		return true
 		}
+	;(from now on you touching the keyboard or mouse with the game in front stops it - RcLoginHalt, below)
+	rcGoAt := A_TickCount, rcFront := RcGameActive()
 	;(a test failed with the game behind another window while you were at the PC - its read-back only sees the game where
 	;nothing covers it: waited for you to leave the PC alone 30 s, when the game's brought to the front for the test)
 	if (RcBgWait && !RcGameActive() && UserIdle() <= 30000)
@@ -869,15 +945,24 @@ RcStartStep()
 	;2026-10-23 19:39 it was typed, but the whole game read at once didn't find it, and the login was left to you)
 	rcTol := RcLineTol(loginUser)
 	;A fresh start has an empty login box: if the username is already there, don't guess where the
-	;typing would go
-	if (RcLineDist(loginUser, gameWin, &rcDistX, rcField) <= rcTol)
+	;typing would go. (Not the bot's own, left by a try stopped half way - RcLoginCut: the test's backspaces clear it)
+	if (!RcCutTyped && RcLineDist(loginUser, gameWin, &rcDistX, rcField) <= rcTol)
 		{
 		loginUser := "", loginPass := ""
 		return RcLoginHelp("the login box already has the username in it")
 		}
+	;(from here on, at each step: stopped at once - nothing more typed, clicked or pressed, no try counted - when the bot's
+	;switched off (F6) or auto-reconnect is, you touch the keyboard or mouse with the game in front, or the game doesn't take
+	;the keys: RcLoginHalt, RcLoginCut. 2026-11-27 review: checked only before it began, the login typed and Enter pressed
+	;after F6, and what you typed meanwhile could go into the masked Password box with it - the login marked bad)
 	;Typed straight to the game window as characters, checking each step. 0. Into the Account field: a click there, and a
 	;test (zq7) typed and read back before anything of the login is - nothing of the login typed where it can't be seen
-	rcDist := RcLoginTest(rcField, gameWin, &rcBg)
+	rcDist := RcLoginTest(rcField, gameWin, &rcBg, rcGoAt, rcFront, &rcHalt, &rcRead)
+	if (rcHalt != "")
+		{
+		loginUser := "", loginPass := ""
+		return RcLoginCut(rcHalt)
+		}
 	;(clicked with the game in the background and it didn't take: the game brought to the front and the field clicked for
 	;real - only once you've left the PC alone 30 s, else what you type next would go into the login box)
 	if (rcDist > 1 && rcBg && UserIdle() > 30000)
@@ -887,7 +972,13 @@ RcStartStep()
 			{
 			Sleep(500)
 			RcLogMsg("the test wasn't read back after a click in the background - brought the game to the front to click the Account field")
-			rcDist := RcLoginTest(rcField, gameWin, &rcBg)
+			rcGoAt := A_TickCount, rcFront := 1
+			rcDist := RcLoginTest(rcField, gameWin, &rcBg, rcGoAt, rcFront, &rcHalt, &rcRead)
+			if (rcHalt != "")
+				{
+				loginUser := "", loginPass := ""
+				return RcLoginCut(rcHalt)
+				}
 			}
 		}
 	if (rcDist > 1)
@@ -902,7 +993,8 @@ RcStartStep()
 			return true
 			}
 		RcLoginTests += 1
-		rcTestWhy := "a test (zq7) typed into the login box's Account field wasn't read back there (" (rcDist = 99 ? "nothing like it read" : rcDist " letters off") ", the field at " rcField.x - GameLeft "," rcField.y - GameTop " " rcField.w "x" rcField.h " - " (rcField.mem ? "from the game's memory" : "worked out from its PASSWORD label") (rcBg ? ", clicked with the game in the background" : "") ")"
+		;(what was read there: how much, never what - rcRead, RcLineDist; and why not from the game's memory when it isn't)
+		rcTestWhy := "a test (zq7) typed into the login box's Account field wasn't read back there (" (rcDist = 99 ? "nothing like it read" : rcDist " letters off") " - " rcRead ", the field at " rcField.x - GameLeft "," rcField.y - GameTop " " rcField.w "x" rcField.h " - " (rcField.mem ? "from the game's memory" : "worked out from its PASSWORD label" (rcMemWhy != "" ? " (the game's memory: " rcMemWhy ")" : "")) (rcBg ? ", clicked with the game in the background" : "") ")"
 		;(tried again at the next look - the box may not have been ready - 3 times in all)
 		if (RcLoginTests < 3)
 			{
@@ -912,10 +1004,15 @@ RcStartStep()
 		return RcLoginHelp(rcTestWhy)
 		}
 	;1. The username into the Account box (cleared first), then read it back
-	RcChars(gameWin, "", 40)
-	RcChars(gameWin, loginUser)
+	rcOk := RcChars(gameWin, "", 40) && RcChars(gameWin, loginUser)
 	Sleep(400)
 	rcDist := RcLineDist(loginUser, gameWin, &rcDistX, rcField)
+	rcHalt := RcLoginHalt(rcGoAt, rcFront, rcOk)
+	if (rcHalt != "")
+		{
+		loginUser := "", loginPass := ""
+		return RcLoginCut(rcHalt)
+		}
 	if (rcDist > rcTol)
 		{
 		RcChars(gameWin, "", 40)
@@ -931,24 +1028,56 @@ RcStartStep()
 		{
 		RcLoginFocus(rcPwAt, "Password")
 		Sleep(300)
+		rcOk := true
 		}
 	else
-		RcChars(gameWin, Chr(9))
-	RcChars(gameWin, "xqz")
+		rcOk := RcChars(gameWin, Chr(9))
+	rcOk := rcOk && RcChars(gameWin, "xqz")
 	Sleep(400)
 	rcDist := RcLineDist(loginUser, gameWin, &rcDistX, rcField)
+	rcHalt := RcLoginHalt(rcGoAt, rcFront, rcOk)
+	if (rcHalt != "")
+		{
+		loginUser := "", loginPass := ""
+		return RcLoginCut(rcHalt)
+		}
 	if (rcDist > rcTol || rcDistX < rcDist + 2)
 		{
 		RcChars(gameWin, "", 40)
 		loginUser := "", loginPass := ""
 		return RcLoginHelp((IsObject(rcPwAt) ? "the click into the Password box didn't take" : "Tab didn't move on to the Password box") " - the test letters (xqz) went into the Account box, or the username couldn't be read there any more (" rcDist " letters off)")
 		}
-	;3. The password (the test letter cleared first), and the Account box still just the username
-	RcChars(gameWin, "", 40)
-	RcChars(gameWin, loginPass)
+	;3. The test letters taken off again (3 backspaces), and the Account box still the username: had they been dropped by the
+	;Account box - the username as long as it takes - rather than gone into the Password box, the backspaces took its last 3
+	;letters, and nothing of the password's typed (2026-11-27 review: else the 40 backspaces below clear the username, and the
+	;password goes into the Account box, in plain sight)
+	rcOk := RcChars(gameWin, "", 3)
+	Sleep(300)
+	rcDist := RcLineDist(loginUser, gameWin, &rcDistX, rcField)
+	rcHalt := RcLoginHalt(rcGoAt, rcFront, rcOk)
+	if (rcHalt != "")
+		{
+		loginUser := "", loginPass := ""
+		return RcLoginCut(rcHalt)
+		}
+	if (rcDist > rcTol)
+		{
+		RcChars(gameWin, "", 40)
+		loginUser := "", loginPass := ""
+		return RcLoginHelp("the test letters (xqz) weren't in the Password box - 3 backspaces took letters off the username in the Account box (" (rcDist = 99 ? "no line like it read" : rcDist " letters off") ")")
+		}
+	;4. The password (the box cleared first), and the Account box still just the username
+	rcOk := RcChars(gameWin, "", 40) && RcChars(gameWin, loginPass)
 	loginPass := ""
 	Sleep(300)
-	if (RcLineDist(loginUser, gameWin, &rcDistX, rcField) > rcTol)
+	rcDist := RcLineDist(loginUser, gameWin, &rcDistX, rcField)
+	rcHalt := RcLoginHalt(rcGoAt, rcFront, rcOk)
+	if (rcHalt != "")
+		{
+		loginUser := ""
+		return RcLoginCut(rcHalt)
+		}
+	if (rcDist > rcTol)
 		{
 		RcChars(gameWin, "", 40)
 		loginUser := ""
@@ -963,18 +1092,88 @@ RcStartStep()
 
 ;Step 0 of typing the login in: a click into the Account field (field), then a test (zq7) typed - the box cleared first -
 ;read back from the field alone, and cleared again. How many letters off it read (99 nothing like it). bg: 1 the click went
-;to the game in the background (RcLoginFocus)
-RcLoginTest(field, gameWin, &bg)
+;to the game in the background (RcLoginFocus). goAt, front: when typing the login in began and the game in front then - halt:
+;why it stopped half way (RcLoginHalt - nothing more typed then, 99), else ""; readInfo: how much was read there (RcLineDist)
+RcLoginTest(field, gameWin, &bg, goAt := 0, front := 0, &halt := "", &readInfo := "")
 	{
-	bg := !RcGameActive()
+	bg := !RcGameActive(), halt := "", readInfo := ""
+	goAt := goAt ? goAt : A_TickCount
+	;(looked at before the click too - the guard's reads of the box before it, RcLineDist, take a while: you back at the
+	;mouse meanwhile, it isn't taken for the click. 2026-11-27 review)
+	halt := RcLoginHalt(goAt, front)
+	if (halt != "")
+		return 99
 	RcLoginFocus(field)
 	Sleep(300)
-	RcChars(gameWin, "", 40)
-	RcChars(gameWin, "zq7")
+	halt := RcLoginHalt(goAt, front)
+	if (halt != "")
+		return 99
+	rcSent := RcChars(gameWin, "", 40) && RcChars(gameWin, "zq7")
 	Sleep(400)
-	rcTestD := RcLineDist("zq7", gameWin, &rcTestX, field)
+	rcTestD := RcLineDist("zq7", gameWin, &rcTestX, field, &readInfo)
+	halt := RcLoginHalt(goAt, front, rcSent)
+	if (halt != "")
+		return 99
 	RcChars(gameWin, "", 10)
 	return rcTestD
+	}
+
+;Typing the login in (RcStartStep): why to stop now, "" carry on - the bot switched off (F6 - Autofarmer.ahk BotIsOn) or
+;auto-reconnect; you at the keyboard or mouse since it began at goAt (UserIdle: the bot's own clicks aren't you) with the
+;game in front then (front) or now - what you type goes in with the login, unseen in the masked Password box; or the game
+;not taking the keys (typed: false - RcChars)
+RcLoginHalt(goAt, front, typed := true)
+	{
+	if (!typed)
+		return "the game didn't take the keys typed - its window gone, or not answering"
+	if (!RcOn)
+		return "auto-reconnect was switched off"
+	if (V1IsFunc("BotIsOn") && !BotIsOn.Call())
+		return "the bot was switched off"
+	if ((front || RcGameActive()) && UserIdle() < A_TickCount - goAt)
+		return "you touched the keyboard or mouse"
+	return ""
+	}
+
+;Typing the login in stopped half way (why: RcLoginHalt's): nothing more typed, clicked or pressed - Enter never - no try
+;counted, nothing marked. The bot's own letters may be left in the login box (RcCutTyped: the next try clears them rather
+;than taking them for a username already there). You at the game - perhaps logging in yourself: its login box is yours, as
+;one the bot found up (RcBoxFound), the saved login typed only once you've left the PC alone a minute (RcLoginBoxCheck). The
+;game not taking the keys: counted with the tests, 3 in all, then left to you (RcLoginHelp). Else started again from the top
+;at a later look (the bot on again)
+RcLoginCut(why)
+	{
+	global RcLookAt ; (v1 globals it sets)
+	global RcCutTyped, RcLoginTests ; (v2-only: the port tools don't know them)
+	RcCutTyped := 1
+	;(2026-11-27 review: a game the bot started itself typed in again after 3 s left alone - your own username cleared, a
+	;test (zq7) typed over it, at every pause)
+	;Only with you at the game - Wizard101 in front now, or its login box found up (RcBoxFound): RcLoginHalt's "you touched"
+	;is any key or mouse on the PC, and handed over there was no 3/15-minute close, no tip and no alert after it - a login
+	;never typed. Elsewhere: still the bot's, tried again 30 s on (typed in the background, or once you've left it alone)
+	if (InStr(why, "you touched") && (RcGameActive() || RcBoxFound))
+		{
+		RcSet("", "typing the saved login in stopped (" why ") - its login box left to you")
+		return false
+		}
+	if (InStr(why, "you touched"))
+		{
+		RcLookAt := A_TickCount + 30000
+		RcLogMsg("typing the saved login in stopped (" why ", Wizard101 not in front) - nothing more typed, Enter not pressed; tried again in 30 s")
+		return true
+		}
+	;(a hung game, or one run as administrator - its window takes no keys from the bot: looked at again 10 s on, not at every
+	;look - 2026-11-27 review: the Account field clicked and this said 40 times a minute till the 15-minute close)
+	if (InStr(why, "didn't take"))
+		{
+		RcLoginTests += 1, RcLookAt := A_TickCount + 8500
+		if (RcLoginTests >= 3)
+			return RcLoginHelp("typing the saved login in stopped 3 times (" why ")")
+		RcLogMsg("typing the saved login in stopped (" why ") - nothing more typed, Enter not pressed; trying again in 10 s (" RcLoginTests " of 3)")
+		return true
+		}
+	RcLogMsg("typing the saved login in stopped (" why ") - nothing more typed, Enter not pressed; it starts again from the top later")
+	return true
 	}
 
 ;The login box's Account field from the game's own memory (the helper's /gui - READ-ONLY, Vision.ahk NavGui: its
@@ -984,10 +1183,11 @@ RcLoginTest(field, gameWin, &bg)
 ;or the login box hidden (still patching): wait; 0 the screen's way then (the windows not read - the helper off, an older
 ;one - or no login box in them, or one in an odd place). boxBtn: the message box's one button when its words say a login
 ;was turned down ("Invalid username or password") - {x, y (screen), label, text}, else "". atLogin: 1 the login box is
-;in the game's windows, shown (under a message box or not); memOk: 1 the game's windows were read at all
-RcLoginMem(&why, &seen, &boxBtn := "", &atLogin := "", &memOk := "")
+;in the game's windows, shown (under a message box or not); memOk: 1 the game's windows were read at all; boxUp: 1 a message
+;box is up in them (over the login box or not)
+RcLoginMem(&why, &seen, &boxBtn := "", &atLogin := "", &memOk := "", &boxUp := "")
 	{
-	why := "", seen := 0, boxBtn := "", atLogin := 0, memOk := 0
+	why := "", seen := 0, boxBtn := "", atLogin := 0, memOk := 0, boxUp := 0
 	if (!V1IsFunc("NavGui"))
 		{
 		why := "no reader for the game's memory"
@@ -1000,13 +1200,24 @@ RcLoginMem(&why, &seen, &boxBtn := "", &atLogin := "", &memOk := "")
 		return ""
 		}
 	memOk := 1
+	;(the game's GUI root the shape of the game area, else the area isn't what the game draws and its places can't be put on
+	;the screen - the screen's way then, memOk 0. 2026-11-21: the window 1920x1200, the game drawing 1920x1080 - its root
+	;1827x1027 - GameRect.ahk: the Account field put 58 px too low, on the Password box - "the field at 845,583 231x22 - from
+	;the game's memory" - and the test (zq7) typed never read back there)
+	if (V1IsNum(rcG.rootW) && V1IsNum(rcG.rootH) && rcG.rootW > 0 && rcG.rootH > 0 && GameW > 0 && GameH > 0
+		&& Abs(rcG.rootW * GameH / (rcG.rootH * GameW) - 1) > 0.03)
+		{
+		memOk := 0
+		why := "the game's windows (" rcG.rootW "x" rcG.rootH ") aren't the shape of the game area (" GameW "x" GameH ")"
+		return ""
+		}
 	rcW := V1At(rcG.win, "LoginWindow/loginName")
 	atLogin := (IsObject(rcW) && rcW.found && rcW.shown) ? 1 : 0
 	;(a message box up - over the login box or not: nothing clicked blind meanwhile, the screen's way included - wait; its one
 	;button given when its words say a login was turned down)
 	if (rcG.box.shown)
 		{
-		seen := 1
+		seen := 1, boxUp := 1
 		rcBoxText := rcG.box.caption != "" ? rcG.box.caption : rcG.box.title
 		why := "a message box is up (`"" rcBoxText "`")"
 		if (RegExMatch(rcG.box.caption " " rcG.box.title, "i)invalid|user\s*name|password") && rcG.btns.Length = 1)
@@ -1132,26 +1343,38 @@ RcLoginHelp(why)
 ;How near a line of text on the game comes to reading text (the username in the login box): the fewest letter changes
 ;between them - both lower case, spaces left out, an "Account:" in front taken off or not, and the text cursor after it
 ;(read as a "1", "l", "i" or "|") taken off or not, whichever is nearer; 99 nothing like it read. withX: the same for
-;text with xqz after it (the test letters of RcStartStep's Tab step). Nothing read is kept or logged
-RcLineDist(text, gameWin, &withX := "", field := "")
+;text with xqz after it (the test letters of RcStartStep's Tab step). Nothing read is kept or logged - readInfo: only how
+;much was read (how many lines, the longest's length: something else in the box with it shows there)
+RcLineDist(text, gameWin, &withX := "", field := "", &readInfo := "")
 	{
-	rcWant := RegExReplace(Format("{:L}", text), "\s"), rcBest := 99, withX := 99
+	rcWant := RegExReplace(Format("{:L}", text), "\s"), rcBest := 99, withX := 99, rcLineN := 0, rcLongest := 0
 	;(field: only that box - the login box's Account field - read at 2x, then 1x, then 3x. Windows OCR reads nothing there
 	;at 3x or 4x - seen 2026-11-13 21:22 on the real field with zq7 in it, white on black, which 1x read "ZQ71" and 2x
-	;"zq71": the 3x/4x of before is why the login never got past its test)
-	for each, zoom in (IsObject(field) ? [2, 1, 3] : [1, 2])
+	;"zq71": the 3x/4x of before is why the login never got past its test. Then, nothing near it read, the box with half its
+	;height round it, at 2x and 1x - text that fills a box read alone can go unread: 2026-11-26 19:05 the test not read back
+	;in a field worked out from the PASSWORD label, though at its place)
+	for each, rcPass in (IsObject(field) ? [[2, 0], [1, 0], [3, 0], [2, 1], [1, 1]] : [[1, 0], [2, 0]])
 		{
+		zoom := rcPass[1]
+		if (rcPass[2] && rcBest <= 1)
+			break
 		if (IsObject(field))
-			OcrRect(field.x, field.y, field.w, field.h, "en", zoom, &ocrLines)
+			{
+			rcPad := rcPass[2] ? field.h // 2 : 0
+			rcAx := Max(field.x - rcPad, GameLeft), rcAy := Max(field.y - rcPad, GameTop)
+			OcrRect(rcAx, rcAy, Min(field.x + field.w + rcPad, GameLeft + GameW) - rcAx, Min(field.y + field.h + rcPad, GameTop + GameH) - rcAy, "en", zoom, &ocrLines)
+			}
 		else
 			OcrRect(GameLeft, GameTop, GameW, GameH, "en", zoom, &ocrLines)
 		if (ErrorLevel || !IsObject(ocrLines))
 			continue
+		rcLines := 0
 		for i, ocrLine in ocrLines
 			{
 			if (!RcOnGame(ocrLine.x + ocrLine.w // 2, ocrLine.y + ocrLine.h // 2, gameWin))
 				continue
 			rcRaw := RegExReplace(Format("{:L}", Trim(ocrLine.text)), "\s")
+			rcLines += 1, rcLongest := Max(rcLongest, StrLen(rcRaw))
 			rcNoAcct := RegExReplace(rcRaw, "^account:?")
 			for each2, rcSeen in [rcRaw, rcNoAcct, RegExReplace(rcRaw, "[1li|!]$"), RegExReplace(rcNoAcct, "[1li|!]$")]
 				{
@@ -1161,11 +1384,12 @@ RcLineDist(text, gameWin, &withX := "", field := "")
 				rcBest := rcD < rcBest ? rcD : rcBest, withX := rcDX < withX ? rcDX : withX
 				}
 			}
-		ocrLines := ""
+		ocrLines := "", rcLineN := Max(rcLineN, rcLines)
 		if (rcBest = 0 && withX > 0)
 			break
 		}
 	rcWant := "", rcSeen := "", rcRaw := "", rcNoAcct := ""
+	readInfo := rcLineN ? rcLineN " line" (rcLineN = 1 ? "" : "s") " of text read there, the longest " rcLongest " characters" : "no text read there"
 	return rcBest
 	}
 
@@ -1186,16 +1410,19 @@ RcAccountField(word)
 
 ;A click into one of the login box's fields (field: RcAccountField's, or its pw; what: "Account" or "Password"), so what's
 ;typed goes there - or on its OK button (field: RcLoginMem's ok, what "OK"): with the real mouse when the game's in front
-;(your mouse held off meanwhile, put back after), else in the background (RcClick)
+;(your mouse held off meanwhile, put back after), else in the background (RcClick). A field's near its right end, not its
+;middle: the text cursor then goes after anything in it, and the backspaces typed next clear all of it (letters left by a
+;try stopped half way - RcLoginCut - or there before: a click in the middle of them left some, and the test never read back)
 RcLoginFocus(field, what := "Account")
 	{
 	rcWhat := (what = "OK") ? "OK button" : what " field"
+	rcPx := (what = "OK") ? field.cx : Max(field.cx, field.x + field.w - Max(4, field.h // 2)), rcPy := field.cy
 	if (!RcGameActive())
-		return RcClick(field.cx, field.cy, "the login box's " rcWhat)
+		return RcClick(rcPx, rcPy, "the login box's " rcWhat)
 	MouseGetPos(&rcMx, &rcMy)
 	;(your mouse locked meanwhile - Settings.ahk MouseLockOn)
 	MouseLockOn("login")
-	MouseMove(field.cx, field.cy, 0)
+	MouseMove(rcPx, rcPy, 0)
 	;(its clicks too, now the pointer's on the game - Settings.ahk MouseLockMoved)
 	MouseLockMoved()
 	Sleep(120)
@@ -1203,7 +1430,7 @@ RcLoginFocus(field, what := "Account")
 	Sleep(120)
 	MouseMove(rcMx, rcMy, 0)
 	MouseLockOff("login")
-	RcLogMsg("clicked " (what = "OK" ? "" : "into ") "the login box's " rcWhat " at " field.cx - GameLeft "," field.cy - GameTop)
+	RcLogMsg("clicked " (what = "OK" ? "" : "into ") "the login box's " rcWhat " at " rcPx - GameLeft "," rcPy - GameTop)
 	return true
 	}
 
@@ -1372,10 +1599,12 @@ RcPatchStep()
 RcCloseGame()
 	{
 	global ErrorLevel, RcPid ; (v1 globals it sets)
+	;(the picked client only - Carry.ahk GamePid: another Wizard101 running beside it is never closed. The picked one gone
+	;and the game the bot started itself not the main yet - RcOwnGame: that one)
+	rcOwn := RcOwnGame()
+	rcProc := rcOwn ? RcPid : GamePid() ? GamePid() : GameExe
 	;(v1: no window - nothing; v2 throws)
-	try WinClose(GameWT())
-	;(the picked client only - Carry.ahk GamePid: another Wizard101 running beside it is never closed)
-	rcProc := GamePid() ? GamePid() : GameExe
+	try WinClose(rcOwn ? "ahk_exe " GameExe " ahk_pid " RcPid : GameWT())
 	ErrorLevel := ProcessWaitClose(rcProc, 15)
 	if (ErrorLevel)
 		{
@@ -1384,6 +1613,31 @@ RcCloseGame()
 		ErrorLevel := ProcessWaitClose(rcProc, 10)
 		}
 	RcPid := 0
+	}
+
+;The game the bot started itself (RcLaunchClient: RcPid) running while the client picked to play (Alt+M - Carry.ahk GamePid)
+;is gone: the new one is the main once its window is up (Carry.ahk MainTick) - till then it's the game being logged in
+RcOwnGame()
+	{
+	rcPicked := GamePid()
+	return (RcPid && rcPicked && rcPicked != RcPid && !ProcessExist(rcPicked) && ProcessExist(RcPid)) ? 1 : 0
+	}
+
+;1 another Wizard101 is open beside the one being got back online (its windows - Carry.ahk CarryGameWins - of more than
+;one process): both write the one WizardClient.log, so a line in it may be the other's
+RcOtherClients()
+	{
+	if (!V1IsFunc("CarryGameWins"))
+		return 0
+	rcFirst := 0
+	for i, w in CarryGameWins.Call()
+		{
+		if (!rcFirst)
+			rcFirst := w.pid
+		else if (w.pid != rcFirst)
+			return 1
+		}
+	return 0
 	}
 
 ;Clicks at a screen point in the game, leaving it in the background: mouse messages straight to its
@@ -1414,6 +1668,7 @@ RcClick(px, py, what)
 ;the game couldn't be brought up or the word isn't there
 RcFrontClick(pattern, area, what, fuzzy := "")
 	{
+	static failSaidAt := ""
 	global RcClickAt, RcLastBg, RcFrontOk, ErrorLevel ; (v1 globals it sets)
 	;(v1: no window - blank; WinActivate of a window that's gone: nothing)
 	gameWin := V1Try(WinGetID, GameWT())
@@ -1454,7 +1709,9 @@ RcFrontClick(pattern, area, what, fuzzy := "")
 		if (ErrorLevel)
 			{
 			MouseMove(mouseX, mouseY, 0)
-			RcLogMsg("couldn't bring the game to the front to click " what)
+			;(said once while the state lasts - 2026-11-26: 8 times in 12 minutes, the same each time)
+			if (failSaidAt != RcStateAt)
+				failSaidAt := RcStateAt, RcLogMsg("couldn't bring the game to the front to click " what)
 			return false
 			}
 		Sleep(700)
@@ -1496,6 +1753,24 @@ RcFrontClick(pattern, area, what, fuzzy := "")
 RcGameActive()
 	{
 	return WinActive(GameWT())
+	}
+
+;Windows' input desktop open to the bot - a screen there to bring the game up on, read and click: not while the PC is locked
+;or its Remote Desktop session is disconnected (2026-11-26 18:51-19:03, the session disconnected: "couldn't bring the game
+;to the front to click RECONNECT" every 2 minutes, 0 words read, nothing it could do till the session came back). Said once
+;when it goes and once when it's back
+RcDeskOk()
+	{
+	static gone := 0
+	;(DESKTOP_SWITCHDESKTOP)
+	rcDesk := DllCall("OpenInputDesktop", "UInt", 0, "Int", 0, "UInt", 0x0100, "Ptr")
+	if (rcDesk)
+		DllCall("CloseDesktop", "Ptr", rcDesk)
+	if (!rcDesk && !gone)
+		gone := 1, RcLogMsg("the PC's screen is locked or its remote session disconnected - not bringing the game to the front till it's back")
+	else if (rcDesk && gone)
+		gone := 0, RcLogMsg("the PC's screen is back")
+	return rcDesk ? 1 : 0
 	}
 
 ;Is that screen point on the game window itself (not on another window over it)?
@@ -1541,7 +1816,7 @@ RcFindWord(pattern, area, fuzzy := "", lineMax := 0)
 	hitWin := DllCall("GetAncestor", "Ptr", DllCall("WindowFromPoint", "Int64", (midY << 32) | (midX & 0xFFFFFFFF), "Ptr"), "UInt", 2, "Ptr")
 	hitExe := V1Try(WinGetProcessName, "ahk_id " hitWin)
 	hitClass := V1Try(WinGetClass, "ahk_id " hitWin)
-	wordCount := 0, wordsSeen := ""
+	wordCount := 0, wordsSeen := "", loginSeen := 0
 	for each, zoom in [1, 2]
 		{
 		OcrRect(ax, ay, aw, ah, "en", zoom, &ocrLines)
@@ -1551,6 +1826,11 @@ RcFindWord(pattern, area, fuzzy := "", lineMax := 0)
 			for j, ocrWord in ocrLine.words
 				{
 				wordCount += 1
+				;(a login box's label - "Account:", "PASSWORD:", read badly too ("Accmna:", "PASSWQD:"): its words aren't
+				;logged - the Account field's username among them. 2026-11-27 review: they went into debug.log, and from there
+				;to bug reports and the Network tab)
+				if (!loginSeen && (RegExMatch(Trim(ocrWord.text), "i)^(acc\w*|pass\w{2,}):?$") || RcLooksLike(ocrWord.text, "PASSWORD") || RcLooksLike(ocrWord.text, "ACCOUNT")))
+					loginSeen := 1
 				if (lineMax && ocrLine.words.Length > lineMax)
 					continue
 				if (zoom = 1 && wordCount <= 30)
@@ -1568,7 +1848,7 @@ RcFindWord(pattern, area, fuzzy := "", lineMax := 0)
 					return V1Obj({x: wx, y: wy, text: ocrWord.text, left: ocrWord.x, top: ocrWord.y, w: ocrWord.w, h: ocrWord.h})
 				}
 		}
-	RcFindInfo := wordCount " words read there (" SubStr(wordsSeen, 1, 200) "), over the middle: " (hitWin = gameWin ? "the game" : (hitClass = "" ? "an unknown window" : hitClass) (hitExe = "" ? "" : " (" hitExe ")"))
+	RcFindInfo := wordCount " words read there (" (loginSeen ? "a login box's - not logged" : SubStr(wordsSeen, 1, 200)) "), over the middle: " (hitWin = gameWin ? "the game" : (hitClass = "" ? "an unknown window" : hitClass) (hitExe = "" ? "" : " (" hitExe ")"))
 	return ""
 	}
 
@@ -1603,24 +1883,33 @@ RcEditDistance(a, b)
 	return prevRow[lenB + 1]
 	}
 
-;Types text into a window as WM_CHAR messages (backspaces first: clears the box it goes into)
+;Types text into a window as WM_CHAR messages (backspaces first: clears the box it goes into). False - and nothing more
+;sent - at the first that isn't taken within a second (the window gone, or the game not answering): a password with letters
+;missing is never sent on (2026-11-27 review: failures were let by, and Enter pressed after them - RcStartStep stops then)
 RcChars(win, text, backspaces := 0)
 	{
 	global ErrorLevel ; (v1 globals it sets)
-	;(v1: ErrorLevel the reply, FAIL when the window has gone - v2 throws)
+	;(v1: ErrorLevel the reply, FAIL when the window has gone - v2 throws, also when it times out)
 	Loop backspaces
 		{
-		try ErrorLevel := SendMessage(0x102, 8, 0, , "ahk_id " win)
+		try ErrorLevel := SendMessage(0x102, 8, 0, , "ahk_id " win, , , , 1000)
 		catch
+			{
 			ErrorLevel := "FAIL"
+			return false
+			}
 		}
 	Loop Parse, text
 		{
-		try ErrorLevel := SendMessage(0x102, Ord(A_LoopField), 0, , "ahk_id " win)
+		try ErrorLevel := SendMessage(0x102, Ord(A_LoopField), 0, , "ahk_id " win, , , , 1000)
 		catch
+			{
 			ErrorLevel := "FAIL"
+			return false
+			}
 		Sleep(15)
 		}
+	return true
 	}
 
 ;Where the game is: the running one's path, else the last known one, else the usual install folder
@@ -1849,5 +2138,5 @@ ReconnectBlank()
 	global RcHungFirstAt := "", RcBackAt := "", RcCharSelAt := "", RcMaintAt := "", RcMaintAsked := ""
 	global RcLoggedIn := "", RcPidAt := "", RcBoxLookAt := "", RcBoxSaid := ""
 	global RcBoxUpAt := "", RcLoginTests := "", RcBoxClicks := "", RcBoxFound := "", RcBgWait := "", RcPwLookAt := ""
-	global RcLoginSentAt := "", RcOkClicks := "", RcOkAt := ""
+	global RcLoginSentAt := "", RcOkClicks := "", RcOkAt := "", RcCutTyped := "", RcOffRead := "", RcOffAt := ""
 	}

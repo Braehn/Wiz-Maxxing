@@ -1087,6 +1087,41 @@ PzTplNote(ms)
 	}
 PzTplName(t) => PzTpl.Has(t) ? PzTpl[t].name : ""
 
+;The zone's mobs read once for a recording (all: as it starts; else: as it's saved, only if one of its fights' templates is still
+;unknown) - the templates no read has named yet noted. PzTpl is filled only by a run's own reads: a recording begun by a walker's
+;notice, or carried on after a restart, had fights with no names, and the goal's own mob ('Defeat Greyhorn Mercenary') was saved
+;as a step of the way (PzFightIsGoal). As it starts every one read is noted afresh (PzTplNote): PzTpl lasts the whole session,
+;and a template marked the quest's hours ago, on another quest, made PzFightIsGoal drop your fight with it now. As it's saved
+;one noted already keeps what it was seen as (the goal may have moved on - its mob no longer marked)
+PzTplFill(rec, all := false)
+	{
+	global PzTpl
+	if (!all)
+		{
+		miss := false
+		for i, e in rec.steps
+			if (e.kind = "fight")
+				for j, t in e.foes
+					if (!PzTpl.Has(t))
+						miss := true
+		if (!miss)
+			return
+		}
+	sq := PzSaveQuiet()
+	ms := NavMobs(rec.line, 600)
+	PzRestoreQuiet(sq)
+	if (!IsObject(ms))
+		return
+	if (all)
+		{
+		PzTplNote(ms)
+		return
+		}
+	for i, m in ms
+		if (m.template != "" && !PzTpl.Has(m.template))
+			PzTpl[m.template] := V1Obj({name: m.name, boss: m.boss, quest: m.quest})
+	}
+
 ;Mobs grouped into camps (single link, 700 apart at most): [{kind: "camp", mobs, names, tpls, tpl: {t: 1}, gids: {gid: 1}, x, y, z,
 ;named (holds a kill-hint template), namedName, label, why (left out: why)}]
 PzCamps(mobs, kills)
@@ -1482,8 +1517,13 @@ PzNext(r)
 			if (r.tiers = "0")
 				{
 				PzPlan(r, "123")
+				;(a step back first: continue goes round to r.ci += 1 again, and the first new try - the camp the zone's
+				;triggers name, or the nearest side guard - was jumped over)
 				if (r.ci <= r.cands.Length)
+					{
+					r.ci -= 1
 					continue
+					}
 				}
 			PuzzleEnd("tried")
 			return
@@ -1996,6 +2036,7 @@ PzShut(r, why)
 	PzLog("the way's still shut - " why)
 	ReleaseKeys()
 	r.pb := "", r.missAt := 0
+	PzRecShut(r)
 	if (IsObject(c) && c.kind = "check")
 		{
 		PzLearnedResult(r.learned, false)
@@ -2167,6 +2208,9 @@ PuzzleEnd(how, why := "")
 		if (IsObject(PzRec) && PzRec.kind = "spot" && PzRec.zone = r.zone)
 			{
 			PzRec.openAt := A_TickCount
+			;(the run's own tries opened it - not a look while held: its tries that came before are kept, they may have been
+			;needed together (both side guards); PzSolution)
+			PzRec.byRun := r.probeOnly ? 0 : 1
 			;(a learned way that worked: its counts are what's new - not a second entry of the same)
 			if (learnedWay)
 				PzRecEnd(false, "the learned way opened it (its count kept in learned\puzzles.txt)")
@@ -2199,6 +2243,17 @@ PuzzleEnd(how, why := "")
 		}
 	;the hold - the wizard waits at the stop (battles fought, the recording on) - and the notice
 	PzRun := ""
+	;(a learned way whose tries ran out before its check - the battle cap, the time's up: it didn't open it either, counted as
+	;failed - else it was replayed first every time, never set aside)
+	if (IsObject(r.learned) && !r.learnedOut)
+		{
+		r.learnedOut := 1
+		PzLearnedResult(r.learned, false)
+		PzLog("the learned way's tries ran out before it opened - counted as failed")
+		}
+	;(the hold: none of the run's tries opened it - those since its last check too (the time's up, the battle cap, before a check):
+	;the recording's count of them moved on, as PzShut's (PzRecShut) - else they were saved ahead of your step)
+	PzRecShut(r)
 	h := V1Obj({zone: r.zone, x: r.x, y: r.y, z: r.z, dx: r.dx, dy: r.dy, tx: r.tx, ty: r.ty, tz: r.tz, kind: r.kind, door: r.door
 		, goalid: r.goalid, goal: r.goal, line: r.line, at: A_TickCount, probeAt: A_TickCount, offAt: 0, gaveUp: 0, tried: r.tried
 		, tickAt: 0, doorAt: 0, missAt: 0, missGid: ""})
@@ -2506,7 +2561,9 @@ PzLogLineDo(line)
 		{
 		if (RegExMatch(line, "Duel (\d+): MSG_CombatAdd\((.+?)\)", &m))
 			{
-			if (m[2] = "Local Player")
+			;(Non-local Player: another wizard - an ally who joined, or the one whose battle this is - not a mob: no foe's template,
+			;and the "won" count of the foes taken out never reached it)
+			if (m[2] = "Local Player" || m[2] = "Non-local Player")
 				return
 			d := PzDuelGet(m[1])
 			d.foes.Push(m[2])
@@ -2574,6 +2631,9 @@ PzLogLineDo(line)
 				PzDuelEnd(d)
 				return
 				}
+			;(another wizard leaving isn't a foe taken out - not among the foes either)
+			if (m[2] = "Non-local Player")
+				return
 			d.outs += 1
 			if (d.outs >= d.foes.Length)
 				{
@@ -2906,7 +2966,7 @@ PzRecStart(kind, why, s := "")
 		, doorSrc: IsObject(door) ? door.src : "", doorX: IsObject(door) ? door.x : "", doorY: IsObject(door) ? door.y : ""
 		, goalid: IsObject(WkNavObj) ? WkNavObj.goalid : "", goal: PzGoalLetters(WkGoalLine), line: WkGoalLine, quest: PzQuest()
 		, start: PzNow(), startAt: A_TickCount, steps: [], walks: [], tickAt: 0, goalAt: 0, gkey: "", awayAt: 0, openAt: 0, missAt: 0, missGid: ""
-		, doorAt: 0, check: 0, run: IsObject(PzRun) ? 1 : 0, pulled: 0, mems: PzMemDoors(door)})
+		, doorAt: 0, check: 0, run: IsObject(PzRun) ? 1 : 0, pulled: 0, shut: 0, byRun: 0, mems: PzMemDoors(door)})
 	;(the door's near memory doors too - not kept by a restart: the door alone then, as before)
 	rec.others := []
 	for i, d in rec.mems
@@ -2927,21 +2987,27 @@ PzRecStart(kind, why, s := "")
 	;(the first pulled steps came from the journal - from before the recording: the bot's own among them are no part of a solve)
 	rec.pulled := pulled
 	PzRec := rec
+	;(not a run's: its reads never named this zone's mobs)
+	if (!rec.run)
+		PzTplFill(rec, true)
 	PzRecWrite()
 	PzLog("recording what " (kind = "spot" ? "gets past " Round(rec.x) ", " Round(rec.y) : "moves '" rec.line "' on") " (" rec.zone ") - " why
 		. (pulled ? " (" pulled " from the journal already)" : ""))
 	}
 
-;The recording's file: the entry's header (puzzles.txt's form), its rec line, the steps so far - written whole at the start
+;The recording's file: the entry's header (puzzles.txt's form), its rec line, the steps and walked points so far - written whole at
+;the start, and again when the way's found still shut (PzRecShut: the walks too, else that rewrite lost them for a restart)
 PzRecWrite()
 	{
 	rec := PzRec
 	t := "; Wiz-Maxxing - a recording under way (Puzzle.ahk) - a restart carries on with it; deleted when it's saved or dropped`r`n"
 		. PzHeadLine(PzRecEntry(rec)) "`r`n"
 		. "rec|" rec.start "|" PzCell(rec.why) "|" rec.goalid "|" rec.doorGid "|" rec.doorSrc "|" PzF1(rec.doorX) "|" PzF1(rec.doorY) "|" rec.spotKind "|" rec.run
-		. "|" V1N(rec.pulled) "`r`n"
+		. "|" V1N(rec.pulled) "|" V1N(rec.shut) "`r`n"
 	for i, e in rec.steps
 		t .= PzRecLine(e) "`r`n"
+	for i, w in rec.walks
+		t .= PzRecLine(w) "`r`n"
 	PzWriteFile(PzRecFile, t)
 	}
 ;A journal entry as a recording's line (a step line; the fight's result after it)
@@ -2991,7 +3057,7 @@ PzRecResume()
 		, door: e.door, doorGid: V1At(f, 5), doorSrc: V1At(f, 6), doorX: PzNumOf(V1At(f, 7)), doorY: PzNumOf(V1At(f, 8))
 		, goalid: V1At(f, 4), goal: e.goal, line: e.line, quest: e.quest, start: f[2], startAt: A_TickCount - age * 1000, steps: [], walks: []
 		, tickAt: 0, goalAt: 0, gkey: "", awayAt: 0, openAt: 0, missAt: 0, missGid: "", doorAt: 0, check: 1, run: V1At(f, 10) = 1 ? 1 : 0
-		, pulled: V1N(PzNumOf(V1At(f, 11)))})
+		, pulled: V1N(PzNumOf(V1At(f, 11))), shut: V1N(PzNumOf(V1At(f, 12))), byRun: 0})
 	for i, sl in steps
 		{
 		g := StrSplit(sl, "|")
@@ -3025,8 +3091,22 @@ PzRecOnEntry(e)
 		return
 	if (e.zone != "" && e.zone != rec.zone)
 		return
+	;(a fight with no place - no "Local Player Entering Combat at" for its duel: another player's battle nearby, which the game logs
+	;too - isn't yours: saved, it was a step line the bot can't read, as PzRecStart's pulled ones need a place too)
+	if (e.kind = "fight" && !PzXY(e))
+		return
 	rec.steps.Push(e)
 	PzAppend(PzRecLine(e) "`r`n", PzRecFile)
+	}
+;The way found still shut (PzShut): the bot's steps recorded up to now didn't open it - a run's recording at r's stop keeps how
+;many there were then (its rec line - a restart keeps it), and PzSolution leaves them out
+PzRecShut(r)
+	{
+	rec := PzRec
+	if (!IsObject(rec) || !rec.run || rec.kind != "spot" || rec.zone != r.zone || rec.shut = rec.steps.Length)
+		return
+	rec.shut := rec.steps.Length
+	PzRecWrite()
 	}
 ;(a line added to a file, no error if it can't be)
 PzAppend(text, path)
@@ -3197,6 +3277,7 @@ PzRecEnd(save, why)
 		PzLog("the recording dropped - " why)
 		return
 		}
+	PzTplFill(rec)
 	e := PzSolution(rec)
 	if (!IsObject(e))
 		{
@@ -3219,6 +3300,25 @@ PzRecEnd(save, why)
 PzSolution(rec)
 	{
 	steps := [], you := 0
+	;(the bot's tries the way was found still shut after are left out only if a step of yours came after them - else, opened by
+	;itself or at a held look (a gate that opens late, a dialogue after the battle the check didn't wait out), the bot's tries are
+	;all that could have opened it: kept, as before PzRecShut. After the last of those tries (lastBot), not after rec.shut: a
+	;still-shut look in the hold moves rec.shut past your own steps too. And only a step of yours this keeps (PzStepKept) - a
+	;fight lost or fled, a Crown X, an enter or teleport X opened nothing)
+	shut := 0
+	if (rec.run && !rec.byRun && V1N(rec.shut))
+		{
+		lastBot := 0
+		for i, e in rec.steps
+			if (i <= V1N(rec.shut) && e.who = "bot")
+				lastBot := i
+		for i, e in rec.steps
+			if (i > lastBot && e.who = "you" && (!rec.openAt || e.at <= rec.openAt) && PzStepKept(e, rec))
+				{
+				shut := V1N(rec.shut)
+				break
+				}
+		}
 	for i, e in rec.steps
 		{
 		if (rec.openAt && e.at > rec.openAt)
@@ -3226,11 +3326,16 @@ PzSolution(rec)
 		if (!rec.run && e.who = "bot")
 			continue
 		;(a run's recording: the bot's own fights and X's from before it - pulled in from the journal, mobs fought on the way in - are
-		;no part of the way past; yours are: you may have begun before the block was seen)
-		if (rec.run && e.who = "bot" && i <= V1N(rec.pulled))
+		;no part of the way past; yours are: you may have begun before the block was seen. Nor - when it wasn't the run's own tries
+		;that opened it - are the bot's tries the way was found still shut after (PzRecShut): a failed run's 4 camps and levers kept
+		;ahead of your step made its replay fight its battle cap before it got to yours)
+		if (rec.run && e.who = "bot" && (i <= V1N(rec.pulled) || i <= shut))
 			continue
 		if (e.kind = "fight")
 			{
+			;(no place: a recording from before PzRecOnEntry left those out - not a step the bot can read)
+			if (!PzXY(e))
+				continue
 			if (e.result != "won" && e.result != "won?" && e.result != "")
 				continue
 			if (PzFightIsGoal(e, rec))
@@ -3276,6 +3381,18 @@ PzSolution(rec)
 	e := PzRecEntry(rec)
 	e.steps := steps, e.from := you ? "you" : "bot", e.learned := PzStamp(), e.dirty := 1, e.fresh := 1
 	return e
+	}
+
+;Would PzSolution keep recorded step e (of rec) as a step of the way past: a fight won (won? or no result) with a place, not the
+;goal's own mob nor a boss the zone's triggers don't name (PzFightIsGoal); an X or talk with no Crowns on it, not an enter /
+;teleport / shop one, not the quest's own thing's nor a teleporter's - its loop's own tests
+PzStepKept(e, rec)
+	{
+	if (e.kind = "fight")
+		return PzXY(e) && (e.result = "won" || e.result = "won?" || e.result = "") && !PzFightIsGoal(e, rec)
+	if (e.kind = "x" || e.kind = "talk")
+		return !(e.crown || RegExMatch(e.verb, "i)^(enter|teleport|shop|buy|sell)") || e.tquest = 1 || InStr(WalkLetters(e.dest), "TELEPORT"))
+	return false
 	}
 
 ;Is a recorded fight the goal's own (its mob in the goal's letters, a template seen as the quest's) or a boss - the bot's own boss

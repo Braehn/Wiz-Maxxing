@@ -11,7 +11,11 @@ folders; see PicScale.ahk): each is resized from the cut set nearest above the U
 leave out).
 
 Requests (all GET, answers are plain text lines, "ERR <why>" on a problem):
-  /ping                                   -> "OK <version>"
+  /ping                                   -> "OK <version>"; /ping?pid=1 -> "OK <version> pid <this helper's process id>"
+                                             + " token <t>" when started with --token t (a pythonw.exe that's a
+                                             launcher - a venv's, a shim - runs the helper under another pid)
+  /readers                                -> the game's memory readers this game build can't make (navmem's broken()):
+                                             "build|<build>", then "broken|<reader>|<why>" each - or "ok" for none
   /cards?x1=&y1=&x2=&y2=&scale=&pics=balance/hit1,resources/sharpen,... -> one line per card found: "dir/name|x|y|dist" (x, y = the
                                              picture's top left on screen, like ImageSearch's), best first
   /cards                                  -> (no rectangle) the cards in the wizard's hand and its pips, read from the
@@ -566,13 +570,14 @@ Only numpy and Pillow (katsuba is used for a zone .wad only if installed and the
 it). Stops by itself when the AutoFarmer process (--parent <pid>) is gone.
 """
 import argparse
-import collections, ctypes, functools, glob, json, math, os, re, struct, sys, tempfile, threading, time, traceback
+import collections, ctypes, functools, glob, json, math, os, re, socket, struct, sys, tempfile, threading, time, traceback
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 
 VERSION = '2'
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # the AutoFarmer folder
 PORT = 47128
+TOKEN = ''   # --token: echoed by /ping?pid=1 - AutoFarmer knows the helper it started by it
 # A card counts as there when its RMS distance is under this (calibrated on saved rounds at UI 0.87-1.5:
 # the right card 0-6.3, the closest wrong one 9 - Epic's thin strip; see vision\calibrate.py)
 CARD_DIST = 8.0
@@ -585,16 +590,24 @@ BADGE_GAP = 12.0
 # VisionStart puts that line in debug.log): log is made before numpy and Pillow are imported, so their absence is said
 # too. WIZ_VISION_LOG: another file (the tests)
 LOG = os.environ.get('WIZ_VISION_LOG') or os.path.join(ROOT, 'vision', 'vision.log')
+# One writer at a time: the request threads, the recorder, placements, party and netmon all log, and two of them
+# rotating at once would rename the fresh log over vision.log.old (or fail the rename on Windows while the other
+# has the file open) and lose a line
+LOG_LOCK = threading.Lock()
 
 
 def log(msg):
-    try:
-        if os.path.exists(LOG) and os.path.getsize(LOG) > 512 * 1024:
-            os.replace(LOG, LOG + '.old')
-        with open(LOG, 'a', encoding='utf-8') as f:
-            f.write(time.strftime('%H:%M:%S ') + msg + '\n')
-    except OSError:
-        pass
+    with LOG_LOCK:
+        try:
+            if os.path.exists(LOG) and os.path.getsize(LOG) > 512 * 1024:
+                os.replace(LOG, LOG + '.old')
+        except OSError:
+            pass  # not rotated this time (the next line tries again); the line itself is still written
+        try:
+            with open(LOG, 'a', encoding='utf-8') as f:
+                f.write(time.strftime('%H:%M:%S ') + msg + '\n')
+        except OSError:
+            pass
 
 
 def one_line(s, most=300):
@@ -639,6 +652,17 @@ def load_rgb_mask(path):
     return a, mask
 
 
+BADPIC_SAID = {}
+
+
+def bad_picture(path, e):
+    """a picture file that can't be read (cut short or damaged): said in the log once in 10 minutes, and that one
+    picture is left out - the rest of the request goes on without it"""
+    if time.time() - BADPIC_SAID.get(path, 0) > 600:
+        BADPIC_SAID[path] = time.time()
+        log(f"picture {path} can't be read ({one_line(e)}) - left out; cut or learn it again")
+
+
 class Library:
     """The pictures, resized to a UI scale on first use (cached)"""
 
@@ -674,9 +698,12 @@ class Library:
         for d, sc in picture_sets():
             p = os.path.join(d, rel)
             if os.path.exists(p):
-                with Image.open(p) as im:
-                    if im.width >= 12 and im.height >= 12:
-                        return True
+                try:
+                    with Image.open(p) as im:
+                        if im.width >= 12 and im.height >= 12:
+                            return True
+                except (OSError, ValueError) as e:
+                    bad_picture(p, e)
         return False
 
     def get(self, rel, scale):
@@ -687,7 +714,12 @@ class Library:
                 return self.cache[key]
         made = None
         for d, sc in self.masters(rel, scale):
-            made = self.make(os.path.join(d, rel), sc, scale)
+            # (a damaged copy is passed over for the next set's, not an ERR for the whole /cards or /hand)
+            try:
+                made = self.make(os.path.join(d, rel), sc, scale)
+            except (OSError, ValueError) as e:
+                bad_picture(os.path.join(d, rel), e)
+                made = None
             if made is not None:
                 break
         with self.lock:
@@ -1511,7 +1543,11 @@ def learned_pic(ent, scale, here=''):
         if pic is None:
             return None
         return dict(tpl=pic[0], mask=pic[1], name=name, files=[], cid=cid, slot=slot, setdir=setdir)
-    tpl, mask = load_rgb_mask(base + '.png')
+    try:
+        tpl, mask = load_rgb_mask(base + '.png')
+    except (OSError, ValueError) as e:
+        bad_picture(base + '.png', e)
+        return None
     return dict(tpl=tpl, mask=mask, name=name, files=[base + '.png'] + ([slotfile] if slotfile else []), cid=cid, slot=slot, setdir=setdir)
 
 
@@ -1548,9 +1584,10 @@ def refine(pic, diff):
         return False
     out = tpl.astype(np.uint8).copy()
     out[~keep] = (255, 0, 255)
+    # (written whole, then put in place: a helper stopped mid-save leaves the old picture, not a cut-short one)
     for f in pic['files']:
         if os.path.exists(f):
-            Image.fromarray(out).save(f)
+            save_png(Image.fromarray(out), f)
     pictures_changed()
     log(f"  {pic['name']}: {int(mask.sum() - keep.sum())} pixels that differ between copies made see-through ({int(keep.sum())} of {keep.size} left)")
     return True
@@ -1564,12 +1601,12 @@ def cut_here(art, pic, here):
     os.makedirs(os.path.join(dest, 'learned'), exist_ok=True)
     a = Image.fromarray(np.clip(art, 0, 255).astype(np.uint8))
     for ext in ('.png', '.raw.png'):
-        a.save(os.path.join(dest, 'learned', pic['cid'] + ext))
+        save_png(a, os.path.join(dest, 'learned', pic['cid'] + ext))
     slot_done = False
     if pic['slot'] and not os.path.exists(os.path.join(dest, pic['slot'] + '.png')):
         os.makedirs(os.path.dirname(os.path.join(dest, pic['slot'] + '.png')), exist_ok=True)
         for ext in ('.png', '.raw.png'):
-            a.save(os.path.join(dest, pic['slot'] + ext))
+            save_png(a, os.path.join(dest, pic['slot'] + ext))
         slot_done = True
     pictures_changed()
     log(f"  {pic['name']}: learned at another UI size - this copy cut into {here}" + (f" (and as {pic['slot']})" if slot_done else ''))
@@ -1589,7 +1626,7 @@ def cut_card(left, top, scale, out, file=None):
     if not is_real(f):
         return False, f
     os.makedirs(os.path.dirname(out), exist_ok=True)
-    save = lambda a, p: Image.fromarray(np.clip(a, 0, 255).astype(np.uint8)).save(p)
+    save = lambda a, p: save_png(Image.fromarray(np.clip(a, 0, 255).astype(np.uint8)), p)
     ax1, ay1, ax2, ay2 = box(ART_BOX, scale, lx, ly)
     save(img[ay1:ay2, ax1:ax2], out + '.png')
     save(img[ay1:ay2, ax1:ax2], out + '.raw.png')
@@ -2210,6 +2247,7 @@ def client_answer(q):
             return max(0, int(s))
         except (TypeError, ValueError):
             return -1
+    asked = {num(p) for p in (q.get('pids') or '').split(',')} | {num(q.get('pid'))}
     for p in (q.get('pids') or '').split(','):
         n = num(p)
         if n > 0:
@@ -2225,9 +2263,37 @@ def client_answer(q):
         if n != CLIENT:
             log('client: the game\'s memory read from %s now' % (('pid %d' % n) if n else 'the foreground client'))
         CLIENT = n
+    clients_gone(asked | {CLIENT})
     r = nav_reader()
     st, why = r._ensure(0.0)
     return 'OK client %d %s' % (CLIENT, 'attached' if st is not None else ('- ' + why))
+
+
+def clients_gone(keep):
+    """the readers of game clients no longer running dropped (each /client): a client started again has a new pid,
+    and the old one's reader - its handle on the closed game, its hand, quest, deck and bag readers and their caches -
+    was kept till the helper stopped. keep: the pids just asked for (one not running yet keeps its reader). Closed in
+    a thread of their own (a read in progress on one holds its lock: /client isn't held up)"""
+    import navmem
+    try:
+        live = set(navmem.find_pids())
+    except Exception:  # noqa: BLE001 - none dropped this time
+        return
+    if not live:
+        return      # (no client running - or the process list not had: none dropped, as before)
+    with NAV_LOCK:
+        gone = [(n, NAVS.pop(n)) for n in list(NAVS) if n not in live and n not in keep]
+    if not gone:
+        return
+    log('client: ' + ', '.join('pid %d' % n for n, _r in gone) + ' no longer running - its reader dropped')
+
+    def close():
+        for _n, r in gone:
+            try:
+                r.close()
+            except Exception:  # noqa: BLE001
+                pass
+    threading.Thread(target=close, name='clients-gone', daemon=True).start()
 
 
 CARDS_LOGGED = {'text': None}
@@ -2259,6 +2325,31 @@ def cards_answer(q=None):
                 + ', '.join(f"{c[4] or c[3]} ({c[16]}{' ' + c[15] if c[15] else ''}, {c[7]} pips{' X' if c[8] == '1' else ''}"
                             f"{', tc' if c[11] == '1' else ''}{', ' + c[13] if c[13] else ''}){cards_by_school(c)}" for c in cards))
     return text
+
+
+READERS_LOGGED = {'key': None}
+
+
+def readers_answer():
+    """/readers: the game's memory readers that can't be made for this build (navmem's NavMem.broken - a class, property
+    or signature a game patch took away) as lines: 'build|<build>', then 'broken|<reader>|<why>' each, or 'ok' when
+    there are none - for AutoFarmer's dashboard and its alert (Dashboard.ahk). The list in vision.log when it changes.
+    Nothing read from the game here; never raises"""
+    try:
+        build, out = nav_reader().broken()
+    except Exception as e:  # noqa: BLE001 - never into the server
+        build, out = '', [('helper', 'the readers\' state couldn\'t be read (%r)' % (e,))]
+    lines = ['build|' + one_line(build or '', 40).replace('|', '/')]
+    for name, why in out:
+        lines.append('broken|%s|%s' % (one_line(name, 30).replace('|', '/'), one_line(why or '', 200).replace('|', '/')))
+    if not out:
+        lines.append('ok')
+    key = '\n'.join(lines)
+    if key != READERS_LOGGED['key']:
+        if out or READERS_LOGGED['key'] is not None:
+            log('/readers: ' + ' / '.join(lines)[:600])
+        READERS_LOGGED['key'] = key
+    return lines
 
 
 BAG_LOGGED = {'key': None}
@@ -3055,9 +3146,13 @@ def sim_lines_for(q):
 
 
 # ---------------------------------------------------------------- decks matched to a zone's enemies (battlesim.best_decks)
-DECKFOR = {'cache': {}, 'thread': None}
+# (failed: each question's last failed working-out, (at, lines, retry s, said at, why) - never in cache, so a good answer
+# kept from before stays)
+DECKFOR = {'cache': {}, 'thread': None, 'failed': {}}
 DECKFOR_LOCK = threading.Lock()
 DECKFOR_S = 600         # an answer kept this long (the battles recorded are read again as often - SIM_BOOK_S)
+DECKFOR_RETRY_S = 60    # a working-out that failed: tried again after this long (not a heavy thread on every ask) - each
+                        # failure again in a row twice as long, DECKFOR_S at most; logged when it changes or each DECKFOR_S
 
 
 def deckfor_lines_for(q, ctx=None, wait=False):
@@ -3091,6 +3186,15 @@ def deckfor_lines_for(q, ctx=None, wait=False):
             # DeckForZone keeps its rows through one as well)
             stale = list(hit[1]) + ['note|worked out %d minutes ago - being worked out again' % ((now - hit[0]) // 60)] \
                 if hit is not None else None
+            # (the last working-out failed a moment ago: the old answer if there is one, else the failure, till its
+            # retry time - DECKFOR_RETRY_S, longer for each failure in a row - has gone by)
+            failed = DECKFOR['failed'].get(key)
+            if failed is not None and now - failed[0] < failed[2] and not wait:
+                if hit is None:
+                    return failed[1]
+                mins = max(1, int(-(-(failed[2] - (now - failed[0])) // 60)))
+                return list(hit[1]) + ['note|worked out %d minutes ago - working it out again failed (tried again in %d '
+                                       'minute%s)' % ((now - hit[0]) // 60, mins, '' if mins == 1 else 's')]
             busy = DECKFOR['thread'] is not None and DECKFOR['thread'].is_alive()
             if busy and not wait:
                 return stale or ['none|working out another zone\'s decks - ask again in a few seconds']
@@ -3159,12 +3263,28 @@ def deckfor_lines_for(q, ctx=None, wait=False):
                 res = B.best_decks(specs, groups, lambda names: [book.foe(nm, wiki, casts) for nm in names], me,
                                    n=int(min(300, max(10, fl('n', B.DECKFOR_N)))), budget_ms=20000, pause=gate_wait)
                 lines = B.deckfor_lines(res, zone)
-            except Exception as e:  # noqa: BLE001 - said, not kept
+            except Exception as e:  # noqa: BLE001 - said, not kept: the answer from before stays, tried again later
                 lines = ['none|the decks couldn\'t be simulated (%r)' % (e,)]
+                why = one_line(repr(e))
+                # (failed again in a row: tried again twice as late, DECKFOR_S at most - one that always fails, an odd
+                # record, isn't a 20 s sim every minute -; the same failure logged once each DECKFOR_S)
+                with DECKFOR_LOCK:
+                    at = time.monotonic()
+                    last = DECKFOR['failed'].get(key)
+                    retry = DECKFOR_RETRY_S if last is None else min(DECKFOR_S, last[2] * 2)
+                    say = last is None or last[4] != why or at - last[3] >= DECKFOR_S
+                    if len(DECKFOR['failed']) > 32:
+                        DECKFOR['failed'].clear()
+                    DECKFOR['failed'][key] = (at, lines, retry, at if say else last[3], why)
+                if say:
+                    log('/deckfor %s: the decks couldn\'t be simulated (%s) - tried again in %d s'
+                        % (zone or foes_q, why, retry))
+                return lines
             with DECKFOR_LOCK:
                 if len(DECKFOR['cache']) > 32:
                     DECKFOR['cache'].clear()
                 DECKFOR['cache'][key] = (time.monotonic(), lines)
+                DECKFOR['failed'].pop(key, None)
             return lines
         if wait:
             return work()
@@ -5141,13 +5261,25 @@ class Handler(BaseHTTPRequestHandler):
 
     def reply(self, text, code=200):
         body = text.encode('utf-8')
-        self.send_response(code)
-        self.send_header('Content-Type', 'text/plain; charset=utf-8')
-        self.send_header('Content-Length', str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
+        # (the bot gave up waiting - its timeout closed the connection, /nav's 150 ms or /mobs' - before the answer
+        # went: said as that with how long it took, not as an ERR of the helper's, and no second answer is tried on
+        # the closed connection. The words leave out "error": VisionStartWhy takes such a line as why a start failed)
+        try:
+            self.send_response(code)
+            self.send_header('Content-Type', 'text/plain; charset=utf-8')
+            self.send_header('Content-Length', str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+        except ConnectionError:
+            self.close_connection = True
+            path = urlparse(self.path).path
+            if path != '/rec':
+                t0 = getattr(self, 't0', None)
+                took = f' after {(time.perf_counter() - t0) * 1000:.0f} ms' if t0 is not None else ''
+                log(f"{path}: the bot stopped waiting{took} (it closed the connection) - the answer wasn't sent")
 
     def do_GET(self):
+        self.t0 = time.perf_counter()
         # (a web page's request: refused before anything's read, done or waited for)
         if self.refused():
             return
@@ -5161,7 +5293,12 @@ class Handler(BaseHTTPRequestHandler):
             GATE.enter()
         try:
             if u.path == '/ping':
-                return self.reply('OK ' + VERSION)
+                # (pid=1: which helper answered - the one AutoFarmer started, or another still on the port)
+                return self.reply('OK ' + VERSION + ((' pid %d' % os.getpid() + (' token ' + TOKEN if TOKEN else ''))
+                                                     if q.get('pid') == '1' else ''))
+            if u.path == '/readers':
+                # (the memory readers a game patch broke - navmem's broken(): AutoFarmer's dashboard says so)
+                return self.reply('\n'.join(readers_answer()))
             if u.path == '/client':
                 return self.reply(client_answer(q))
             if u.path == '/forget':
@@ -5570,6 +5707,7 @@ class Handler(BaseHTTPRequestHandler):
         """/rec and /ovlog. /rec: the bot's round, hello, who and state posts (vision\\battlerec.py) - its body (64 KB at
         most) put on the recorder's queue as it is - no parsing, file or memory read here - "ok", or "off" when the
         recorder is off. /ovlog: the overlay's log lines (Overlay.ahk) drawn into its frame file - ovlog_reply"""
+        self.t0 = time.perf_counter()
         try:
             u = urlparse(self.path)
             q = {k: v[0] for k, v in parse_qs(u.query).items()}
@@ -5602,6 +5740,23 @@ class Handler(BaseHTTPRequestHandler):
                 return None
 
 
+class HelperServer(ThreadingHTTPServer):
+    """the helper's server: its port its own (no address reuse - Python's server sets SO_REUSEADDR, which on Windows
+    lets a second helper bind the port beside one still listening, and which of the two gets each request is then
+    anyone's guess; netmon's NetServer the same). Connections left in TIME_WAIT by a helper just stopped don't hold
+    the port up"""
+    allow_reuse_address = False
+
+    def server_bind(self):
+        if hasattr(socket, 'SO_EXCLUSIVEADDRUSE'):
+            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        super().server_bind()
+
+
+BIND_TRIES = 10     # the port tried this many times...
+BIND_GAP = 0.3      # ...this far apart (s): an old helper still closing (AutoFarmer's /quit a moment ago) lets it go
+
+
 def parent_alive(pid):
     PROCESS_QUERY_LIMITED_INFORMATION, STILL_ACTIVE = 0x1000, 259
     h = ctypes.windll.kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
@@ -5611,6 +5766,31 @@ def parent_alive(pid):
     ok = ctypes.windll.kernel32.GetExitCodeProcess(h, ctypes.byref(code))
     ctypes.windll.kernel32.CloseHandle(h)
     return bool(ok) and code.value == STILL_ACTIVE
+
+
+def parent_handle(pid):
+    """a handle on AutoFarmer's process, opened once at start and kept: waited on (parent_wait) - its pid looked up
+    again every few seconds could, once AutoFarmer was gone, be another process's that Windows gave it to, and the
+    helper would never stop. 0: not opened (gone already, or not allowed - parent_alive's look by pid then)"""
+    SYNCHRONIZE, PROCESS_QUERY_LIMITED_INFORMATION = 0x00100000, 0x1000
+    try:
+        return ctypes.windll.kernel32.OpenProcess(SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION, False, pid) or 0
+    except Exception:  # noqa: BLE001
+        return 0
+
+
+def parent_wait(h, pid, every=5.0):
+    """back once AutoFarmer has gone: its process handle h waited on (h 0: its pid looked at every few seconds)"""
+    WAIT_OBJECT_0, WAIT_TIMEOUT = 0, 0x102
+    if h:
+        got = WAIT_TIMEOUT
+        while got == WAIT_TIMEOUT:
+            got = ctypes.windll.kernel32.WaitForSingleObject(h, int(every * 1000))
+        if got == WAIT_OBJECT_0:
+            return
+        # (the wait itself failed: by its pid from here, as before)
+    while parent_alive(pid):
+        time.sleep(every)
 
 
 def rec_start():
@@ -5630,21 +5810,30 @@ STARTED = False   # main got as far as its "started" line (an error after it isn
 
 
 def main():
-    global LIB, STARTED
+    global LIB, STARTED, TOKEN
     ap = argparse.ArgumentParser()
     ap.add_argument('--parent', type=int, default=0, help='stop when this process is gone')
     ap.add_argument('--port', type=int, default=PORT)
+    ap.add_argument('--token', default='', help='echoed by /ping?pid=1: which helper AutoFarmer started')
     args = ap.parse_args()
+    TOKEN = ''.join(c for c in args.token if c.isalnum())[:40]
+    # (AutoFarmer's process held from the start - parent_handle)
+    parent_h = parent_handle(args.parent) if args.parent else 0
     try:
         ctypes.windll.user32.SetProcessDPIAware()   # screen pixels, like AutoHotkey's
     except Exception:  # noqa: BLE001
         pass
     LIB = Library()
-    try:
-        server = ThreadingHTTPServer(('127.0.0.1', args.port), Handler)
-    except OSError as e:
-        log(f'port {args.port} taken ({e}) - another copy is running')
-        return
+    server = None
+    for i in range(BIND_TRIES):
+        try:
+            server = HelperServer(('127.0.0.1', args.port), Handler)
+            break
+        except OSError as e:
+            if i == BIND_TRIES - 1:
+                log(f'port {args.port} taken ({e}) - another copy is running')
+                return
+            time.sleep(BIND_GAP)
     log(f'started (version {VERSION}, port {args.port}, parent {args.parent}, sets: ' + ', '.join(f'{os.path.basename(d) or "main"}={sc}' for d, sc in LIB.sets) + ')')
     STARTED = True
     # (the game's template files - Root.wad's table, the template manifest - read once now, in placements' thread, before
@@ -5663,8 +5852,7 @@ def main():
     rec_start()
     if args.parent:
         def watch():
-            while parent_alive(args.parent):
-                time.sleep(5)
+            parent_wait(parent_h, args.parent)
             log('AutoFarmer is gone - stopping')
             party_stop()
             if ROUTEMEM is not None:

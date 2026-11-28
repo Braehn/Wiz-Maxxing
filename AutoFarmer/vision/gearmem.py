@@ -186,7 +186,7 @@ class GearMem:
         import handmem as H
         import questmem as Q
         import reflect as R
-        img = H.Image(st)
+        img = H.shared_image(st)
         raw = {}
         for c in set(CLASSES) | {a[0] for a in R.ANCHORS}:
             try:

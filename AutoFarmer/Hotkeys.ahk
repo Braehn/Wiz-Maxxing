@@ -15,8 +15,8 @@ global HkCapMods
 global KeyList, KeyHelp, KeyStatus, KeyChangeBtn, KeyDefaultBtn, KeyNoneBtn, KeyAllBtn
 
 ;Every action that has a key: {id, label, def (its key out of the box), ctx (when it works: game - the bot on, or
-;Wizard101 in front; front - only with Wizard101 in front, the bot on or not; on - the bot on; "" always; rec - only
-;while recording, made by the recorder), run (the label it runs - in Autofarmer.ahk)}
+;Wizard101 in front; front - only with Wizard101 in front, the bot on or not; on - the bot on and Wizard101 in front;
+;"" always; rec - only while recording, made by the recorder), run (the label it runs - in Autofarmer.ahk)}
 HkActions()
 	{
 	static list := ""
@@ -127,6 +127,12 @@ HkRefuse(k, id)
 		return "Alt+F4 closes windows"
 	if (InStr(mods, "#") && RegExMatch(low, "^(l|d|e|r|tab|g)$") && StrLen(mods) = 1)
 		return HkName(k) " is Windows' own"
+	;(Alt+Tab, with Shift or Ctrl too - pressed out of habit to get back to the game while a key's caught; Alt+Space, a
+	;window's menu; Ctrl+Esc, Start, and Ctrl+Shift+Esc, Task Manager. Not Alt+Esc: the second restart key's default)
+	if (InStr(mods, "!") && (low = "tab" || low = "space"))
+		return HkName(k) " is Windows' own"
+	if (InStr(mods, "^") && !InStr(mods, "!") && !InStr(mods, "#") && (low = "escape" || low = "esc"))
+		return HkName(k) " is Windows' own"
 	;(the developer's keys, still made in Autofarmer.ahk itself - they'd take it first while the bot's on)
 	if (HkSame(k, "!0") || HkSame(k, "#``"))
 		return HkName(k) " is the bot's developer key"
@@ -157,8 +163,10 @@ HkNorm(k)
 	}
 
 ;When an action's key works (the Hotkey command's If): the bot on, or Wizard101 in front (F6 and F8 while it's off -
-;standby, paused: only in the game, not taken from other programs); the bot on (the modes and picks: off, their keys
-;go to whatever program has them)
+;standby, paused: only in the game, not taken from other programs); the bot on and Wizard101 in front (the modes and
+;picks: off, or another program in front, their keys go to whatever program has them - Alt+E, Alt+D, Alt+S... are
+;other programs' own menus and address bars, and a mode switched on from Chrome stopped quest walking or typed chat
+;lines into the window in front)
 HkCtxGame(hk := "")
 	{
 	return BotOn || WinActive("ahk_exe WizardGraphicalClient.exe")
@@ -166,7 +174,7 @@ HkCtxGame(hk := "")
 
 HkCtxOn(hk := "")
 	{
-	return BotOn
+	return BotOn && WinActive("ahk_exe WizardGraphicalClient.exe")
 	}
 
 ;Only with Wizard101 in front (the overlay's: Windows+4 isn't taken from your other programs while the bot runs)
@@ -336,7 +344,7 @@ KeyListFill()
 	lv.Delete()
 	for i, a in HkActions()
 		{
-		when := a.ctx = "game" ? "the bot on, or in Wizard101" : a.ctx = "front" ? "in Wizard101" : a.ctx = "on" ? "the bot on" : a.ctx = "rec" ? "while recording" : "always"
+		when := a.ctx = "game" ? "the bot on, or in Wizard101" : a.ctx = "front" ? "in Wizard101" : a.ctx = "on" ? "the bot on, in Wizard101" : a.ctx = "rec" ? "while recording" : "always"
 		k := HkKeyOf(a.id)
 		r := lv.Add("", a.label, HkName(k), HkName(a.def) (HkSame(k, a.def) ? "" : "  (changed)"), when, a.id)
 		if (a.id = keep)

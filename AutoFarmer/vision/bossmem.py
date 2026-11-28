@@ -114,7 +114,7 @@ def mob_titles(img, gt, prop="m_mobTitle", lim=0x3000):
     slot that every option writes and whose values are 0..n-1 (the other common slots: the name's length and capacity,
     a 1 << value bit). {} when it doesn't read that way"""
     r0, rdata = img.secs[".rdata"]
-    copies = set(img.strings(prop))
+    copies = set(img.strings(prop)) | set(img.strings(prop, loose=True))   # (one right after other bytes: find_types)
     code = img.code_at(gt, lim)
     if not copies or not code:
         return {}
@@ -132,6 +132,8 @@ def mob_titles(img, gt, prop="m_mobTitle", lim=0x3000):
 
     def word_before(a):
         i = a - r0 - 1                       # (the NULs before the copy, then the string before them)
+        if not (0 <= i < len(rdata)) or rdata[i] != 0:
+            return None                      # (a copy right after other bytes: no name of its own before it - the load)
         while i > 0 and rdata[i] == 0:
             i -= 1
         j = i
@@ -152,7 +154,7 @@ def mob_titles(img, gt, prop="m_mobTitle", lim=0x3000):
             for m in re.finditer(rb"(?:\x8B\x05|\x0F\xB7\x05|\x0F\xB6\x05|[\x48\x4C]\x8B\x05|\x8B[\x0D\x15\x1D])(....)",
                                  seg, re.DOTALL):
                 t = gt + seg_at + m.end() + struct.unpack("<i", m.group(1))[0]
-                if img.m.in_section(t, ".rdata") and rdata[t - r0 - 1] == 0 and word_at(t):
+                if img.m.in_section(t, ".rdata") and H.name_starts(rdata, t - r0) and word_at(t):
                     name = word_at(t)
                     break
         slots = {}
@@ -267,7 +269,7 @@ class BossMem:
         self.log = log or (lambda msg: None)
         t0 = time.perf_counter()
         self.st, self.p, self.build = st, st.p, st.m.build
-        img = H.Image(st)
+        img = H.shared_image(st)
         props = {c: Q.class_props(img, c) for c in set(NEED) | set(VT_CLASSES)}
         self.P = {c: {k: v[0] for k, v in props[c][0].items()} for c in props}
         missing = [c + "." + k for c, ks in NEED.items() for k in ks if k not in self.P[c]]

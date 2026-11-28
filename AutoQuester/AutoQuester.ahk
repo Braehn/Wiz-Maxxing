@@ -9,6 +9,10 @@
 ; screen, dialogue) it stops and waits. The walking itself lives in Walker.ahk (settings at its top).
 ;(v1's #NoEnv: always so in v2)
 #SingleInstance force
+;(both hooks from the start, as AutoFarmer's: A_TimeIdlePhysical - UserIdle, every look for you - leaves the walker's own keys and
+;mouse out only with them; without, its own W/A/D counted as you)
+InstallKeybdHook()
+InstallMouseHook()
 ;(v1's SetBatchLines -1: v2 always runs at full speed)
 V1Start(), AutoQuesterBlank(), WalkerBlank(), MouseSteerBlank() ; (v2 port: v1 started every variable blank - CONVENTIONS.md "Blank start")
 CoordMode("Pixel", "Screen")
@@ -102,12 +106,27 @@ ExitApp()
 WalkLoop() { ; (v1: the label WalkLoop - its timer)
 global
 local v1Keep := V1Thread() ; (v1: each thread had its own ErrorLevel)
+;(you at the keyboard or mouse since walking went on - F8 and its letting go left out: 0.6 s - in the last 3 s, Wizard101 in front:
+;the keys let go and no step till you've left them alone 3 s, as AutoFarmer's "You're playing - the bot waits" (PlayerActing); the
+;walker's watch afresh after, a sigil's wait kept - WalkResume. The walker's own holds let go for you at once too - WalkYouSince)
+local aqFrom := A_TickCount + 600, aqYou := 0
 ;A quick stop+start can queue a second run of this; only run while walking
 if (!Walking)
 	return
 while (Walking)
 	{
 	UpdateGameRect()
+	if (GameActive() && UserIdle() < Min(3000, A_TickCount - aqFrom))
+		{
+		if (KeysDown || HeldW)
+			ReleaseKeys()
+		if (!aqYou)
+			aqYou := 1, SetStatus("you're playing - walking waits till you've left the keyboard and mouse alone for 3 s")
+		Sleep(200)
+		continue
+		}
+	if (aqYou)
+		aqYou := 0, WalkResume()
 	if (!WalkStep())
 		break
 	}

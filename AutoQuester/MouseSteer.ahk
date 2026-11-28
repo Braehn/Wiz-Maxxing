@@ -29,6 +29,11 @@ global MsStandMiss, MsStandOff
 ;How far the last turn from standing that missed did turn him (degrees, + right; "" none, not read, or it didn't miss) - the
 ;callers turn the rest, not the whole turn again on top (2026-10-25 11:42:26: 158 wanted, -168 by the mouse, then 158 by A/D)
 global MsStandGot
+;(v2-only) How much further than MsK says a turn from standing turns him (turned / asked, learned from each one read back of
+;30 degrees or more; "" not yet: 1). MsK is measured running - read 40 ms after each slide, the wizard still following the
+;camera - and a turn from standing has no look on the way to put that right: 2026-11-26/27 nine misses in a row went 1.3-1.8
+;times too far (131 wanted, 202 turned)
+global MsStandK
 ;Why the last facing read failed (NavWhy then - MouseSteerYaw puts the walker's back), the right button pressed as a raw
 ;mouse_event for the rest of the run (1: the bot's own press didn't reach the game and that one turned him - MouseTurn,
 ;MouseSteerButton), and the last measuring miss in words: which half failed (MouseSteerGaveUp)
@@ -589,6 +594,7 @@ MouseSteerGaveUp()
 MouseStandTurn(h)
 	{
 	global MsStandGot, MsK, MsKSign, MsTriedAt, KeysDown, HeldW, WkWalkFrom, MsStandMiss, WkTurnAt, MsStandOff ; (v1 globals it sets)
+	global MsStandK ; (sets)
 	MsStandGot := ""
 	;(the memory's heading turned round since the count was measured: so is the count - as MouseTurn)
 	if (MsK != "" && MsKSign != WkNavSign)
@@ -651,8 +657,10 @@ MouseStandTurn(h)
 		{
 		MouseSteerButton(1)
 		Sleep(60)
-		;(the counts for h in looks of 90 degrees' worth at most, a third of the game's width at most each)
-		want := Round(h / MsK), most := Min(Round(90 / Abs(MsK)), Round(GameW * 0.3))
+		;(the counts for h in looks of 90 degrees' worth at most, a third of the game's width at most each - by the standing
+		;turn's own worth: MsK's times MsStandK, as learned below)
+		msSk := V1IsNum(MsStandK) ? MsStandK : 1
+		want := Round(h / MsK / msSk), most := Min(Round(90 / Abs(MsK)), Round(GameW * 0.3))
 		while (want != 0)
 			{
 			c := want > most ? most : want < -most ? -most : want
@@ -688,6 +696,20 @@ MouseStandTurn(h)
 			Critical("Off")
 		}
 	turned := yaw1 != "" ? MouseSteerTurned(yaw1, yaw0) : ""
+	;(how far it really went - h and the wrap's difference: 131 asked, -158 read is 202 - for the standing worth, from a turn of
+	;30 or more that went the way asked between half and 2.5 times as far: not one the mouse didn't turn at all (the 0s of
+	;2026-11-26 18:31 - the mouse not taking then), not a battle pulling him round. Eased in, 0.6-2)
+	if (turned != "" && Abs(h) >= 30 && !MouseSteerYours(MsTriedAt))
+		{
+		msReal := h + ArrowWrap(turned - h), msRatio := msReal / h
+		if (msRatio >= 0.5 && msRatio <= 2.5)
+			{
+			msWas := msSk
+			MsStandK := Min(2, Max(0.6, V1IsNum(MsStandK) ? MsStandK * 0.6 + msSk * msRatio * 0.4 : msSk * msRatio))
+			if (Abs(MsStandK - msWas) >= 0.05)
+				MouseSteerNote("a turn from standing went " Round(msRatio, 2) " times as far as asked (" Round(h) " asked, " Round(msReal) " turned) - its worth now " Round(MsStandK, 2) " times the running one's")
+			}
+		}
 	;(off from h by the wrap - a turn of 180 reads -180 as often as 180)
 	if (turned != "" && Abs(ArrowWrap(turned - h)) <= 25)
 		{
@@ -722,4 +744,5 @@ MouseSteerBlank()
 	global MsK := "", MsKSign := "", MsOffUntil := "", MsFails := "", MsHeld := "", MsWinAt := "", MsWinOk := "", MsWinWhy := "", MsSaid := ""
 	global MsSaidAt := "", WkArcSentR := "", WkArcMouse := "", MsMiss := "", MsTriedAt := "", MsStandMiss := "", MsStandOff := "", MsStandGot := ""
 	global MsYawWhy := "", MsRaw := "", MsMissWhy := ""
+	global MsStandK := ""
 	}

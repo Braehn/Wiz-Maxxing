@@ -299,7 +299,9 @@ class ZoneGeo:
 
     def is_jump(self, a, b):
         """is_jump - but only when its floor can't be walked: a square along it with no floor, or a step of more than
-        STEP_EDGE from one to the next (a steep slope is walked: Empyrea's Aeroplains, MooShu's waterfall cave); a
+        STEP_EDGE from one to the next (a steep slope is walked: Empyrea's Aeroplains, MooShu's waterfall cave), or
+        the floor found at an end nearer the other end's height than its own (a lift: its two nodes stacked one over
+        the other fall in one square or two - every sample on one storey's floor, no step seen - Arcanum's hub); a
         long link also when something solid is on the way (a long straight corridor is walked: Krokotopia's Pyramid
         - a trolley's or a portal's crosses walls or gaps). Kept per node pair"""
         if not is_jump(a, b):
@@ -315,7 +317,7 @@ class ZoneGeo:
         jump = True
         try:
             ground, H, solid = self.grids(x0, y0, nx, ny, [tuple(map(float, a)), tuple(map(float, b))])
-            jump, prev = False, None
+            jump, prev, first = False, None, None
             for t in np.linspace(0.0, 1.0, max(2, int(h / (CELL / 2))) + 1):
                 x, y = a[0] + t * (b[0] - a[0]), a[1] + t * (b[1] - a[1])
                 j, i = min(ny - 1, int((y - y0) // CELL)), min(nx - 1, int((x - x0) // CELL))
@@ -324,6 +326,12 @@ class ZoneGeo:
                     jump = True
                     break
                 prev = H[j, i]
+                first = prev if first is None else first
+            # (a steep one: each end's floor on its own storey - within half the link's height change, more than
+            # JUMP_DZ, of that end's height: a ramp's ends have room to spare; a long flat one isn't a lift)
+            dz = abs(float(a[2]) - float(b[2]))
+            if not jump and dz > JUMP_DZ and (abs(first - a[2]) > dz / 2 or abs(prev - b[2]) > dz / 2):
+                jump = True
         except Exception:  # noqa: BLE001 - can't tell: a teleport, as the plain rule says
             jump = True
         self._jcache[key] = jump

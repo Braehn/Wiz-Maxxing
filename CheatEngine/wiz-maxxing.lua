@@ -11,6 +11,13 @@
 --     front it speeds only the one it sped last. So another account's window is never sped up unless the bot walks
 --     it. The 1x key sets the one Cheat Engine has back to 1, only when it's sped up (it never switches the speedhack
 --     on). Read from PlayerStats.txt every 2 s: a change in the bot's Settings needs no restart here.
+--   * Only while the bot's speedhack setting is on ("Walk faster with Cheat Engine's speedhack", speedhack:1 in
+--     PlayerStats.txt): switched off there, or never on, the walking key does nothing and no game is attached - a
+--     key another program sends (macro keys, a mouse's side buttons, push-to-talk on F13-F24) never speeds a game
+--     up. The 1x key stays. The walking key reads the setting again when it's pressed: switched on in Settings, the
+--     bot's first press counts, not one 2 s later. PlayerStats.txt that can't be opened (the bot's folder moved or
+--     deleted, or a folder name with letters beyond plain English that has no short name) is said once, in a box -
+--     the settings read last are kept (none read: the speedhack stays off).
 -- That's all: it reads and writes none of the game's memory itself, and has no other keys. Cheat Engine's own
 -- Settings > Hotkeys entries for those keys aren't needed any more. To stop it: delete this file from the autorun
 -- folder (Setup puts it back only when you tick "Cheat Engine speedhack" and press Install).
@@ -19,26 +26,30 @@ local GAME = "WizardGraphicalClient.exe"
 local STATS = [[PLAYERSTATS]]   -- the bot's AutoFarmer\PlayerStats.txt (Setup writes it in)
 
 -- pid: the game this script opened or took over; last: the game the walking key sped last; factor: the walking
--- speed; said: the "failed" boxes shown already
-local wm = {pid = 0, last = 0, factor = 2, said = {}}
+-- speed; on: the bot's speedhack setting on; unread: PlayerStats.txt not opened that many times in a row; said: the
+-- "failed" boxes shown already
+local wm = {pid = 0, last = 0, factor = 2, on = false, unread = 0, said = {}}
 
 -- The bot's speedhack settings: its PlayerStats.txt's "key:value" lines (";" starts a comment), its defaults where
--- a line isn't there - speedfactor 2, speedkeyfast 2 (F14), speedkeynormal 1 (F13)
+-- a line isn't there - speedhack 0 (off, as the bot has it), speedfactor 2, speedkeyfast 2 (F14), speedkeynormal 1
+-- (F13). Then false when the file can't be opened (the defaults), and the keys whose lines were there
 local function readSettings()
-  local s = {speedfactor = 2, speedkeyfast = 2, speedkeynormal = 1}
+  local s = {speedhack = 0, speedfactor = 2, speedkeyfast = 2, speedkeynormal = 1}
+  local seen = {}
   local f = io.open(STATS, "r")
   if f == nil then
-    return s
+    return s, false, seen
   end
   for line in f:lines() do
     line = line:gsub(";.*", "")
     local k, v = line:match("^%s*([%w_]+)%s*:%s*(%-?%d+%.?%d*)%s*%%?%s*$")
     if k ~= nil and s[k:lower()] ~= nil then
       s[k:lower()] = tonumber(v)
+      seen[k:lower()] = true
     end
   end
   f:close()
-  return s
+  return s, true, seen
 end
 
 -- F13-F24 by the bot's number for it (1 = F13): its virtual-key code, nil outside 1-12
@@ -82,8 +93,18 @@ end
 -- The walking key: the Wizard101 window in front sped up to the walking speed - the one the bot walks. When Cheat
 -- Engine has another game, that one goes back to 1x first, while Cheat Engine is still on it (a process Cheat Engine
 -- leaves keeps its speed), then Cheat Engine moves to the window in front. With no game in front, only the one it
--- sped last, never one the bot hasn't walked. Opened again when Windows didn't let Cheat Engine open it
+-- sped last, never one the bot hasn't walked. Opened again when Windows didn't let Cheat Engine open it. Nothing
+-- with the bot's speedhack setting off - read again now (PlayerStats.txt that can't be opened: as the last tick had
+-- it), so the setting just switched on counts at the bot's first press, the tick up to 2 s behind. Only a file with
+-- its speedhack line counts here: one the bot is just writing (part of it, or none yet) leaves it as it was
 local function walkKey()
+  local s, read, seen = readSettings()
+  if read and seen.speedhack then
+    wm.on = s.speedhack == 1
+  end
+  if not wm.on then
+    return
+  end
   local cur = getOpenedProcessID()
   if not ours(cur) then
     return
@@ -129,9 +150,28 @@ local function try(what, fn)
   end
 end
 
--- The two keys, made again only when the bot's Settings changed them
+-- The two keys, made again only when the bot's Settings changed them - the walking key does nothing while its
+-- speedhack setting is off (walkKey). PlayerStats.txt that can't be opened: the keys and the setting as they were
+-- (the bot may be just writing it), the first time the defaults (the setting off); still not after 3 tries (6 s):
+-- said once, in a box - what to do, and whether the walking key works meanwhile
 local function bindKeys()
-  local s = readSettings()
+  local s, read = readSettings()
+  if read then
+    wm.unread = 0
+  else
+    wm.unread = wm.unread + 1
+    if wm.unread == 3 then
+      error("can't open the bot's settings, " .. STATS .. " - the bot's folder moved or deleted, or a folder " ..
+        "name with letters beyond plain English? Run the bot's Setup.exe again: tick Cheat Engine speedhack, " ..
+        "Install (the bot in a folder named in plain English letters). The bot gone: delete " ..
+        "autorun\\wiz-maxxing.lua in Cheat Engine's folder. " ..
+        (wm.on and "The walking key keeps the settings read last" or "The walking key does nothing till then"), 0)
+    end
+    if wm.normal ~= nil then
+      return
+    end
+  end
+  wm.on = s.speedhack == 1
   local fast = keyOf(s.speedkeyfast) or keyOf(2)
   local normal = keyOf(s.speedkeynormal) or keyOf(1)
   local factor = tonumber(s.speedfactor) or 2
@@ -141,7 +181,8 @@ local function bindKeys()
     factor = 50
   end
   wm.factor = factor
-  -- (one key for both: it's the 1x key - never stuck sped up)
+  -- (one key for both: it's the 1x key - never stuck sped up. The setting off: the walking key stays, doing nothing -
+  -- switched on, the bot's first press works)
   if fast == normal then
     fast = nil
   end
@@ -167,8 +208,12 @@ end
 
 -- Wizard101 opened when Cheat Engine has none: nothing open, or the one it had has exited - then the Wizard101 window
 -- in front, else the newest. It stays on a game while that runs (a second one starting is left alone - the walking
--- key moves it), and never sets a speed. Never over a process you opened yourself
+-- key moves it), and never sets a speed. Never over a process you opened yourself, nor with the bot's speedhack
+-- setting off
 local function attach()
+  if not wm.on then
+    return
+  end
   local cur = getOpenedProcessID()
   if cur ~= 0 and not ours(cur) then
     return

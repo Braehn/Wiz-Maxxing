@@ -253,7 +253,7 @@ class BagMem:
         if props is None:
             import handmem as H
             import questmem as Q
-            img = H.Image(st)
+            img = H.shared_image(st)
             props = {c: {k: v[0] for k, v in Q.class_props(img, c)[0].items()} for c in CLASSES}
             del img
         self.P = {c: dict(props.get(c, {})) for c in CLASSES}
@@ -621,8 +621,11 @@ class BagMem:
             nosell = adjs is not None and "FLAG_NoSell" in adjs
             # (every kind with one listed - the list's cut short only after that: QuickSell.ahk keeps those groups out)
             ck = kind if kind is not None else "?"
-            if shop and not flagged and (len(r["crownshop"]) < 40 or all(ck != k for k, _ in r["crownshop"])):
-                r["crownshop"].append((ck, name if name is not None else "template %s (its name not read)" % tid))
+            # (one whose name wasn't read is said as that - its template's name not read from the game's memory, maybe
+            # after a game patch - not as a Crown-shop item: the user can't find or bank "template N"; unread 1 on its line)
+            if shop and not flagged and (len(r["crownshop"]) < 40 or all(ck != k for k, *_ in r["crownshop"])):
+                r["crownshop"].append((ck, name if name is not None else "template %s (its name not read from the game's "
+                                       "memory - maybe no Crown-shop item at all)" % tid, name is None))
             # (its global id not read: it isn't walked - an Equipment Set's item could go unnoticed - sets_ok stays off)
             if gid:
                 gids[gid] = (tid, name, kind, crowns)
@@ -839,8 +842,9 @@ def bag_lines(r, why=""):
     space|N|M|raw text                                       (only while the backpack page is shown)
     cat|kind|n|crowns|nosell|plain                           (each kind in the backpack; ? not read; crowns: Crowns
                                                               items and Crown-shop templates; plain: neither nor nosell)
-    crownshop|kind|object name                               (Crown-shop templates without the game's Crowns flag, and
-                                                              items whose name wasn't read - every kind with one listed)
+    crownshop|kind|object name|unread                        (Crown-shop templates without the game's Crowns flag, and
+                                                              items whose name wasn't read - every kind with one listed;
+                                                              unread 1: its name not read, maybe no Crown-shop item)
     tip|i|shown|l|t|r|b|image texture|button texture|name    (the HUD's right-hand column, its rect in the root)
     set|n|equipped|ids|name                                  (each Equipment Set)
     setitem|set n|set equipped|gid hex|template id|object name|kind|crowns
@@ -859,8 +863,8 @@ def bag_lines(r, why=""):
         n, crowns, nosell = c[:3]
         plain = c[3] if len(c) > 3 else max(0, n - crowns - nosell)
         out.append('cat|%s|%d|%d|%d|%d' % (cell(k), n, crowns, nosell, plain))
-    for kind, name in r.get('crownshop') or []:
-        out.append('crownshop|%s|%s' % (cell(kind), cell(name)))
+    for kind, name, *unread in r.get('crownshop') or []:
+        out.append('crownshop|%s|%s|%s' % (cell(kind), cell(name), cell(bool(unread and unread[0]))))
     for i, t in enumerate(r.get('tips') or [], 1):
         out.append('|'.join(['tip', str(i), cell(bool(t.get('shown')))] + _r(t.get('rect'))
                             + [cell(t.get('image')), cell(t.get('button')), cell(t.get('name'))]))

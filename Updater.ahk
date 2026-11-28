@@ -414,7 +414,7 @@ UpFetch(rel, &tmp, &src)
 		return false
 		}
 	UpProgress("Unpacking...")
-	V1RunWait("powershell -NoProfile -ExecutionPolicy Bypass -Command `"try { Expand-Archive -LiteralPath '" zip "' -DestinationPath '" tmp "\unzipped' -Force -ErrorAction Stop } catch { exit 1 }`"", , "Hide")
+	V1RunWait("powershell -NoProfile -ExecutionPolicy Bypass -Command `"try { Expand-Archive -LiteralPath " UpPsQuote(zip) " -DestinationPath " UpPsQuote(tmp "\unzipped") " -Force -ErrorAction Stop } catch { exit 1 }`"", , "Hide")
 	unzipped := (ErrorLevel = 0)
 	src := ""
 	Loop Files, tmp "\unzipped\*", "D"
@@ -704,11 +704,20 @@ UpMergeStats(newFile, myFile, tag)
 	UpLog("added new settings to PlayerStats.txt")
 	}
 
-;What a past update moved aside (programs that were in use)
+;What a past update moved aside (programs that were in use - UpCopy's <file>.old / <file>.<tick>.old). Only those: a
+;file UpCopy never replaces - one of yours (UpIsMine) - isn't one it moved aside, so its .old is kept: the vision
+;helper's own vision.log.old (its older half of the log, what dates a game patch that broke a reader - 2026-11-27)
 UpCleanup()
 	{
+	slots := ""
 	Loop Files, A_ScriptDir "\*.old", "FR"
-		V1Do(FileDelete, A_LoopFilePath)
+		{
+		rel := RegExReplace(SubStr(A_LoopFilePath, StrLen(A_ScriptDir) + 2), "i)(\.\d+)?\.old$")
+		if (!IsObject(slots))
+			slots := UpLearnedSlots(A_ScriptDir "\AutoFarmer\learned\cards.txt")
+		if (!UpIsMine(rel, slots))
+			V1Do(FileDelete, A_LoopFilePath)
+		}
 	}
 
 ;---- GitHub and the token ----
@@ -864,11 +873,15 @@ UpTokenSave(token)
 	return saved
 	}
 
-;Whether a token works: it can see the repo's releases ("" yes, else why not)
-UpTokenTest(token)
+;Whether a token works: it can see the repo's releases ("" yes, else why not). bad: true when GitHub said the token
+;itself is no good (401, 404, a 403 that isn't its hourly limit) - false when it couldn't be checked (no answer, GitHub's
+;limit, its servers' trouble): the token may be fine
+UpTokenTest(token, &bad := false)
 	{
-	UpHttp(UpApi() "/repos/" UpRepo() "/releases/latest", token, "application/vnd.github+json", &status, 8000)
-	return status = 200 ? "" : status = 401 ? "GitHub doesn't accept that token (401)" : status = 404 ? "the token can't see the Wiz-Maxxing repo (404) - give it access to that repository" : status = 403 ? "GitHub refused it (403)" : status = 0 ? "no answer from GitHub (offline?)" : "GitHub answered " status
+	resp := UpHttp(UpApi() "/repos/" UpRepo() "/releases/latest", token, "application/vnd.github+json", &status, 8000)
+	limit := (status = 403 || status = 429) && InStr(resp, "rate limit")
+	bad := status = 401 || status = 404 || (status = 403 && !limit)
+	return status = 200 ? "" : status = 401 ? "GitHub doesn't accept that token (401)" : status = 404 ? "the token can't see the Wiz-Maxxing repo (404) - give it access to that repository" : limit ? "GitHub's limit for now (" status ") - try again in a while" : status = 403 ? "GitHub refused it (403)" : status = 0 ? "no answer from GitHub (offline?)" : "GitHub answered " status
 	}
 
 ;---- bug reports ----
@@ -939,6 +952,13 @@ UpJson(s)
 		out .= (c >= 0x20 && c <= 0x7E) ? Chr(c) : (c < 0x20) ? " " : Format("\u{:04X}", c)
 		}
 	return out
+	}
+
+;s as a single-quoted PowerShell string: 'C:\Users\O''Brien\...' - each quote PowerShell ends one at doubled (the plain
+;one, and the curly ones it takes as the same: a profile named O'Brien broke every unzip, 2026-11-27)
+UpPsQuote(s)
+	{
+	return "'" RegExReplace(s, "['\x{2018}-\x{201B}]", "$0$0") "'"
 	}
 
 UpUnescape(s)

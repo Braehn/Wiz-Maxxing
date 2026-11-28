@@ -32,6 +32,9 @@ global VisionLookN
 ;there but didn't answer; the restarts in the 30 min from VisionRestartsFrom (at most 3 - a broken helper isn't
 ;restarted over and over)
 global VisionRetryAt, VisionStuck, VisionRestarts, VisionRestartsFrom
+;The game's memory readers a game patch broke (the helper's /readers - VisionReadersLook): when last asked, how many,
+;their names, the game's build; the build the alert went for ("<build>|" - once a build) - blank at start: VisionBlank
+global VisionReadersAt, VisionReadersN, VisionReadersWhat, VisionReadersBuild, VisionReadersSaid
 
 ;Starts the helper (after stopping one left over from before, and waiting till it has stopped) and waits up to 8 s
 ;for it to answer - when it doesn't, debug.log says why: the line it wrote in vision\vision.log (VisionStartWhy)
@@ -45,9 +48,9 @@ VisionStart()
 	if (VisionMissing = "")
 		VisionMissing := ","
 	VisionGet("/quit", 300)
-	;(the old one answers on the port till it has stopped - a new one started before that binds the port beside it
-	;(Windows lets it: Python's server sets SO_REUSEADDR), and its pings may reach the old one: waited for till it no
-	;longer answers, up to 5 s)
+	;(the old one answers on the port till it has stopped - a new one started before that can't bind it (vision.py binds
+	;with SO_EXCLUSIVEADDRUSE: it tries for about 3 s, then stops with "port N taken"), and pings meanwhile reach the old
+	;one: waited for till it no longer answers, up to 5 s - and below, which helper answers is asked: /ping?pid=1)
 	vsQuitAt := A_TickCount
 	vsOldUp := (SubStr(VisionGet("/ping", 250, true), 1, 2) = "OK")
 	while (vsOldUp && A_TickCount - vsQuitAt < 5000)
@@ -55,6 +58,10 @@ VisionStart()
 		Sleep(250)
 		vsOldUp := (SubStr(VisionGet("/ping", 250, true), 1, 2) = "OK")
 		}
+	;(what follows a failure, said at its end: at the bot's start, ImageSearch for the cards from now on; a restart by VisionRetry
+	;- its count set before it calls this - says that itself in its own next line (the features stay paused, tried again in 45 s):
+	;"found with ImageSearch" here and "paused, tried again" right under it read as if the helper had been given up on)
+	vsThen := V1N(VisionRestarts) ? "" : " - cards are found with ImageSearch"
 	if (vsOldUp)
 		DebugLog("Vision: the old helper still answers 5 s after it was told to stop - starting the new one anyway")
 	else if (A_TickCount - vsQuitAt > 1500)
@@ -63,52 +70,90 @@ VisionStart()
 	py := VisionPython()
 	if (py = "")
 		{
-		DebugLog("Vision: no Python found (pythonw.exe) - cards are found with ImageSearch")
+		DebugLog("Vision: no Python found (pythonw.exe)" vsThen)
 		return false
 		}
 	dir := VisionDir != "" ? VisionDir : A_ScriptDir "\vision"
 	if (!FileExist(dir "\vision.py"))
 		{
-		DebugLog("Vision: " dir "\vision.py isn't there - cards are found with ImageSearch")
+		DebugLog("Vision: " dir "\vision.py isn't there" vsThen)
 		return false
 		}
 	;(vision.log's size now - what the helper writes from here on says why, if it stops: vision.py's log is
 	;vision.log next to it)
 	vsLog := dir "\vision.log"
 	vsLogAt := V1N(V1Try(FileGetSize, vsLog))
-	V1Run("`"" py "`" `"" dir "\vision.py`" --parent " DllCall("GetCurrentProcessId") " --port " VisionPort, dir, "Hide", &VisionPid)
-	if (ErrorLevel)
+	;(started once more at most: an old helper that still held the port, stopped below - this one couldn't bind it meanwhile)
+	vsOldStopped := 0
+	;(this start's token, echoed by /ping?pid=1: a pythonw.exe that's a launcher - a venv's Scripts\pythonw.exe, a shim - runs
+	;the helper as its child, under a pid that isn't VisionPid)
+	vsTok := A_TickCount "" Random(100000, 999999)
+	Loop 2
 		{
-		DebugLog("Vision: couldn't start " py " - cards are found with ImageSearch")
-		return false
-		}
-	startedAt := A_TickCount
-	vsGone := false
-	while (A_TickCount - startedAt < 8000)
-		{
-		Sleep(400)
-		if (SubStr(VisionGet("/ping", 500), 1, 2) = "OK")
+		V1Run("`"" py "`" `"" dir "\vision.py`" --parent " DllCall("GetCurrentProcessId") " --port " VisionPort " --token " vsTok, dir, "Hide", &VisionPid)
+		if (ErrorLevel)
 			{
-			VisionOn := 1, VisionFails := 0
-			DebugLog("Vision: helper running (" py ", pid " VisionPid ")")
-			return true
+			DebugLog("Vision: couldn't start " py vsThen)
+			return false
 			}
-		;(it stopped: no point waiting)
-		ErrorLevel := ProcessExist(VisionPid)
-		if (!ErrorLevel)
+		startedAt := A_TickCount
+		vsGone := false, vsOther := 0
+		while (A_TickCount - startedAt < 8000)
 			{
-			vsGone := true
-			break
+			Sleep(400)
+			;(the helper that answers: this one - its token, or its pid - or an old one still on the port, whose "OK" isn't this one started: it's
+			;stopped (a Python process only), and this one waited for. An answer with no pid is an older helper's - not this one)
+			vsPing := VisionGet("/ping?pid=1", 500)
+			if (SubStr(vsPing, 1, 2) = "OK")
+				{
+				vsPid := RegExMatch(vsPing, " pid (\d+)", &vsM) ? vsM[1] + 0 : -1
+				vsMine := RegExMatch(vsPing, " token (\w+)\s*$", &vsT) && vsT[1] == vsTok
+				if (vsMine || vsPid = VisionPid)
+					{
+					;(its own pid from here on: a pythonw.exe that's a launcher (a venv's, a shim) runs the helper as a child - the
+					;checks, the restart and the close act on the helper itself, not the launcher)
+					if (vsMine && vsPid > 0)
+						VisionPid := vsPid
+					VisionOn := 1, VisionFails := 0
+					DebugLog("Vision: helper running (" py ", pid " VisionPid ")")
+					return true
+					}
+				if (!vsOther)
+					{
+					vsOther := vsPid, vsName := ""
+					if (vsPid > 0)
+						try vsName := ProcessGetName(vsPid)
+					DebugLog("Vision: an old helper (" (vsPid > 0 ? "pid " vsPid : "no pid - an older version") ") still holds port " VisionPort " - "
+						. (InStr(vsName, "python") ? "stopping it" : "not this one started, waiting"))
+					if (InStr(vsName, "python"))
+						try ProcessClose(vsPid)
+					}
+				}
+			;(it stopped: no point waiting)
+			ErrorLevel := ProcessExist(VisionPid)
+			if (!ErrorLevel)
+				{
+				vsGone := true
+				break
+				}
 			}
+		if (vsGone && vsOther > 0 && !vsOldStopped)
+			{
+			vsOldStopped := 1
+			DebugLog("Vision: the new helper stopped while the old one held the port - starting it again")
+			Sleep(500)
+			continue
+			}
+		break
 		}
 	;(why: the line it wrote in vision.log since it was started - none: Python couldn't even run vision.py)
 	vsWhy := VisionStartWhy(vsLog, vsLogAt)
 	if (vsGone && vsWhy != "")
-		DebugLog("Vision: the helper stopped at start - vision\vision.log: " vsWhy " - cards are found with ImageSearch")
+		DebugLog("Vision: the helper stopped at start - vision\vision.log: " vsWhy vsThen)
 	else if (vsGone)
-		DebugLog("Vision: the helper stopped at start without a line in vision\vision.log - the Python at " py " couldn't run it at all (repair or reinstall that Python - Windows Settings > Apps - Setup.exe's `"Python 3`" leaves a Python it finds alone) - cards are found with ImageSearch")
+		DebugLog("Vision: the helper stopped at start without a line in vision\vision.log - the Python at " py " couldn't run it at all (repair or reinstall that Python - Windows Settings > Apps - Setup.exe's `"Python 3`" leaves a Python it finds alone)" vsThen)
 	else
-		DebugLog("Vision: the helper is still starting after 8 s - vision\vision.log: " (vsWhy != "" ? vsWhy : "nothing yet") " - it's stopped, cards are found with ImageSearch")
+		DebugLog("Vision: the helper is still starting after 8 s - vision\vision.log: " (vsWhy != "" ? vsWhy : "nothing yet") " - it's stopped" (vsThen != "" ? ", cards are found with ImageSearch" : ""))
 	;(don't leave it running, holding the port)
 	if (VisionPid)
 		ErrorLevel := ProcessClose(VisionPid)
@@ -211,8 +256,9 @@ VisionGet(path, timeoutMs := 1500, noCount := false)
 		text := req.ResponseText
 		if (req.Status != 200 || SubStr(text, 1, 3) = "ERR")
 			throw text
-		if (!noCount)
-			VisionFails := 0
+		;(any answer, a noCount ask's too: the helper answers - the count is of asks in a row that got nothing, and two slow /cards
+		;an hour apart with the walker's /nav answered all along between them were 2 of the 3 that pause everything)
+		VisionFails := 0
 		return text = "" ? " " : text
 		}
 	catch Any as e   ; (v1: catch caught anything thrown - the strings thrown above too)
@@ -365,6 +411,49 @@ VisionStatus()
 	if (VisionRetryAt != "")
 		return "paused (asked again in " Max(Round((VisionRetryAt - A_TickCount) / 1000), 0) " s)"
 	return "off"
+	}
+
+;The game's memory readers this game build can't make (the helper's /readers: vision.py, navmem's broken() - a class,
+;property or signature a game patch took away): asked at most every 60 s while the helper's on - the main loop out of
+;battle, never a timer (VisionGet's VisionErr is the main thread's) - and kept for the dashboard's header (VisionReadersSay).
+;The first time any are broken for a game build: said in debug.log and one alert (two patches, 2026-11-18 and 11-26, turned
+;the readers off for days with only vision.log saying so). Its failures don't count against the helper (noCount); an
+;older helper without /readers: nothing shown
+VisionReadersLook()
+	{
+	global VisionReadersAt, VisionReadersN, VisionReadersWhat, VisionReadersBuild, VisionReadersSaid ; (v2-only: the port tools don't know them)
+	if (!VisionOn || (VisionReadersAt && A_TickCount - VisionReadersAt < 60000))
+		return
+	VisionReadersAt := A_TickCount
+	vrA := VisionGet("/readers", 500, true)
+	if (SubStr(vrA, 1, 6) != "build|")
+		return
+	vrN := 0, vrBuild := "", vrWhat := "", vrWhy := ""
+	Loop Parse, vrA, "`n", "`r"
+		{
+		vrF := StrSplit(A_LoopField, "|")
+		if (vrF.Length >= 2 && vrF[1] = "build")
+			vrBuild := vrF[2]
+		else if (vrF.Length >= 2 && vrF[1] = "broken")
+			vrN += 1, vrWhat .= (vrWhat = "" ? "" : ", ") vrF[2], vrWhy .= "`n- " vrF[2] (vrF.Length >= 3 && vrF[3] != "" ? ": " vrF[3] : "")
+		}
+	VisionReadersN := vrN, VisionReadersWhat := vrWhat, VisionReadersBuild := vrBuild
+	if (vrN && VisionReadersSaid != vrBuild "|")
+		{
+		VisionReadersSaid := vrBuild "|"
+		DebugLog("Vision: " vrN " of the game's memory readers can't be made for this game build (" (vrBuild != "" ? vrBuild : "?") "): " vrWhat " - vision\vision.log says more")
+		if (V1IsFunc("AlertSend"))
+			AlertSend.Call("memory", "memory readers broken", vrN " of the bot's game-memory readers don't work with this Wizard101 build (" (vrBuild != "" ? vrBuild : "?")
+				. ") - a game patch probably changed them, and the bot plays on without them (more slowly, or with less safety). An update of the bot may be needed:" vrWhy)
+		}
+	}
+
+;The dashboard header's note on the memory readers: "" none broken (or not known), else "memory: N readers broken (build X)"
+VisionReadersSay()
+	{
+	if (!VisionOn || !V1N(VisionReadersN))
+		return ""
+	return "memory: " VisionReadersN " reader" (VisionReadersN = 1 ? "" : "s") " broken" (VisionReadersBuild != "" ? " (build " VisionReadersBuild ")" : "")
 	}
 
 ;The card pictures the bot looks for, as "dir/name"
@@ -1358,7 +1447,7 @@ NavBag(timeoutMs := 600)
 		else if (V1At(nbgF, 1) = "cat" && Trim(V1At(nbgF, 2)) != "")
 			nbgOut.cats[Trim(V1At(nbgF, 2))] := V1Obj({n: NavNum(V1At(nbgF, 3)), crowns: NavNum(V1At(nbgF, 4)), nosell: NavNum(V1At(nbgF, 5)), plain: NavNum(V1At(nbgF, 6))})
 		else if (V1At(nbgF, 1) = "crownshop" && Trim(V1At(nbgF, 3)) != "")
-			nbgOut.crownShop.Push(V1Obj({kind: Trim(V1At(nbgF, 2)), name: Trim(V1At(nbgF, 3))}))
+			nbgOut.crownShop.Push(V1Obj({kind: Trim(V1At(nbgF, 2)), name: Trim(V1At(nbgF, 3)), unread: V1At(nbgF, 4) = "1" ? 1 : 0}))
 		else if (V1At(nbgF, 1) = "tip")
 			nbgOut.tips.Push(V1Obj({i: NavNum(V1At(nbgF, 2)), shown: V1At(nbgF, 3) = "1" ? 1 : 0, l: NavNum(V1At(nbgF, 4)), t: NavNum(V1At(nbgF, 5)), r: NavNum(V1At(nbgF, 6))
 				, b: NavNum(V1At(nbgF, 7)), image: Trim(V1At(nbgF, 8)), button: Trim(V1At(nbgF, 9)), name: Trim(V1At(nbgF, 10))}))
@@ -1956,4 +2045,5 @@ VisionBlank()
 	global NavPetsWhy := "", NavPetsWaitUntil := ""
 	global VisionPhaseWhy := "", VisionPhaseWaitUntil := ""
 	global VisionRetryAt := "", VisionStuck := "", VisionRestarts := "", VisionRestartsFrom := ""
+	global VisionReadersAt := 0, VisionReadersN := 0, VisionReadersWhat := "", VisionReadersBuild := "", VisionReadersSaid := ""
 	}

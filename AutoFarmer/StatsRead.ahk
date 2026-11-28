@@ -225,6 +225,9 @@ StatsWrite(got, school, charID := "")
 	V1Do(FileAppend, out, path ".tmp")
 	if (ErrorLevel)
 		return "Couldn't write PlayerStats.txt (is it open in another program?). Nothing was changed."
+	;(the copy gone meanwhile - another writer of the same .tmp: no move of nothing taken for a replace)
+	if (!FileExist(path ".tmp"))
+		return "Couldn't replace PlayerStats.txt (is it open in another program?). Nothing was changed."
 	V1Do(FileMove, path ".tmp", path, 1)
 	if (ErrorLevel)
 		return "Couldn't replace PlayerStats.txt (is it open in another program?). Nothing was changed."
@@ -434,8 +437,16 @@ StatsNoteSchool(school)
 		{
 		;(v1: no characters.txt yet - the loop just didn't run; v2 throws without an Else)
 		}
-	V1Do(FileDelete, path)
-	V1Do(FileAppend, (out = "" ? "; Wizard101 characters (CharID from the game's log) and the school AutoFarmer saw each fight with`r`n" : out) id "|" school "`r`n", path)
+	;(written whole or not at all: to characters.txt.tmp first, moved over it only once all of it got there - deleted
+	;and then written again, a kill, a full disk or a reader holding it in between lost every character's school)
+	V1Do(FileDelete, path ".tmp")
+	if (V1Do(FileAppend, (out = "" ? "; Wizard101 characters (CharID from the game's log) and the school AutoFarmer saw each fight with`r`n" : out) id "|" school "`r`n", path ".tmp")
+		|| V1Do(FileMove, path ".tmp", path, 1))
+		{
+		V1Do(FileDelete, path ".tmp")
+		DebugLog("  (character " id " is a " school " wizard - couldn't be saved in characters.txt, kept as it was)")
+		return
+		}
 	DebugLog("  (character " id " is a " school " wizard - noted for StatsReader)")
 	}
 

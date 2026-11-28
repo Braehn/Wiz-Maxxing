@@ -49,10 +49,12 @@ def _num(s):
 
 def parse_run(text, name=""):
     """a run file's text as DgLoad reads it: {name, deck, steps [{kind, zone, x, y, z, line}], slots [..], slots_raw,
-    stopafter, stopafter_raw, next, untilgear, bosses [(name, deck)], skipped [(line no, text)] - lines DgLoad drops}.
-    name: the file's own name (DgLoad's when there's no name| line)"""
+    stopafter, stopafter_raw, next, untilgear, bosses [(name, deck)], skipped [(line no, text)] - lines DgLoad drops,
+    unnumbered [{kind, zone, x, y, z, line}] - steps with a coordinate that isn't a number, which DgLoad leaves out too
+    (not in steps: their numbering and the stats are the steps the bot walks)}. name: the file's own name (DgLoad's
+    when there's no name| line)"""
     run = {"name": "", "deck": "", "steps": [], "slots": [], "slots_raw": "", "stopafter": None, "stopafter_raw": "",
-           "next": "", "untilgear": 0, "bosses": [], "skipped": [], "file_name": name}
+           "next": "", "untilgear": 0, "bosses": [], "skipped": [], "unnumbered": [], "file_name": name}
     for no, raw in enumerate((text or "").splitlines(), 1):
         line = raw.strip(" \t")
         if line == "" or line.startswith(";"):
@@ -77,8 +79,8 @@ def parse_run(text, name=""):
             if val.strip():
                 run["bosses"].append((val.strip(), re.sub(r"[^A-Za-z0-9_-]", "", f[2] if len(f) > 2 else "")))
         elif f[0] in STEP_KINDS and len(f) >= 5 and (f[2] + f[3] + f[4]) != "":
-            run["steps"].append({"kind": f[0], "zone": f[1], "x": _num(f[2]), "y": _num(f[3]), "z": _num(f[4]),
-                                 "line": no})
+            step = {"kind": f[0], "zone": f[1], "x": _num(f[2]), "y": _num(f[3]), "z": _num(f[4]), "line": no}
+            run["steps" if None not in (step["x"], step["y"], step["z"]) else "unnumbered"].append(step)
         else:
             run["skipped"].append((no, line))
     if run["name"] == "":
@@ -149,6 +151,10 @@ def lint(run, runs=None, decks=None, cat=None):
     st = run["steps"]
     if len(st) < 2:
         out.append(("error", 0, "%d step(s) - Dungeons.ahk needs at least two to run it" % len(st)))
+    # (left out by DgLoad - not walked: said by its line, step 0)
+    for s in run.get("unnumbered") or []:
+        out.append(("error", 0, "line %d: a coordinate isn't a number (%s step in %s) - Dungeons.ahk leaves the step out"
+                    % (s["line"], s["kind"], s["zone"] or "?")))
     for i, s in enumerate(st, 1):
         if None in (s["x"], s["y"], s["z"]):
             out.append(("error", i, "line %d: a coordinate isn't a number (%s step in %s)" % (s["line"], s["kind"],

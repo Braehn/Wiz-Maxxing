@@ -98,7 +98,7 @@ THE MODEL (one battle, round by round, until every enemy is dead, the wizard is,
   15% the bot assumes - enemyresist) less pierce, a critical (CritChance / CritMult against the target's block); an AoE
   hits every enemy; a single-target hit the one with the most health (the bot's trap target too). Misses: accuracy (the
   card's, else its school's) + the wizard's accuracy; a missed card is gone, its pips kept (the game's fizzle).
-  The enemies (Foe): health, school, resists, block; each round +1 pip (at most 7, starts with 1-3 as enemies.py does),
+  The enemies (Foe): health, school, resists, block; each round +1 pip (at most 7; round 1 cast with 1-3, enemies.py's),
   a card at random - the wiki's spells weighted by the casts seen (enemies.Battle's own weights: 1 + seen, a pass's
   PASS_PRIOR; one it can't afford is a pass) - its damage the wiki's range (X-pip: per pip), its accuracy, an AoE hits
   every wizard on the team, a single-target one the wizard 1 in team; less the wizard's resist; a heal spell's numbers
@@ -230,6 +230,8 @@ PASS_PRIOR = 0.5            # enemies.py's
 GENERIC_PER_PIP = 100       # an enemy nobody knows: 100 a pip
 GENERIC_CAST = 0.5          # ... cast every other round
 SCHOOL_ACC = {"balance": 85, "death": 85, "fire": 75, "ice": 80, "life": 90, "myth": 80, "storm": 70}
+# (the kinds the game never misses - a card of one with no accuracy known gets 100, not its school's SCHOOL_ACC)
+SURE_KINDS = ("ward", "absorb", "blade", "trap", "aura", "enchant", "sharpen", "potent")
 ENEMY_RESIST = 15           # the bot's own default (PlayerStats enemyresist): an enemy's resist to the wizard's hits
 # (an enemy's block rating when nothing was learned of its crits: the wizard's own critical rating - a 75% critical
 # chance at x1.25, not block 0's certain x2 every hit)
@@ -450,8 +452,8 @@ class Card:
     """one card the wizard can draw: name, kind (PLAYED or another of handmem's KINDS), school, pips, x (X-pip), value
     (a hit's least damage, a heal's amount, a boost's %, an absorb's damage soaked, an enchant's or a Sharpen's /
     Potent's +N), heads {school: least damage} (a hit's), boosts {school: %} (a blade's, trap's, aura's), acc (its
-    accuracy % - a ward's, an absorb's and a Reshuffle's 100: the game's never miss), tc / item, dot (a hit's damage
-    over time besides - handmem's dot: its DOT_TICKS rounds' ticks together, the first round's part not in it; 0 none),
+    accuracy % - SURE_KINDS' and a Reshuffle's 100: the game's never miss), tc / item, dot (a hit's damage over time
+    besides - handmem's dot: its DOT_TICKS rounds' ticks together, the first round's part not in it; 0 none),
     ench (a hit's damage enchant already on it - an enchanted copy in hand: handmem's value and heads leave it out; 0
     none), tower (a Tower Shield - by its name), resh (a Reshuffle - by its name, whatever its kind), bot_ench (an
     enchant the bot puts on its hits: its EnchantList word - '' one it never finds). names: more text the name checks
@@ -484,10 +486,12 @@ class Card:
         self.resh = bool(RESH_RE.search(txt))
         m = ENCHANT_RE.search(txt) if self.kind == "enchant" else None
         self.bot_ench = m.group(1).lower() if m else ""
-        # (a deck card carries no accuracy: a ward, an absorb and a Reshuffle never miss in the game - a fact's acc
-        # wins; one that isn't a finite number - junk - the default too)
+        # (a deck card carries no accuracy: a ward, an absorb, a blade, a trap, an aura, an enchant, a Sharpen / Potent
+        # and a Reshuffle never miss in the game - cards.jsonl's m_accuracy 100 for every one recorded; the school's
+        # SCHOOL_ACC for a hit and a heal only - a fact's acc wins; one that isn't a finite number - junk - the default
+        # too)
         ok = isinstance(acc, (int, float)) and not isinstance(acc, bool) and math.isfinite(acc)
-        self.acc = acc if ok and acc else (100 if (self.kind in ("ward", "absorb") or self.resh)
+        self.acc = acc if ok and acc else (100 if (self.kind in SURE_KINDS or self.resh)
                                            else SCHOOL_ACC.get(self.school, 85))
         self.tc, self.item = bool(tc), bool(item)
         dv = value_of(dot)[0]
@@ -1039,7 +1043,8 @@ class State:
       aura        ({school: %}, rounds left - this one counted) or None
       round       the battle's round (1 the first); boosts_run the boosts cast since my last hit (boostmax counts them)
       me_first    True / False: my side casts first (the game's initiative); None not known (a coin each rollout)
-      fpips       each enemy's pips now, or None (not known: 1-3 as at a battle's start)
+      fpips       each enemy's pips now, or None (not known: it casts with 1-3 in round 1 as at a battle's start, 2-4
+                  in a later round - from_state's)
     (v1.0.0, batch 3 - each [] / 0 / None by default: the battle as before)
       shields     [(%, schools or None - every school)] on me: an enemy's hit that fits each one less (each used up)
       mytraps     [(%, schools)] the enemies' traps on me - their next hit that fits more; myweak: weaknesses on me -
@@ -1463,7 +1468,9 @@ class _Battle:
         self.foes = foes
         self.pips = 0           # pips (power pips counted as 1)
         self.power = 0          # of which power pips
-        self.fpips = [rng.choice(ENEMY_START_PIPS) for _ in foes]
+        # (each enemy's pips before its round's +1 - foe_round's, _snap_danger's: so it casts round 1 with 1-3, as
+        # enemies.py's START_PIPS 'at a battle's first round' - the bot's own estimate - not 2-4)
+        self.fpips = [rng.choice(ENEMY_START_PIPS) - 1 for _ in foes]
         self.blades = []        # [(name, {school: %})] on the wizard - one of each name (identical blades don't stack;
                                 # traps do) - a treasure / item copy named name@tc / name@item, which stacks
         self.traps = [[] for _ in foes]
@@ -2625,9 +2632,15 @@ class _Battle:
         dmg *= max(0.0, 1 - w.me.resist / 100.0)
         if self.fblades[i] or w.mytraps or w.shields or w.absorb:
             sch = self.foes[i].school
+            # (its blades that fit the hit's school - each used up; another school's stays on it, as the traps and
+            # shields below and the game's own: a Stormblade on a fire boss waits for a storm hit)
+            keep = []
             for p, s in self.fblades[i]:
-                dmg *= 1 + p / 100.0
-            self.fblades[i] = []
+                if _sfit(s, sch):
+                    dmg *= 1 + p / 100.0
+                else:
+                    keep.append((p, s))
+            self.fblades[i] = keep
             keep = []
             for p, s in w.mytraps:
                 if _sfit(s, sch):
@@ -2808,8 +2821,8 @@ class _Battle:
     def from_state(cls, st, me, foes, opts, rng):
         """a battle started from State st (the round now) instead of round 1 with a shuffled deck: its hand as dealt,
         its draw pile shuffled (the cards drawn before it - st.used - taken off: the spent pile), pips, health (mine and
-        each enemy's), blades, traps, aura, boosts since my last hit; the enemies' pips st.fpips (not known: 1-3 as a
-        battle's start); who goes first st.me_first (not known: a coin - for a whole rollout, as the game's initiative);
+        each enemy's), blades, traps, aura, boosts since my last hit; the enemies' pips st.fpips (not known: cast with
+        1-3 in round 1 as a battle's start, with 2-4 in a later round - it has had a pip a round since); who goes first st.me_first (not known: a coin - for a whole rollout, as the game's initiative);
         the shields, traps and weaknesses on me and the enemies, a stun; the mates (the team model: each its own hand -
         its pile shuffled - pips and health, in cast order by seat). Each support's PartyShield is taken as not gone yet
         unless State / Mate pshield_used say so (Planner.ahk sends mine: pshield=1). The treasure pile: the State's
@@ -2832,9 +2845,11 @@ class _Battle:
         b.fhp = [max(0, int(fhp[i])) if i < len(fhp) and fhp[i] is not None else f.maxhp for i, f in enumerate(foes)]
         b.pips = max(0, min(MAX_PIPS, int(st.pips or 0)))
         b.power = max(0, min(b.pips, int(st.power or 0)))
-        if st.fpips:
-            b.fpips = [max(0, min(MAX_PIPS, int(st.fpips[i]))) if i < len(st.fpips) and st.fpips[i] is not None
-                       else b.fpips[i] for i in range(len(foes))]
+        # (an enemy's pips not known: the start drawn - cast with 1-3, right for round 1 only; a later round's cast
+        # with 2-4, a pip on - the pips of the rounds since, less what it cast, not known - no other random number drawn)
+        later = 1 if int(st.round or 1) > 1 else 0
+        b.fpips = [max(0, min(MAX_PIPS, int(st.fpips[i]))) if st.fpips and i < len(st.fpips) and st.fpips[i] is not None
+                   else min(MAX_PIPS, b.fpips[i] + later) for i in range(len(foes))]
         b.blades = []
         for n, bb in st.blades or []:
             if all(n != m for m, _b in b.blades):
@@ -3051,6 +3066,7 @@ PLAN_HORIZON = 10           # rounds a rollout looks ahead (one still going then
 PLAN_HORIZON_BOSS = 20      # ... against a boss (a longer fight)
 PLAN_BUDGET_MS = 300        # the time the rollouts may take (the bot's round waits on them)
 PLAN_PRUNE = (24, 48)       # after this many rollouts each, the worse half of the plays (5 or more) stop
+TEAM_PASS_N = 10            # plan_team: a pass after the first only when the time fits this many rollouts a play a pass
 PRIOR_W = 0.05              # a learned play's nudge at most (a sure win scores about 1): it only tips near-equal plays
 
 
@@ -3119,9 +3135,10 @@ def plan_round(state, me, foes, opts=None, n=PLAN_N, horizon=None, budget_ms=PLA
     """the plays for the round now (State), best first. Tried: every card in hand that can go now - a kind the simulator
     plays (PLAYED), paid for, not switched off in opts, not a blade already on or a blade or trap cast this battle, an
     aura while one's up or a heal that half goes to waste (my health high); copies once (a deck copy and a treasure
-    card's apart: a treasure card is used up; an item card's copy goes with the deck's - one whose deck copy is on or
-    used is still tried on its own; apart too when one would go sharpened and the other not - a Sharpen in hand goes
-    on a deck copy, never an item card's) - a single-target hit or a trap at each enemy left, anything else once; and a
+    card's apart: a treasure card is used up; an item card's copy goes with the deck's - a hit's deck copy the one tried
+    whichever comes first in hand (an enchant goes on it, never on an item card's) - one whose deck copy is on or used
+    is still tried on its own; apart too when one would go sharpened and the other not - a Sharpen in hand goes on a
+    deck copy, never an item card's) - a single-target hit or a trap at each enemy left, anything else once; and a
     pass. A Sharpen / Potent is no play of its own: "goes on a blade" / "goes on a trap" (the play it goes on says
     "with <card>" in its why).
     Each in up to n rollouts (from_state, then run_from: this round with that play, then the bot's chain - choose - till
@@ -3164,6 +3181,16 @@ def plan_round(state, me, foes, opts=None, n=PLAN_N, horizon=None, budget_ms=PLA
             key = (c.name, c.kind, c.school, c.pips, c.x, c.value, tuple(sorted(c.heads.items())),
                    tuple(sorted(c.boosts.items())), c.ench, c.tc, probe._sharp_for(c) is not None)
             if key in seen:
+                j0 = seen[key]
+                if c.hit and probe.hand[j0].item and not c.item:
+                    # (a hit's deck copy stands for the copies, not an item card's first in hand: the bot's chain
+                    # casts the deck copy - an enchant on it; an item card's never takes one, and its rollouts were
+                    # the chain's pick played unenchanted)
+                    cands = [(i if x == j0 else x, a) for x, a in cands]
+                    for q in rep:
+                        if rep[q] == j0:
+                            rep[q] = i
+                    seen[key] = i
                 rep[i] = seen[key]
                 continue
             seen[key] = rep[i] = i
@@ -3319,18 +3346,23 @@ def plan_lines(plan, foes, ids=None, top=3):
 def _team_cands(b, w, alive):
     """[(index in wizard w's hand or None - the pass -, aim)] its plays to try now - plan_round's way: a kind the
     simulator plays, paid for, not switched off, not on already or cast this battle; copies once (a deck copy and a
-    treasure card's apart, and one that goes sharpened now apart from one that doesn't); a single-target hit or a trap
-    at each enemy left. b: a battle from_state (w swapped in and back here)"""
+    treasure card's apart, and one that goes sharpened now apart from one that doesn't; a hit's deck copy standing for
+    an item card's, as in plan_round); a single-target hit or a trap at each enemy left. b: a battle from_state (w
+    swapped in and back here)"""
     b._swap(w)
     try:
-        out, seen = [(None, None)], set()
+        out, seen = [(None, None)], {}
         for i, c in enumerate(b.hand):
             if _plannable(c, b.opts, b) or not b.pay(c)[0]:
                 continue
             key = (c.name, c.kind, c.school, c.pips, c.x, c.value, c.ench, c.tc, b._sharp_for(c) is not None)
             if key in seen:
+                j0 = seen[key]
+                if c.hit and b.hand[j0].item and not c.item:
+                    out = [(i if x == j0 else x, a) for x, a in out]
+                    seen[key] = i
                 continue
-            seen.add(key)
+            seen[key] = i
             if (c.hit and c.kind != "aoe") or c.kind == "trap":
                 out.extend((i, a) for a in alive)
             else:
@@ -3345,11 +3377,13 @@ def plan_team(state, me, foes, opts=None, n=60, horizon=None, budget_ms=PLAN_BUD
     other wizards on my side): a play for me and for each mate whose hand is known, by coordinate descent - each in
     turn tries its plays (plan_round's: every card that can go now at each enemy, and a pass) with the others' fixed (at
     first each one's own chain - its role's way), the best kept; passes times round. Every play on the same random
-    numbers (rollout k's rng the same for each); the time split evenly over the turns. A mate whose hand isn't known
-    plays its role's way (Mate). -> {orders: [{who (0 me, k the mate - state.mates[k - 1]), name, seat, i (in its hand;
-    None the pass), card, tid, kind, aim, n, won, value, why ("won N% in R rollouts", then ", with <card>" when a
-    Sharpen / Potent goes on it)}] (in cast order), n (rollouts a play, the last turn's), ms, why [notes]}. Never
-    raises"""
+    numbers (rollout k's rng the same for each); the time split evenly over the turns - one round of each wizard's plays
+    at least in the first pass (each needs a play), none past its turn's share after that (a round cut short dropped);
+    a pass after the first only when the first round's time says the budget fits TEAM_PASS_N rollouts a play a pass
+    (or n, fewer), and only while there's time left. A mate whose hand isn't known plays its role's way (Mate). ->
+    {orders: [{who (0 me, k the mate - state.mates[k - 1]), name, seat, i (in its hand; None the pass), card, tid,
+    kind, aim, n, won, value, why ("won N% in R rollouts", then ", with <card>" when a Sharpen / Potent goes on it)}]
+    (in cast order), n (rollouts a play, the last turn's), ms, why [notes]}. Never raises"""
     t0 = time.perf_counter()
     out = {"orders": [], "n": 0, "ms": 0, "why": []}
     try:
@@ -3373,19 +3407,30 @@ def plan_team(state, me, foes, opts=None, n=60, horizon=None, budget_ms=PLAN_BUD
         fixed = {k: False for k in who}          # (False: its own chain)
         best = {}
         base = seed if seed is not None else random.randrange(1 << 30)
-        turns = max(1, passes * len(who))
+        npass = max(1, int(passes))
+        turns = max(1, npass * len(who))
         total0 = float(sum(probe.fhp[i] for i in alive)) or 1.0
         n = max(1, min(int(n), 2000))
-        t = 0
-        for _p in range(max(1, passes)):
+        span = max(1.0, float(budget_ms)) / 1000.0
+        end = t0 + span
+        t, p = 0, 0
+        while p < npass:
+            p += 1
             for k in who:
-                deadline = t0 + max(1.0, float(budget_ms)) / 1000.0 * (t + 1) / turns
+                if p > 1 and time.perf_counter() >= end:
+                    break           # (a later pass: only while there's time left - the first pass's picks stand)
+                deadline = t0 + span * (t + 1) / turns
                 t += 1
                 acc = {c: [] for c in cands[k]}
                 j = 0
+                t1 = time.perf_counter()
                 while j < n:
                     rs = (int(base) * 1000003 + j) & 0xFFFFFFFFFFFF
+                    cut = False
                     for c in cands[k]:
+                        if j and time.perf_counter() >= deadline:
+                            cut = True      # (past its share in a round after the first: that round dropped below)
+                            break
                         b = _Battle.from_state(state, me, foes, opts, random.Random(rs))
                         pl = {w: v for w, v in fixed.items() if w != 0 and v is not False}
                         mine = fixed.get(0, False)
@@ -3399,7 +3444,20 @@ def plan_team(state, me, foes, opts=None, n=60, horizon=None, budget_ms=PLAN_BUD
                             i, aim = mine
                             r = b.run_from(None if i is None else b.hand[i], aim, horizon, plays=pl)
                         acc[c].append(_rollout(r, b, total0, horizon))
+                    if cut:
+                        for c in acc:
+                            del acc[c][j:]
+                        break
                     j += 1
+                    if t == 1 and j == 1 and npass > 1:
+                        # (the first round's time a rollout: the passes after the first only when the budget fits
+                        # TEAM_PASS_N rollouts a play a pass - fewer, and each turn's pick would be a rollout's or two's
+                        # luck: one pass, the time all on it)
+                        per = (time.perf_counter() - t1) / max(1, len(cands[k]))
+                        if span < per * sum(len(cands[w]) for w in who) * min(n, TEAM_PASS_N) * npass:
+                            npass, turns = 1, len(who)
+                            deadline = t0 + span / turns
+                            out["why"].append("one pass only (too little time for a second)")
                     if time.perf_counter() >= deadline:
                         break
                 ranked = sorted(acc, key=lambda c: (-statistics.mean(x[3] for x in acc[c]), c[0] is None))
@@ -3425,8 +3483,9 @@ def plan_team(state, me, foes, opts=None, n=60, horizon=None, budget_ms=PLAN_BUD
             o["why"] = "won %d%% in %d rollouts" % (round(100 * o["won"]), o["n"]) + (
                 ", with %s" % sh.name if sh is not None else "")
             out["orders"].append(o)
-        if out["n"] and out["n"] < 10:
-            out["why"].append("only %d rollouts a play in the time given (%d ms)" % (out["n"], budget_ms))
+        low = min((v["n"] for v in best.values()), default=0)
+        if low and low < 10:
+            out["why"].append("only %d rollouts a play in the time given (%d ms)" % (low, budget_ms))
         if any(k != 0 and probe.side[k].nohand for k in (probe.wizards() if probe.side else [])):
             out["why"].append("a mate's hand isn't known - it plays its role's way (a hitter: 100 a pip every other "
                               "round; a support: nothing)")

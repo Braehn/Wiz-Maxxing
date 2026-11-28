@@ -1509,16 +1509,18 @@ class ZeroEffect(unittest.TestCase):
         # Lord 2.87, Stormblade 0.94, Storm Trap 0.93, Thunder Snake 0.34 a battle. v1.11.1: the hit paid for is the
         # plan - a Thunder Snake goes as the bot casts it, not held for the Storm Lord: re-pinned; v1.11.0 gave
         # (0.2, 0.8, 0.0, 15.0, 17, 12.9, 192, 10.0), Storm Lord 2.83, Storm Trap 0.93, Stormblade 0.93, Thunder Snake
-        # 0.41)
+        # 0.41. fix2: boosts never miss, enemies cast round 1 with 1-3 pips - re-pinned; it gave (0.0667, 0.9333, 0.0,
+        # 15.5, 18, 10.7, 202, 11), Thunder Snake 3.73, Storm Lord 1.85,
+        # Storm Trap 0.99, Stormblade 0.98)
         cards = S.deck_cards({"cards": [hit(count=8), hit("Thunder Snake", 2, 150, count=6),
                                         boost("blade", "Stormblade", 35, count=4),
                                         boost("trap", "Storm Trap", 30, count=4)]})
         r = S.simulate(cards, S.Me("storm", 2500, damage=40), [biter("Ogre", 3000, 150, 200),
                                                               biter("Imp", 800, 60, 80, passes=True)], n=120, seed=11)
         self.assertEqual(tuple(r[k] for k in self.KEYS),
-                         (0.06666666666666667, 0.9333333333333333, 0.0, 15.5, 18, 10.7, 202, 11.0))
-        self.assertEqual(r["casts"], {"Thunder Snake": 3.73, "Storm Lord": 1.85, "Storm Trap": 0.99,
-                                      "Stormblade": 0.98})
+                         (0.1, 0.9, 0.0, 17.0, 18, 9.1, 199, 11.0))
+        self.assertEqual(r["casts"], {"Thunder Snake": 3.57, "Storm Lord": 1.79, "Storm Trap": 1.0,
+                                      "Stormblade": 1.0})
 
     def test_timeout_deck_pinned(self):
         # (v1.7.0: 2 Stormblades - the second held: re-pinned)
@@ -1549,17 +1551,20 @@ class ZeroEffect(unittest.TestCase):
         # (v1.11.1: the Thunder Snakes paid for go, as the bot casts them - v1.11.0 gave (0.9917, 0.0083, 0.0, 19, 24,
         # 38.5, 97, 19), Storm Lord 4.17, Thunder Snake 2.61, Stormblade 0.95; the planner's pass 0.288, Thunder Snake
         # 0.283. v1.11.2: the pips saved for a Storm Lord that ends it, as the bot saves them - v1.11.1 gave (0.8417,
-        # 0.0583, 0.1, 24, 27, 24.1, 97, 24), Thunder Snake 9.47, Storm Lord 4.03; the planner's plays the same)
+        # 0.0583, 0.1, 24, 27, 24.1, 97, 24), Thunder Snake 9.47, Storm Lord 4.03; the planner's plays the same.
+        # fix2: boosts never miss, enemies cast round 1 with 1-3 pips - re-pinned; it gave (0.8333, 0.0667, 0.1, 24, 27,
+        # 24.2, 96, 24), Thunder Snake 9.51, Storm Lord 4.05; the
+        # planner's Thunder Snake 0.181723894, pass 0.180653003)
         self.assertEqual(tuple(r[k] for k in self.KEYS),
-                         (0.8333333333333334, 0.06666666666666667, 0.1, 24.0, 27, 24.2, 96, 24.0))
-        self.assertEqual(r["casts"], {"Thunder Snake": 9.51, "Storm Lord": 4.05, "Stormblade": 1.0})
+                         (0.9083333333333333, 0.025, 0.06666666666666667, 25.0, 27, 26.6, 91, 25.0))
+        self.assertEqual(r["casts"], {"Thunder Snake": 9.5, "Storm Lord": 3.8, "Stormblade": 1.0})
         # (the planner: a treasure side in the State's pile is a pile of its own, never dealt - the same plays as with
         # the treasure cards out of its pile)
         tstun = S.Card("Stun", "stun", tc=True)
         strip = lambda p: [(x["name"], x["aim"], x["n"], round(x["score"], 9)) for x in p["plays"]]  # noqa: E731
         st = S.State([lord(), snake(), tstun], [snake()] * 6 + [tstun] * 6, pips=3, fhp=[3000], me_first=True)
         p = S.plan_round(st, sure(), [tank], n=30, seed=3, budget_ms=10000)
-        self.assertEqual(strip(p), [("Thunder Snake", 0, 30, 0.181723894), ("pass", None, 30, 0.180653003)])
+        self.assertEqual(strip(p), [("Thunder Snake", 0, 30, 0.191057646), ("pass", None, 30, 0.183058588)])
         st = S.State([lord(), snake(), tstun], [snake()] * 6, pips=3, fhp=[3000], me_first=True)
         self.assertEqual(strip(S.plan_round(st, sure(), [tank], n=30, seed=3, budget_ms=10000)), strip(p))
 
@@ -1608,12 +1613,14 @@ class ZeroEffect(unittest.TestCase):
         # Snake 0.66 a battle. v1.11.1: the Thunder Snakes paid for go, as the bot casts them - re-pinned; v1.11.0 gave
         # won 0.7667, rounds 12, p90 14, hp_left 21.2, dmg_in 170, Storm Lord 3.01, Storm Trap 0.76, Stormblade 0.75,
         # Thunder Snake 0.57. v1.11.2: the pips saved for a Storm Lord that ends it, as the bot saves them - re-pinned;
-        # v1.11.1 gave won 0.2, dmg_in 172, Storm Lord 1.59)
+        # v1.11.1 gave won 0.2, dmg_in 172, Storm Lord 1.59. fix2: boosts never miss, enemies cast round 1 with 1-3 pips
+        # - re-pinned; it gave won 0.1917, hp_left 10.8, dmg_in 173,
+        # Storm Lord 1.58)
         cards = S.deck_cards({"cards": [hit(count=6), hit("Thunder Snake", 2, 150, count=6),
                                         boost("blade", "Stormblade", 35), boost("trap", "Storm Trap", 30)]})
-        pinned = {"n": 120, "won": 0.19166666666666668, "lost": 0.8083333333333333, "timeout": 0.0, "rounds": 14,
-                  "rounds_p90": 15, "hp_left": 10.8, "dmg_in": 173, "first_kill": 14,
-                  "casts": {"Thunder Snake": 6.0, "Storm Lord": 1.58, "Storm Trap": 1.0, "Stormblade": 1.0}, "why": []}
+        pinned = {"n": 120, "won": 0.2, "lost": 0.8, "timeout": 0.0, "rounds": 14,
+                  "rounds_p90": 15, "hp_left": 10.9, "dmg_in": 172, "first_kill": 14,
+                  "casts": {"Thunder Snake": 6.0, "Storm Lord": 1.63, "Storm Trap": 1.0, "Stormblade": 1.0}, "why": []}
         for o in (S.Opts(), S.Opts(reboost=1)):
             r = S.simulate(cards, S.Me("storm", 2500, damage=40), [biter("Ogre", 3000, 150, 200)], o, n=120, seed=11)
             self.assertEqual(r, pinned)
@@ -2288,15 +2295,15 @@ J3_PINS = [[[20, 'Storm Lord', 'damage', 'storm', 7, False, 1000.0, [('storm', 1
              1.13, 0.0, 0.0, False, False, '']],
            [[10, 'Storm Lord', 'damage', 'storm', 7, False, 1000.0, [('storm', 1000.0)], [], 70, None, False, False,
              1.13, 0.0, 0.0, False, False, '']],
-           [[10, 'Stormblade', 'blade', 'storm', 0, False, 35.0, [], [('storm', 35.0)], 70, None, False, False, 1.13,
+           [[10, 'Stormblade', 'blade', 'storm', 0, False, 35.0, [], [('storm', 35.0)], 100, None, False, False, 1.13,
              0.0, 0.0, False, False, '']],
            [[40, 'Storm Lord', 'damage', 'storm', 1, False, 50.0, [('storm', 50.0)], [], 70, None, False, False, 1.13,
              0.0, 0.0, False, False, '']],
            [[8, 'Storm Lord', 'damage', 'storm', 7, False, 1000.0, [('storm', 1000.0)], [], 70, None, False, False,
              1.13, 0.0, 0.0, False, False, ''],
-            [6, 'Stormblade', 'blade', 'storm', 0, False, 35.0, [], [('storm', 35.0)], 70, None, False, False, 1.13,
+            [6, 'Stormblade', 'blade', 'storm', 0, False, 35.0, [], [('storm', 35.0)], 100, None, False, False, 1.13,
              0.0, 0.0, False, False, ''],
-            [6, 'Storm Trap', 'trap', 'storm', 0, False, 30.0, [], [('storm', 30.0)], 70, None, False, False, 1.13,
+            [6, 'Storm Trap', 'trap', 'storm', 0, False, 30.0, [], [('storm', 30.0)], 100, None, False, False, 1.13,
              0.0, 0.0, False, False, '']],
            [[10, 'Tempest', 'aoe', 'storm', 6, False, 500.0, [('storm', 500.0)], [], 70, None, False, False, 1.13,
              0.0, 0.0, False, False, '']],
@@ -2304,13 +2311,13 @@ J3_PINS = [[[20, 'Storm Lord', 'damage', 'storm', 7, False, 1000.0, [('storm', 1
              1.1355932203389831, 0.0, 0.0, False, False, ''],
             [1, '?', 'aoe', 'fire', 0, True, 100.0, [('fire', 100.0)], [], 75, 124, False, True, 1.13, 0.0, 0.0,
              False, False, ''],
-            [2, '?', 'blade', 'storm', 0, False, 35.0, [], [('storm', 35.0)], 70, 125, False, True, 1.13, 0.0, 0.0,
+            [2, '?', 'blade', 'storm', 0, False, 35.0, [], [('storm', 35.0)], 100, 125, False, True, 1.13, 0.0, 0.0,
              False, False, '']],
            [[1, 'Storm Lord', 'damage', 'storm', 7, False, 1000.0, [('storm', 1000.0)], [], 70, None, False, False,
              1.13, 0.0, 0.0, False, False, ''],
             [1, 'Wand', 'damage', 'storm', 4, False, 295.0, [('storm', 295.0)], [], 70, 123, False, True,
              1.1355932203389831, 0.0, 0.0, False, False, '']],
-           [[4, 'Stormblade', 'blade', 'storm', 0, False, 35.0, [], [('storm', 35.0)], 70, None, False, False, 1.13,
+           [[4, 'Stormblade', 'blade', 'storm', 0, False, 35.0, [], [('storm', 35.0)], 100, None, False, False, 1.13,
              0.0, 0.0, False, False, '']],
            [[40, 'Bolt', 'damage', 'storm', 1, False, 500.0, [('storm', 500.0)], [], 70, None, False, False, 1.13,
              0.0, 0.0, False, False, '']],
@@ -2338,17 +2345,17 @@ J3_PINS = [[[20, 'Storm Lord', 'damage', 'storm', 7, False, 1000.0, [('storm', 1
              1.13, 0.0, 0.0, False, False, ''],
             [6, 'Thunder Snake', 'damage', 'storm', 2, False, 150.0, [('storm', 150.0)], [], 70, None, False, False,
              1.13, 0.0, 0.0, False, False, ''],
-            [4, 'Stormblade', 'blade', 'storm', 0, False, 35.0, [], [('storm', 35.0)], 70, None, False, False, 1.13,
+            [4, 'Stormblade', 'blade', 'storm', 0, False, 35.0, [], [('storm', 35.0)], 100, None, False, False, 1.13,
              0.0, 0.0, False, False, ''],
-            [4, 'Storm Trap', 'trap', 'storm', 0, False, 30.0, [], [('storm', 30.0)], 70, None, False, False, 1.13,
+            [4, 'Storm Trap', 'trap', 'storm', 0, False, 30.0, [], [('storm', 30.0)], 100, None, False, False, 1.13,
              0.0, 0.0, False, False, '']],
            [[10, 'Thunder Snake', 'damage', 'storm', 2, False, 300.0, [('storm', 300.0)], [], 70, None, False, False,
              1.13, 0.0, 0.0, False, False, ''],
-            [2, 'Stormblade', 'blade', 'storm', 0, False, 35.0, [], [('storm', 35.0)], 70, None, False, False, 1.13,
+            [2, 'Stormblade', 'blade', 'storm', 0, False, 35.0, [], [('storm', 35.0)], 100, None, False, False, 1.13,
              0.0, 0.0, False, False, '']],
            [[10, 'Thunder Snake', 'damage', 'storm', 2, False, 300.0, [('storm', 300.0)], [], 70, None, False, False,
              1.13, 0.0, 0.0, False, False, ''],
-            [2, 'Stormblade', 'blade', 'storm', 0, False, 35.0, [], [('storm', 35.0)], 70, None, False, False, 1.13,
+            [2, 'Stormblade', 'blade', 'storm', 0, False, 35.0, [], [('storm', 35.0)], 100, None, False, False, 1.13,
              0.0, 0.0, False, False, ''],
             [3, 'Freeze', 'stun', 'ice', 0, False, 0.0, [], [], 80, None, True, False, 1.13, 0.0, 0.0, False, False,
              '']],
@@ -2356,7 +2363,7 @@ J3_PINS = [[[20, 'Storm Lord', 'damage', 'storm', 7, False, 1000.0, [('storm', 1
              1.13, 0.0, 0.0, False, False, ''],
             [10, 'Thunder Snake', 'damage', 'storm', 2, False, 150.0, [('storm', 150.0)], [], 70, None, False, False,
              1.13, 0.0, 0.0, False, False, ''],
-            [4, 'Stormblade', 'blade', 'storm', 0, False, 35.0, [], [('storm', 35.0)], 70, None, False, False, 1.13,
+            [4, 'Stormblade', 'blade', 'storm', 0, False, 35.0, [], [('storm', 35.0)], 100, None, False, False, 1.13,
              0.0, 0.0, False, False, ''],
             [6, 'Stun', 'stun', '', 0, False, 0.0, [], [], 85, None, True, False, 1.13, 0.0, 0.0, False, False, ''],
             [4, 'Weakness', 'weakness', '', 0, False, 0.0, [], [], 85, None, True, False, 1.13, 0.0, 0.0, False,
@@ -2365,13 +2372,13 @@ J3_PINS = [[[20, 'Storm Lord', 'damage', 'storm', 7, False, 1000.0, [('storm', 1
              1.13, 0.0, 0.0, False, False, ''],
             [2, 'Tower Shield', 'ward', '', 0, False, 0.0, [], [], 100, None, False, False, 1.13, 0.0, 0.0, True,
              False, ''],
-            [2, 'Epic', 'enchant', '', 0, False, 300.0, [], [], 85, None, False, False, 1.13, 0.0, 0.0, False, False,
+            [2, 'Epic', 'enchant', '', 0, False, 300.0, [], [], 100, None, False, False, 1.13, 0.0, 0.0, False, False,
              'epic']],
            [[4, 'Storm Lord', 'damage', 'storm', 7, False, 1000.0, [('storm', 1000.0)], [], 70, None, False, False,
              1.13, 0.0, 0.0, False, False, ''],
-            [3, 'Stormblade', 'blade', 'storm', 0, False, 35.0, [], [('storm', 35.0)], 70, None, False, False, 1.13,
+            [3, 'Stormblade', 'blade', 'storm', 0, False, 35.0, [], [('storm', 35.0)], 100, None, False, False, 1.13,
              0.0, 0.0, False, False, ''],
-            [3, 'Storm Trap', 'trap', 'storm', 0, False, 30.0, [], [('storm', 30.0)], 70, None, False, False, 1.13,
+            [3, 'Storm Trap', 'trap', 'storm', 0, False, 30.0, [], [('storm', 30.0)], 100, None, False, False, 1.13,
              0.0, 0.0, False, False, ''],
             [2, 'Tower Shield', 'ward', '', 0, False, 0.0, [], [], 100, None, False, False, 1.13, 0.0, 0.0, True,
              False, '']],
@@ -2383,17 +2390,17 @@ J3_PINS = [[[20, 'Storm Lord', 'damage', 'storm', 7, False, 1000.0, [('storm', 1
              1.13, 0.0, 0.0, False, False, ''],
             [6, 'Thunder Snake', 'damage', 'storm', 2, False, 150.0, [('storm', 150.0)], [], 70, None, False, False,
              1.13, 0.0, 0.0, False, False, ''],
-            [1, 'Stormblade', 'blade', 'storm', 0, False, 35.0, [], [('storm', 35.0)], 70, None, False, False, 1.13,
+            [1, 'Stormblade', 'blade', 'storm', 0, False, 35.0, [], [('storm', 35.0)], 100, None, False, False, 1.13,
              0.0, 0.0, False, False, ''],
-            [1, 'Storm Trap', 'trap', 'storm', 0, False, 30.0, [], [('storm', 30.0)], 70, None, False, False, 1.13,
+            [1, 'Storm Trap', 'trap', 'storm', 0, False, 30.0, [], [('storm', 30.0)], 100, None, False, False, 1.13,
              0.0, 0.0, False, False, '']],
            [[6, 'Storm Lord', 'damage', 'storm', 7, False, 1000.0, [('storm', 1000.0)], [], 70, None, False, False,
              1.13, 0.0, 0.0, False, False, ''],
             [10, 'Thunder Snake', 'damage', 'storm', 2, False, 150.0, [('storm', 150.0)], [], 70, None, False, False,
              1.13, 0.0, 0.0, False, False, ''],
-            [4, 'Stormblade', 'blade', 'storm', 0, False, 35.0, [], [('storm', 35.0)], 70, None, False, False, 1.13,
+            [4, 'Stormblade', 'blade', 'storm', 0, False, 35.0, [], [('storm', 35.0)], 100, None, False, False, 1.13,
              0.0, 0.0, False, False, '']],
-           [[6, 'Strong', 'enchant', '', 0, False, 100.0, [], [], 85, None, True, False, 1.13, 0.0, 0.0, False, False,
+           [[6, 'Strong', 'enchant', '', 0, False, 100.0, [], [], 100, None, True, False, 1.13, 0.0, 0.0, False, False,
              'strong'],
             [4, 'Tempest', 'aoe', 'storm', 6, False, 400.0, [('storm', 400.0)], [], 70, None, True, False, 1.13, 0.0,
              0.0, False, False, ''],
@@ -2401,13 +2408,13 @@ J3_PINS = [[[20, 'Storm Lord', 'damage', 'storm', 7, False, 1000.0, [('storm', 1
              1.13, 0.0, 0.0, False, False, ''],
             [10, 'Thunder Snake', 'damage', 'storm', 2, False, 150.0, [('storm', 150.0)], [], 70, None, False, False,
              1.13, 0.0, 0.0, False, False, ''],
-            [4, 'Stormblade', 'blade', 'storm', 0, False, 35.0, [], [('storm', 35.0)], 70, None, False, False, 1.13,
+            [4, 'Stormblade', 'blade', 'storm', 0, False, 35.0, [], [('storm', 35.0)], 100, None, False, False, 1.13,
              0.0, 0.0, False, False, '']],
            [[4, 'Storm Lord', 'damage', 'storm', 7, False, 1000.0, [('storm', 1000.0)], [], 70, None, False, False,
              1.13, 0.0, 0.0, False, False, ''],
             [10, 'Thunder Snake', 'damage', 'storm', 2, False, 150.0, [('storm', 150.0)], [], 70, None, False, False,
              1.13, 0.0, 0.0, False, False, ''],
-            [6, 'Strong', 'enchant', '', 0, False, 100.0, [], [], 85, None, True, False, 1.13, 0.0, 0.0, False, False,
+            [6, 'Strong', 'enchant', '', 0, False, 100.0, [], [], 100, None, True, False, 1.13, 0.0, 0.0, False, False,
              'strong']]]
 
 
@@ -2801,16 +2808,19 @@ class SpentCopies(unittest.TestCase):
         # 0.96, Storm Trap 0.95 a battle; the two with a blade only don't move. v1.11.1: the Thunder Snakes paid for go,
         # as the bot casts them - the mixed deck and the treasure-side one re-pinned; v1.11.0 gave (0.325, 0.675, 0.0,
         # 15, 18, 14.0, 184, 10), Storm Lord 3.3, Storm Trap 0.97, Stormblade 0.97, Thunder Snake 0.03; and (0.925,
-        # 0.025, 0.05, 19, 22, 38.7, 97, 19), Storm Lord 4.61, Thunder Snake 2.83, Stormblade 1.0)
+        # 0.025, 0.05, 19, 22, 38.7, 97, 19), Storm Lord 4.61, Thunder Snake 2.83, Stormblade 1.0. fix2: boosts never
+        # miss, enemies cast round 1 with 1-3 pips - re-pinned; they gave
+        # (0.0167, 0.9833, 0.0, 19, 19, 14.7, 205, 12), Thunder Snake 5.15, Storm Lord 1.32; and (0.85, 0.0583, 0.0917,
+        # 24, 27, 23.2, 97, 24), Storm Lord 3.88)
         cards = S.deck_cards({"cards": [hit(count=8), hit("Thunder Snake", 2, 150, count=6),
                                         boost("blade", "Stormblade", 35, count=4),
                                         boost("trap", "Storm Trap", 30, count=4)]})
         r = S.simulate(cards, S.Me("storm", 2500, damage=40),
                        [biter("Ogre", 3000, 150, 200), biter("Imp", 800, 60, 80, passes=True)], ON, n=120, seed=11)
         self.assertEqual(tuple(r[k] for k in self.KEYS),
-                         (0.016666666666666666, 0.9833333333333333, 0.0, 19.0, 19, 14.7, 205, 12.0))
+                         (0.008333333333333333, 0.9916666666666667, 0.0, 19.0, 19, 16.9, 206, 12.0))
         self.assertEqual(r["casts"],
-                         {"Thunder Snake": 5.15, "Storm Lord": 1.32, "Storm Trap": 1.0, "Stormblade": 1.0})
+                         {"Thunder Snake": 5.11, "Storm Lord": 1.27, "Storm Trap": 1.0, "Stormblade": 1.0})
         cards = S.deck_cards({"cards": [hit("Thunder Snake", 2, 300, count=10),
                                         boost("blade", "Stormblade", 35, count=2)]})
         r = S.simulate(cards, S.Me("storm", 3000), [biter("Tank", 2600, 50, 60)], ON, n=100, seed=3)
@@ -2825,8 +2835,8 @@ class SpentCopies(unittest.TestCase):
                                                                   "type": "Damage"})])
         r = S.simulate(S.deck_cards({"cards": main + tside}), S.Me("storm", 3000), [tank], ON, n=120, seed=5)
         self.assertEqual(tuple(r[k] for k in self.KEYS),
-                         (0.85, 0.058333333333333334, 0.09166666666666666, 24.0, 27, 23.2, 97, 24.0))
-        self.assertEqual(r["casts"], {"Thunder Snake": 10.0, "Storm Lord": 3.88, "Stormblade": 1.0})
+                         (0.9333333333333333, 0.025, 0.041666666666666664, 25.0, 28, 23.5, 92, 25.0))
+        self.assertEqual(r["casts"], {"Thunder Snake": 10.0, "Storm Lord": 3.77, "Stormblade": 1.0})
         self.assertEqual(r, S.simulate(S.deck_cards({"cards": main}), S.Me("storm", 3000), [tank], ON, n=120, seed=5))
 
     def test_single_copies_unchanged(self):
@@ -2842,8 +2852,9 @@ class SpentCopies(unittest.TestCase):
                                        boost("trap", "Storm Trap", 30, count=6)]})
         held = S.simulate(deck, sure(damage=40), [foe], S.Opts(), n=200, seed=7)
         spent = S.simulate(deck, sure(damage=40), [foe], ON, n=200, seed=7)
-        # (v1.11.1: held 0.845 - the blades and traps go with no hit in hand too, for your school's hit; v1.11.0 0.875)
-        self.assertEqual((held["won"], spent["won"]), (0.845, 1.0))
+        # (v1.11.1: held 0.845 - the blades and traps go with no hit in hand too, for your school's hit; v1.11.0 0.875.
+        # fix2: boosts never miss, enemies cast round 1 with 1-3 pips - re-pinned; it gave held 0.845)
+        self.assertEqual((held["won"], spent["won"]), (0.775, 1.0))
         self.assertEqual(S.simulate(deck, sure(damage=40), [foe], S.Opts(reboost=1, discardspent=1), n=200, seed=7),
                          S.simulate(deck, sure(damage=40), [foe], S.Opts(reboost=1), n=200, seed=7))
 
@@ -2856,7 +2867,7 @@ class SpentCopies(unittest.TestCase):
         w = {o: [S.simulate(deck, me, foes, S.Opts(discardspent=o), n=1, seed=300000 + i)["won"] for i in range(40)]
              for o in (0, 1)}
         self.assertEqual((sum(w[0]), sum(w[1]), sum(a < b for a, b in zip(w[0], w[1])),
-                          sum(a > b for a, b in zip(w[0], w[1]))), (23.0, 38.0, 15, 0))
+                          sum(a > b for a, b in zip(w[0], w[1]))), (24.0, 40.0, 16, 0))  # (fix2: was 23, 38, 15)
 
     def test_main_plays_it_on(self):
         seen = []
@@ -3253,20 +3264,22 @@ class SharpenPotent(unittest.TestCase):
         def run(o):
             return S.simulate(deck, sure(damage=40), [foe], o, n=200, seed=7)
         r = run(S.Opts())
-        self.assertEqual(tuple(r[k] for k in keys), (0.97, 0.0, 0.03, 16.0, 21, 49.9, 92, 16.0))
-        self.assertEqual(r["casts"], {"Storm Lord": 3.22, "Storm Trap": 1.91, "Stormblade": 1.78, "Potent Trap": 0.92,
-                                      "Sharpened Blade": 0.79})
+        self.assertEqual(tuple(r[k] for k in keys), (0.98, 0.0, 0.02, 16.0, 21, 51.0, 87, 16.0))
+        self.assertEqual(r["casts"], {"Storm Lord": 3.33, "Storm Trap": 1.9, "Stormblade": 1.8, "Potent Trap": 0.91,
+                                      "Sharpened Blade": 0.82})
         on = run(ON)
-        self.assertEqual(tuple(on[k] for k in keys), (1.0, 0.0, 0.0, 15.0, 19, 51.9, 93, 15.0))
-        self.assertEqual(list(on["casts"].items()), [("Storm Lord", 3.07), ("Storm Trap", 2.0), ("Stormblade", 1.98),
-                                                     ("Potent Trap", 0.99), ("Sharpened Blade", 0.97)])
+        self.assertEqual(tuple(on[k] for k in keys), (1.0, 0.0, 0.0, 15.0, 19, 54.7, 87, 15.0))
+        self.assertEqual(list(on["casts"].items()), [("Storm Lord", 3.05), ("Storm Trap", 2.0), ("Stormblade", 1.99),
+                                                     ("Potent Trap", 1.0), ("Sharpened Blade", 0.99)])
         rb = run(S.Opts(reboost=1))
-        self.assertEqual(tuple(rb[k] for k in keys), (1.0, 0.0, 0.0, 11.0, 16, 62.3, 94, 11.0))
+        self.assertEqual(tuple(rb[k] for k in keys), (1.0, 0.0, 0.0, 11.0, 16, 64.3, 88, 11.0))
         self.assertEqual(run(S.Opts(discardunused=0)), r)
         # (HEAD v1.8.1 gave Opts() 0.88 / ON 1.0 in 21 / 22 rounds, discardunused 0 0.51; v1.9.0 to v1.10.1 - the
         # biggest % first, the Stormblade before the Storm Trap - Opts() 0.945, ON 1.0 in 19 rounds (p90), rb 0.94 with
         # 62.0 % health left; v1.11.0 - no boost with no hit in hand - Opts() 0.94, ON 0.995 in 20 rounds (p90), rb
-        # 0.945 with 61.4 % health left)
+        # 0.945 with 61.4 % health left. fix2: boosts never miss, enemies cast round 1 with 1-3 pips - re-pinned; it
+        # gave Opts() (0.97, 0.0, 0.03, 16, 21, 49.9, 92, 16), ON 51.9 % left
+        # with 93 taken, rb 62.3 % with 94)
 
     def test_sharpen_deck_reboostkeep_pinned(self):
         # (v1.9.1: test_sharpen_deck_pinned's deck - reboost with this AutoFarmer's reboostkeep: the blade's copies kept
@@ -3283,9 +3296,12 @@ class SharpenPotent(unittest.TestCase):
         def run(o):
             return S.simulate(deck, sure(damage=40), [foe], o, n=200, seed=7)
         rk = run(S.Opts(reboost=1, reboostkeep=1))
-        self.assertEqual(tuple(rk[k] for k in keys), (1.0, 0.0, 0.0, 11.0, 16, 62.4, 95, 11.0))
-        self.assertEqual(rk["casts"], {"Storm Trap": 3.42, "Stormblade": 3.27, "Storm Lord": 2.34, "Potent Trap": 1.29,
-                                       "Sharpened Blade": 1.13})
+        # (fix2: boosts never miss, enemies cast round 1 with 1-3 pips - re-pinned; it gave 62.4 % left with 95 taken,
+        # Storm Trap 3.42, Stormblade 3.27, Storm Lord 2.34, Potent Trap
+        # 1.29, Sharpened Blade 1.13)
+        self.assertEqual(tuple(rk[k] for k in keys), (1.0, 0.0, 0.0, 11.0, 16, 65.2, 86, 11.0))
+        self.assertEqual(rk["casts"], {"Storm Trap": 3.4, "Stormblade": 3.32, "Storm Lord": 2.38, "Potent Trap": 1.27,
+                                       "Sharpened Blade": 1.18})
         self.assertEqual(run(S.Opts(reboost=1, reboostkeep=1, discardspent=1)), rk)
         self.assertEqual(run(S.Opts(reboost=1, reboostkeep=1, discardunused=0)), rk)
         self.assertEqual(run(S.Opts(reboostkeep=1)), run(S.Opts()))
@@ -3471,15 +3487,17 @@ class BoostOrder(unittest.TestCase):
         # (8 Storm Lord + 3 Bladestorm 20 + 3 Storm Aura 25 + 3 Stormblade 35 against 3 mobs, discardspent on: the aura
         # last, so it's up for more of the 7-pip Storm Lord's casts - 44 %, v1.10.1 40 %. v1.10.1 cast it before
         # Bladestorm, the bigger %, and it ran out (4 rounds) while the hit waited for its pips: (0.64, 0.3375, 0.0225,
-        # 20.0, 22, 18.9, 138, 6.0), Storm Lord 4.79, Storm Aura 3.0 a battle)
+        # 20.0, 22, 18.9, 138, 6.0), Storm Lord 4.79, Storm Aura 3.0 a battle. fix2: boosts never miss, enemies cast
+        # round 1 with 1-3 pips - re-pinned; it gave (0.685, 0.285, 0.03,
+        # 20.0, 22, 20.0, 137, 6.0), Storm Lord 4.83, Storm Aura 2.99)
         bst = dict(boost("blade", "Bladestorm", 20, count=3), school="", boosts_text="all:20")
         cards = S.deck_cards({"cards": [hit(count=8), bst, boost("aura", "Storm Aura", 25, count=3),
                                         boost("blade", "Stormblade", 35, count=3)]})
         mobs = [S.Foe("Mob %d" % i, 1500, spells=[("Hit", 1.0, {"pips": 2, "min": 100, "max": 150, "accuracy": 100})])
                 for i in range(3)]
         r = S.simulate(cards, S.Me("storm", 3000, damage=60), mobs, ON, n=400, seed=7)
-        self.assertEqual(tuple(r[k] for k in ZeroEffect.KEYS), (0.685, 0.285, 0.03, 20.0, 22, 20.0, 137, 6.0))
-        self.assertEqual(r["casts"], {"Storm Lord": 4.83, "Storm Aura": 2.99, "Stormblade": 1.0, "Bladestorm": 1.0})
+        self.assertEqual(tuple(r[k] for k in ZeroEffect.KEYS), (0.9125, 0.045, 0.0425, 20.0, 23, 26.3, 121, 5.0))
+        self.assertEqual(r["casts"], {"Storm Lord": 4.95, "Storm Aura": 2.98, "Stormblade": 1.0, "Bladestorm": 1.0})
 
 
 # ============================================================================ v1.11.1: boosts with no hit in hand and

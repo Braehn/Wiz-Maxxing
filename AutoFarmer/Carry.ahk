@@ -24,9 +24,10 @@
 
 ;On, the two windows and their processes; whose window is in front now (0 the main's, 1 the carry's) and since when;
 ;the helper's client as last set (its pid, "" not set); the dashboard.ini entry looked at (once a run); the mount's
-;prompts said ({letters: 1}); the battles the carry played a round of (for the log) and the rounds this battle
+;prompts said ({letters: 1}); the battles the carry played a round of (for the log) and the rounds this battle; the
+;turn's window held back (CarryFront bring false - you at the PC: brought up once you've stopped, CarryTick)
 global CarryOn, CarryMainHwnd, CarryMainPid, CarryHwnd, CarryPid, CarryTurn, CarryTurnAt, CarryPin, CarryRestored
-global CarrySaidPrompts, CarryRounds, CarryMainRounds
+global CarrySaidPrompts, CarryRounds, CarryMainRounds, CarryFrontLate
 ;Each wizard's battle kept aside while the other plays (CarrySwap): [main's, carry's] - a Map of its battle's globals, ""
 ;none yet this battle; the battle they're for (BlDuel). Each wizard's name and school as its own client's memory has them
 ;(CarryNoteMe - the round's start): [main's, carry's]
@@ -39,7 +40,7 @@ CarryBlank()
 	{
 	global
 	CarryOn := 0, CarryMainHwnd := 0, CarryMainPid := 0, CarryHwnd := 0, CarryPid := 0, CarryTurn := 0, CarryTurnAt := 0
-	CarryPin := "", CarryRestored := 0, CarrySaidPrompts := Map(), CarryRounds := 0, CarryMainRounds := 0
+	CarryPin := "", CarryRestored := 0, CarrySaidPrompts := Map(), CarryRounds := 0, CarryMainRounds := 0, CarryFrontLate := 0
 	CarryState := ["", ""], CarryStateDuel := "", CarryNames := ["", ""], CarrySchools := ["", ""]
 	MainPid := 0, MainOthers := Map(), MainGoneSaid := 0
 	}
@@ -142,6 +143,7 @@ MainPin()
 MainTick()
 	{
 	global MainGoneSaid
+	global GameInTray, GameTrayPid ; (Autofarmer.ahk's - read)
 	static restored := 0, lookAt := 0
 	if (!restored)
 		{
@@ -156,9 +158,17 @@ MainTick()
 	if (!MainPid || A_TickCount - lookAt < 2000)
 		return
 	lookAt := A_TickCount
+	;(hidden in the tray - Settings: traygame - its window isn't listed: not gone)
+	if (GameInTray && GameTrayPid = MainPid && ProcessExist(MainPid))
+		return
 	if (CarryWinOf(MainPid))
 		{
 		MainGoneSaid := 0
+		;(every other client open meanwhile - one you opened after picking the main, to play by hand - is an other one too: only a
+		;client started once the main's gone is taken as the main. It took over your own second account before - review 2026-11-27)
+		for i, w in CarryGameWins()
+			if (w.pid && w.pid != MainPid)
+				MainOthers[w.pid] := 1
 		;(the helper not on it yet - it wasn't running when picked: pinned now)
 		if (!CarryOn && CarryPin != MainPid && VisionOn)
 			MainPin()
@@ -256,7 +266,7 @@ CarryStart(quiet := false)
 ;Carry mode off (why - for the log): the main's window in front, the helper back to reading the foreground client
 CarryOff(why, alert := false)
 	{
-	global CarryOn, CarryTurn, CarryPin
+	global CarryOn, CarryTurn, CarryPin, CarryFrontLate
 	if (!CarryOn)
 		return
 	wasMain := CarryMainHwnd
@@ -267,7 +277,7 @@ CarryOff(why, alert := false)
 	CarryOn := 0
 	if (CarryTurn && wasMain && WinExist("ahk_id " wasMain))
 		try WinActivate("ahk_id " wasMain)
-	CarryTurn := 0
+	CarryTurn := 0, CarryFrontLate := 0
 	;(the helper back on the main picked (Alt+M), else the window in front)
 	CarryPin := "", MainPin()
 	try IniDelete(A_ScriptDir "\dashboard.ini", "carry")
@@ -339,14 +349,20 @@ CarryTick()
 			return CarryOff("the carry's client (process " CarryPid ") has closed", true)
 		CarryHwnd := h
 		}
+	;(the turn's window held back while you were at the PC - CarryFront bring false: up now you've left the keyboard and mouse
+	;alone at one of the two game windows - never over another program. Dropped before, the turn and the window in front
+	;stayed apart: the main stood 5 minutes after a battle, or the carry's round was lost - review 2026-11-27)
+	if (CarryFrontLate && CarryMayFront())
+		CarryFront(CarryTurn, "its turn - you've left the keyboard and mouse alone", false, false)
 	}
 
 ;Window which (0 the main's, 1 the carry's) in front, the game's rect measured on it and the helper reading its client;
 ;why - for the log (said once a turn change). In a battle each wizard's own battle goes with its turn (CarrySwap - swap
-;false: not, the battle's over). True if it's in front
-CarryFront(which, why, quiet := false, swap := true)
+;false: not, the battle's over). bring false: the turn changed only, the window left where it is (CarryMayFront - you
+;at the PC, or in another program - and brought up later: CarryTick). True if it's in front
+CarryFront(which, why, quiet := false, swap := true, bring := true)
 	{
-	global CarryTurn, CarryTurnAt, CarryPin
+	global CarryTurn, CarryTurnAt, CarryPin, CarryFrontLate
 	if (swap && inbattle == 1 && which != CarryTurn)
 		CarrySwap(CarryTurn, which)
 	cfH := which ? CarryHwnd : CarryMainHwnd
@@ -354,7 +370,7 @@ CarryFront(which, why, quiet := false, swap := true)
 	cfOk := false
 	try
 		{
-		if (!WinActive("ahk_id " cfH))
+		if (bring && !WinActive("ahk_id " cfH))
 			{
 			WinActivate("ahk_id " cfH)
 			WinWaitActive("ahk_id " cfH, , 1)
@@ -362,6 +378,8 @@ CarryFront(which, why, quiet := false, swap := true)
 		cfOk := WinActive("ahk_id " cfH) ? true : false
 		}
 	CarryTurn := which, CarryTurnAt := A_TickCount
+	;(held back - you at the PC, or in another program: brought up once you've stopped at a game window, CarryTick)
+	CarryFrontLate := !bring && !cfOk
 	UpdateGameRect()
 	if (CarryPin != cfP)
 		{
@@ -369,8 +387,20 @@ CarryFront(which, why, quiet := false, swap := true)
 		CarryPin := SubStr(cfAns, 1, 2) = "OK" ? cfP : ""
 		}
 	if (!quiet)
-		DebugLog("Carry: " (which ? "the carry's" : "the main's") " window " (cfOk ? "in front" : "couldn't be brought to the front") " - " why)
+		DebugLog("Carry: " (which ? "the carry's" : "the main's") " window " (cfOk ? "in front" : bring ? "couldn't be brought to the front" : "its turn, left behind (you're at the PC or in another window)") " - " why)
 	return cfOk
+	}
+
+;A window switch of carry mode's may bring a game window up: you not at the PC (PlayerActing) and one of the two game
+;windows the one in front - never over another program you're in, nor while you type or click (review 2026-11-27: the
+;main's window came up over your browser 6 s into the carry's turn, and as you started typing after a battle)
+CarryMayFront()
+	{
+	if (PlayerActing())
+		return false
+	cmfOk := false
+	try cmfOk := (CarryMainHwnd && WinActive("ahk_id " CarryMainHwnd)) || (CarryHwnd && WinActive("ahk_id " CarryHwnd))
+	return cmfOk ? true : false
 	}
 
 ;The helper reads the client the bot plays now - carry mode's whose turn it is, else the main picked (Alt+M)
@@ -491,7 +521,7 @@ CarryStateNames()
 		names := ["roundnumber", "playerX", "playerY", "Player", "boosts", "BoostRun", "sharpen", "potent", "blade", "blade2", "blade3"
 			, "blade4", "trap", "trap2", "trap3", "trap4", "feint", "aura", "enchant", "reshuffle", "hit1", "hit2", "hit3", "hit4"
 			, "EnchantedHits", "PipSaveFor", "PipSaveRounds", "PipSaveGaveUp", "PipSaveTarget", "PipSaveStall", "PipSaveLastPips"
-			, "PlayerTookRound", "RoundLeft", "RoundAgain", "FleeNoHits", "FleeHitsRound", "DrawsBattle", "DrawOff", "LearnHitFails"
+			, "PlayerTookRound", "RoundLeft", "RoundAgain", "FleeNoHits", "FleeHitsRound", "FleeNoCards", "FleeNoMana", "DrawsBattle", "DrawOff", "LearnHitFails"
 			, "OwnHpPct", "OwnHpRound", "tower", "hitter", "hitschool", "hammerX", "hammerY", "hitterX", "hitterY", "school", "schoolX"
 			, "schoolY", "bladetype", "traptype", "BattleRole", "HammerSchool", "HammerName", "HammerSlot", "HammerGroup"
 			, "SidePlatesKey", "MySlot", "PartyHitsSeen", "PartyHitsDuel", "PartyHitsWait", "PartyLowKey", "PartyLowX", "PartyLowY"
@@ -541,6 +571,9 @@ CarrySwap(from, to)
 		try csKeep[csN] := %csN%
 	ResetVariables()
 	ResetUsed()
+	;(and its own rounds with no cards or mana - FleeCheck's counts: ResetVariables leaves them, so the main's were taken
+	;over - in carry mode the two alternate on them, and the main's two in a row never came)
+	FleeNoCards := 0, FleeNoMana := 0
 	PlateDuel := "", DeckDuel := "", DeckNow := "", DeckFoe := "", DeckFoeTries := 0, DeckFoeKnown := 0
 	for csN, csV in csKeep
 		%csN% := csV
@@ -560,12 +593,13 @@ CarryRoundEnd()
 	global CarryRounds
 	if (!CarryOn)
 		return
+	;(you at the PC or in another program meanwhile: the turn only - CarryMayFront)
 	if (!CarryTurn)
-		CarryFront(1, "its round")
+		CarryFront(1, "its round", false, true, CarryMayFront())
 	else
 		{
 		CarryRounds += 1
-		CarryFront(0, "the carry's round is done")
+		CarryFront(0, "the carry's round is done", false, true, CarryMayFront())
 		}
 	}
 
@@ -579,14 +613,15 @@ CarryNoRound(bookSeen)
 		return false
 	if (bookSeen)
 		{
-		CarryFront(0, "the carry isn't in a battle (its spellbook shows)")
+		CarryFront(0, "the carry isn't in a battle (its spellbook shows)", false, true, CarryMayFront())
 		return true
 		}
 	if (PassButtonAt(&cnX, &cnY) = 0)
 		return false
+	;(another program over the game - no Pass button seen there either: the main's turn, its window left behind - CarryMayFront)
 	if (A_TickCount - CarryTurnAt > 6000)
 		{
-		CarryFront(0, "no round up on the carry's window for 6 s")
+		CarryFront(0, "no round up on the carry's window for 6 s", false, true, CarryMayFront())
 		return true
 		}
 	Sleep(200)
@@ -598,22 +633,27 @@ CarryNoRound(bookSeen)
 CarryBattleOver()
 	{
 	global CarryRounds, CarryMainRounds
+	global WkGoalLineAt ; (Walker.ahk's - the carry's goal line read afresh, CarryGoalKeep)
 	global WkPromptText, WkPromptVerb, WkPromptDest ; (InteractPrompt's)
 	if (!CarryOn)
 		return
 	DebugLog("Carry: the battle's over - the main " (CarryMainSet() = "pass" ? "passed " : "played ") CarryMainRounds " round(s), the carry played " CarryRounds)
 	CarryRounds := 0, CarryMainRounds := 0
-	;(the main's battle the one left - ResetVariables clears it next; the carry's dropped)
+	;(the main's battle the one left - ResetVariables clears it next; the carry's dropped. You at the PC or in another program:
+	;the turn only, no window brought up - CarryMayFront - and no look for the mount's prompt)
+	cboMay := CarryMayFront()
 	if (CarryTurn)
-		CarryFront(0, "the battle's over", true)
+		CarryFront(0, "the battle's over", true, true, cboMay)
 	CarryStateDrop()
-	if (!StatOr("partyride", 1) || PlayerActing())
+	if (!StatOr("partyride", 1) || !cboMay)
 		return
 	if (!CarryFront(1, "the battle's over - its mount's prompt", false, false))
 		{
-		CarryFront(0, "back to the main", false, false)
+		CarryFront(0, "back to the main", false, false, CarryMayFront())
 		return
 		}
+	;(the carry's goal line read below - WalkGoalLine sets the main walker's goal state: kept, and put back after)
+	cbGoal := CarryGoalKeep(), WkGoalLineAt := 0
 	cbEnd := A_TickCount + 6000, cbRode := false
 	while (A_TickCount < cbEnd && !cbRode)
 		{
@@ -623,7 +663,10 @@ CarryBattleOver()
 		if (InteractPrompt() != "press")
 			continue
 		cbText := SubStr(RegExReplace(WkPromptText, "\s+", " "), 1, 100)
-		if (PartyRidePrompt(WkPromptText, WkPromptVerb, ""))
+		;(never at one with Crowns on it - the walker's WalkPromptCrowns, the quest's goal line read first: WalkGoalLine, at most
+		;every 3 s - the carry's own: the main's cached one dropped above)
+		WalkGoalLine()
+		if (PartyRidePrompt(WkPromptText, WkPromptVerb, "") && !WalkPromptCrowns())
 			{
 			Send("{Blind}x")
 			DebugLog("Carry: pressed X on the carry's window to ride the mount - the prompt: `"" cbText "`"")
@@ -634,10 +677,27 @@ CarryBattleOver()
 		if (!CarrySaidPrompts.Has(WkPromptDest))
 			{
 			CarrySaidPrompts[WkPromptDest] := 1
-			DebugLog("Carry: a prompt on the carry's window: `"" cbText "`" (Press X to " WkPromptVerb ") - not one to ride a mount: no X")
+			DebugLog("Carry: a prompt on the carry's window: `"" cbText "`" (Press X to " WkPromptVerb ") - " (WalkPromptCrowns() ? "Crowns on it" : "not one to ride a mount") ": no X")
 			}
 		}
+	CarryGoalKeep(cbGoal)
 	if (!cbRode)
 		DebugLog("Carry: no mount prompt on the carry's window in 6 s - left as it is")
-	CarryFront(0, "back to the main", false, false)
+	;(the wait cut short by you - playing, or in another window: the turn only, the focus left with you)
+	CarryFront(0, "back to the main", false, false, CarryMayFront())
+	}
+
+;The main walker's quest goal state (Walker.ahk WalkGoalLine, WalkGoalText) - back "": kept, returned; else put back from
+;what was kept (the carry's goal read meanwhile: the main's walker, KoNote's knockout counts never see the carry's quest)
+CarryGoalKeep(back := "")
+	{
+	global WkGoalLine, WkGoalLineAt, WkGoalSeen, WkGoalFrom, WkGoalType, WkGoalNpc, WkGoalId, WkGoalItem, WkGoalCount ; (Walker.ahk's)
+	global WkGoalTotal, WkGoalItemKey, WkGoalMobKey, WkGoalNpcFirst, WkGoalNpcLast, WkGoalQuest ; (Walker.ahk's)
+	if (!IsObject(back))
+		return [WkGoalLine, WkGoalLineAt, WkGoalSeen, WkGoalFrom, WkGoalType, WkGoalNpc, WkGoalId, WkGoalItem, WkGoalCount
+			, WkGoalTotal, WkGoalItemKey, WkGoalMobKey, WkGoalNpcFirst, WkGoalNpcLast, WkGoalQuest]
+	WkGoalLine := back[1], WkGoalLineAt := back[2], WkGoalSeen := back[3], WkGoalFrom := back[4], WkGoalType := back[5]
+		, WkGoalNpc := back[6], WkGoalId := back[7], WkGoalItem := back[8], WkGoalCount := back[9], WkGoalTotal := back[10]
+		, WkGoalItemKey := back[11], WkGoalMobKey := back[12], WkGoalNpcFirst := back[13], WkGoalNpcLast := back[14]
+		, WkGoalQuest := back[15]
 	}

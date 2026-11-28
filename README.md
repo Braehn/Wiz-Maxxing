@@ -25,7 +25,9 @@ Setup:
 
 2. Double-click **Setup.exe**. It shows what's there already and installs what's missing: first it copies the bot
    into your own Programs folder (`%LOCALAPPDATA%\Programs\Wiz-Maxxing` - no admin needed, updates keep working;
-   over an earlier install there, its settings and learned cards are kept), then, from there, Python 3 and its
+   over an earlier install there, its settings and learned cards are kept; when your install is somewhere else - the
+   folder your Start menu or desktop shortcut starts - the box reads **Update your install in place** and this version
+   goes over that one instead, the same way), then, from there, Python 3 and its
    numpy and Pillow packages (for the card matching), unblocks the downloaded files, and adds **Wiz-Maxxing** to the
    Start menu, the desktop, the Run box (Win+R) and your PATH. AutoHotkey v2 and Git are optional (only to change
    the bot or get updates with `git pull`). So is **Cheat Engine speedhack** (never ticked for you - risky: KingsIsle

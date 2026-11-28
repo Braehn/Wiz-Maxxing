@@ -15,8 +15,12 @@
                              over the command, the bot it's for, the time and a nonce - 2 minutes old at most, each nonce
                              once). AutoFarmer picks it up at its next /net
   * Play for me can only be switched OFF from the network: on only at that PC (its button - your say-so).
-Never sent: the game's login, anything from Credential Manager, the GitHub token, the Discord webhook, the PIN itself,
-file paths."""
+  * /net/log and /net/snap are answered to any private address, no PIN asked (the Network tab's view - the PIN guards
+    commands only). Wrong PINs: a few from one address - or more from all - in BAD_PIN_S and commands are refused till
+    they've aged out (a PIN can't be guessed by trying them all).
+Never sent: the game's login, anything from Credential Manager, the GitHub token, the Discord webhook, the PIN itself.
+The log lines sent have the Windows account's own folder taken out (C:\\Users\\<name> - USERPROFILE - sent as
+%USERPROFILE%)."""
 import hashlib
 import hmac
 import http.client
@@ -42,6 +46,23 @@ COMMANDS = ('on', 'off', 'pfmoff', 'restart')
 BIND = '0.0.0.0'        # where it listens (tests only: 127.0.0.1 - no firewall question)
 TEXT_RE = re.compile(r"[^\x20-\x7E]")
 BOTS = ('on', 'off', 'standby')
+MAX_PEERS = 32          # bots kept from the beacons (more: one gone quiet makes room, else the new one isn't kept)
+BAD_PIN_S = 600.0       # wrong PINs counted this long (s)...
+BAD_PIN_IP = 5          # ...this many from one address - or...
+BAD_PIN_ALL = 20        # ...this many from all of them -: every command refused till they're older (tries meanwhile not counted)
+BAD_PIN_KEEP = 256      # the wrong tries remembered at most
+HTTP_TIMEOUT = 3.0      # s a network client has to send its request (one that sends nothing doesn't hold a thread for good)
+# the account's own folder in a log line - C:\Users\<name>, its \ doubled or not
+USER_DIR_RE = re.compile(r'(?i)\b[a-z]:\\{1,2}users\\{1,2}[^\\/:*?"<>|\r\n,()]+')
+
+
+def no_user_dir(text):
+    """text with the Windows account's own folder (C:\\Users\\<name>, and USERPROFILE wherever it is) as %USERPROFILE%:
+    the log lines another PC is sent"""
+    home = os.environ.get('USERPROFILE') or ''
+    if len(home) > 3:
+        text = re.sub(re.escape(home).replace(r'\\', r'\\{1,2}'), '%USERPROFILE%', text, flags=re.I)
+    return USER_DIR_RE.sub('%USERPROFILE%', text)
 
 
 def _text(v, n):
@@ -128,6 +149,8 @@ class NetMon:
         self.peers = {}                     # PC name -> state with 'id', 'ip', 'port', 'at'
         self.cmds = []                      # commands taken, for AutoFarmer: (c, from PC)
         self.nonces = {}                    # nonce -> when (each taken once)
+        self.bad = []                       # wrong PINs: (when, from ip), the last BAD_PIN_KEEP
+        self.said = {}                      # a warning's key -> when it was last logged (once a minute each)
         self.state, self.why = 'off', ''
         self.udp, self.server, self.bound = None, None, None
         self.next_beacon = 0.0
@@ -275,6 +298,17 @@ class NetMon:
         return ('ok|' if r.status == 200 else 'ERR ') + body
 
     # ------------------------------------------------------------------ from the network
+    def _say_once(self, key, msg, every=60.0):
+        """msg logged - the same key at most once a minute (a flood of bad beacons or tries is one line)"""
+        now = time.monotonic()
+        with self.lock:
+            if now - self.said.get(key, -every) < every:
+                return
+            if len(self.said) > 256:
+                self.said.clear()
+            self.said[key] = now
+        self.log(msg)
+
     def take(self, q, ip):
         """a command from the network: (status, answer)"""
         with self.lock:
@@ -284,7 +318,32 @@ class NetMon:
         c, to, t, nonce, mac = (q.get(k, '') for k in ('c', 'to', 't', 'n', 'mac'))
         if c not in COMMANDS or to != self.id or not re.match(r'^\d{1,12}$', t) or not re.match(r'^[0-9a-f]{16}$', nonce):
             return 400, 'not a command for this bot'
+        # (wrong PINs: BAD_PIN_IP from this address or BAD_PIN_ALL from all in BAD_PIN_S - every command refused, before
+        # its PIN is looked at, till they're older: a PIN can't be found by trying them. A try meanwhile isn't counted -
+        # its PIN never looked at, it tells nothing - so the PIN put right works BAD_PIN_S after the last wrong one, and
+        # one PC's refused tries never lock out the others)
+        with self.lock:
+            now = time.monotonic()
+            self.bad = [b for b in self.bad if now - b[0] <= BAD_PIN_S]
+            mine = [b[0] for b in self.bad if b[1] == ip]
+            wait = 0.0
+            if len(mine) >= BAD_PIN_IP:                       # (till enough of this address's have aged out)
+                wait = mine[len(mine) - BAD_PIN_IP] + BAD_PIN_S - now
+            if len(self.bad) >= BAD_PIN_ALL:                  # (...or of all of them)
+                wait = max(wait, self.bad[len(self.bad) - BAD_PIN_ALL][0] + BAD_PIN_S - now)
+            n = len(self.bad)
+        if wait > 0:
+            mins = max(1, int(-(-wait // 60)))
+            self._say_once('locked', 'netmon: a command from %s refused - %d wrong network PINs lately (%d from there): '
+                                     'none taken for %d more minutes' % (ip, n, len(mine), mins))
+            return 403, ('too many wrong network PINs lately - no command is taken for %d more minute%s (the PIN has '
+                         'to be the same on both PCs)' % (mins, '' if mins == 1 else 's'))
         if not hmac.compare_digest(sign(pin, c, to, t, nonce), str(mac)):
+            with self.lock:
+                self.bad = (self.bad + [(time.monotonic(), ip)])[-BAD_PIN_KEEP:]
+                n = len(self.bad)
+            self._say_once('bad ' + ip, 'netmon: a command from %s with the wrong network PIN (%d wrong in the last %d '
+                                        'minutes)' % (ip, n, BAD_PIN_S // 60))
             return 403, 'wrong network PIN (it has to be the same on both PCs)'
         off = time.time() - int(t)
         if abs(off) > CMD_AGE:
@@ -330,12 +389,15 @@ class NetMon:
                 data = f.read()
         except OSError:
             return ''
-        return '\n'.join(data.decode('utf-8', 'replace').splitlines()[-max(1, min(200, n)):])
+        return no_user_dir('\n'.join(data.decode('utf-8', 'replace').splitlines()[-max(1, min(200, n)):]))
 
     def _handler(self):
         net = self
 
         class Handler(BaseHTTPRequestHandler):
+            # (a client that connects and sends nothing is let go after this - as party.py's)
+            timeout = HTTP_TIMEOUT
+
             def log_message(self, *a):
                 pass
 
@@ -450,9 +512,26 @@ class NetMon:
         port = int(_num(d.get('port'), 1024, 65535) or PORT)
         if not s['pc']:
             return
+        said = None
         with self.lock:
-            s.update(id=d['id'], ip=ip, port=port, at=time.monotonic())
-            self.peers[s['pc']] = s
+            now = time.monotonic()
+            old = self.peers.get(s['pc'])
+            if old is not None and old['id'] != d['id'] and old['ip'] != ip and now - old['at'] <= STALE:
+                # (a second bot calling itself a PC that's heard from elsewhere right now: not taken over - commands
+                # and the PIN-signed ones above all would go to it. A bot started again keeps its address; one that
+                # moved is taken once the old address has gone quiet)
+                said = ('spoof ' + s['pc'], 'netmon: a beacon from %s says it is %s - heard at %s just now: not taken'
+                        % (ip, s['pc'], old['ip']))
+            elif old is None and len(self.peers) >= MAX_PEERS:
+                for name in [n for n, p in self.peers.items() if now - p['at'] > STALE]:
+                    del self.peers[name]
+                if len(self.peers) >= MAX_PEERS:
+                    said = ('full', 'netmon: %d bots heard already - %s (%s) not kept' % (MAX_PEERS, s['pc'], ip))
+            if said is None:
+                s.update(id=d['id'], ip=ip, port=port, at=now)
+                self.peers[s['pc']] = s
+        if said is not None:
+            self._say_once(*said)
 
     def _loop(self):
         while True:

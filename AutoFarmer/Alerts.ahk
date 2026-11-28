@@ -75,7 +75,8 @@ AlertUrlOk(url)
 	return RegExMatch(url, "^https://(?:ptb\.|canary\.)?discord(?:app)?\.com/api/webhooks/\d+/[\w-]+$")
 	}
 
-;An alert, if they're on and a webhook's set: kind - one of each kind at most once in 10 minutes; title, text - what's
+;An alert, if they're on and a webhook's set: kind and title - the same alert (both alike) at most once in 10 minutes,
+;one not sent said in debug.log; title, text - what's
 ;wrong and what to do; link - a page about it (the quest's Wizard101 Central page: Walker.ahk WalkNotify), its own line right
 ;under the title - before the text, so the 1900-character cut can't drop it - in <...> (no preview). Sent in the background
 AlertSend(kind, title, text, link := "")
@@ -92,8 +93,20 @@ AlertSend(kind, title, text, link := "")
 	if (!IsObject(AlertLast))
 		AlertLast := V1Obj()
 	now := A_TickCount
-	if (AlertLast.Has(kind) && now - AlertLast[kind] < 600000)
+	;(the same alert: its kind and its title - one kind has several alerts ("inventory": a backpack full in a dungeon,
+	;and minutes later an Equipment Set's item sold; "potions": not drinking, then none left), and a kind alone
+	;swallowed the second one for 10 minutes, unlogged)
+	same := kind "|" title
+	if (AlertLast.Has(same) && now - AlertLast[same] < 600000)
+		{
+		;(said once for each one sent - a round's alert comes again every round)
+		if (!AlertLast.Has(same "|said") || AlertLast[same "|said"] != AlertLast[same])
+			{
+			AlertLast[same "|said"] := AlertLast[same]
+			DebugLog("Discord: alert '" title "' not sent - the same one went " Round((now - AlertLast[same]) / 60000) " min ago (once in 10 minutes)")
+			}
 		return
+		}
 	;(another went less than 20 s ago: this one waits its turn - an alert that the bot has stopped often comes
 	;right after the one that led to it)
 	if (AlertLast.Has("") && now - AlertLast[""] < 20000)
@@ -101,14 +114,14 @@ AlertSend(kind, title, text, link := "")
 		if (!IsObject(AlertWait))
 			AlertWait := []
 		for i, w in AlertWait
-			if (w.kind = kind)
+			if (w.kind = kind && w.title = title)
 				return
 		AlertWait.Push(V1Obj({kind: kind, title: title, text: text, link: link}))
 		DebugLog("Discord: alert '" title "' held - another went less than 20 s ago")
 		SetTimer(AlertFlush,-(20000 - (now - AlertLast[""]) + 200))
 		return
 		}
-	AlertLast[kind] := now, AlertLast[""] := now
+	AlertLast[same] := now, AlertLast[""] := now
 	zone := V1IsFunc("WalkZone") ? WalkZone.Call() : ""
 	at := FormatTime(, "HH:mm")
 	AlertPost(url, "**Wizard101 bot needs you: " title "**" (link != "" ? "`n<" link ">" : "") "`n" text "`n_" (zone != "" ? zone " - " : "") at "_", kind)

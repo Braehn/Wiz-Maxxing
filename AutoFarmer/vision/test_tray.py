@@ -341,7 +341,7 @@ class TrayWiring(unittest.TestCase):
             self.assertEqual(b.count('Click()'), 1, name)
         mob = self.fn(self.af, 'mobloop')
         self.assertRegex(mob, r'^global\n+if \(GameInTray\)\n\treturn\n')
-        self.assertRegex(mob, r's\(5000\)\s*if \(GameInTray\)\s*return\s*Send\("\{w down\}"\)')
+        self.assertRegex(mob, r's\(5000\)\s*if \(GameInTray\)\s*return\s*(?:if \(!GameKeysOk\(\)\)\s*return\s*)?Send\("\{w down\}"\)')
         lore = re.search(r'(?ms)^LoreLoop\(\)\n\t\{[^\n]*\n(.*?)^\t\}', self.af)
         self.assertIsNotNone(lore)
         self.assertRegex(lore.group(1), r'^\tglobal\n\tlocal _direction\s*\n+\tif \(GameInTray\)\n\t\treturn\n')
@@ -350,7 +350,8 @@ class TrayWiring(unittest.TestCase):
             code = self.af if fname == 'Autofarmer.ahk' else code_of(os.path.join(AF, fname))
             n = code.count('Click("right")')
             self.assertGreaterEqual(n, 1, fname)
-            guarded = re.findall(r'if \(GameInTray\)\n\t+(?:break|return[^\n]*)\n\t+Click\("right"\)', code)
+            guarded = re.findall(r'if \(GameInTray\)\n\t+(?:break|return[^\n]*|\{\n\t+cut := true\n\t+break\n\t+\})\n'
+                                 r'\t+Click\("right"\)', code)
             self.assertEqual(len(guarded), n, fname)
         flee = self.fn(code_of(os.path.join(AF, 'Flee.ahk')), 'FleeCheck')
         self.assertRegex(flee, r'if \(!CastWentOut\(\)\)\s*\{\s*if \(GameInTray\)\s*return false\s*fx := ')
@@ -390,9 +391,11 @@ class TrayWiring(unittest.TestCase):
         rep = self.fn(pot, 'PotionReplay')
         self.assertRegex(rep, r'if \(GameInTray\)\s*\{\s*ok := false\s*break\s*\}\s*Send\("\{Blind\}\{" name ')
         self.assertIn('if (GameInTray || !PotionNoCrowns(x, y))', rep)
-        self.assertRegex(rep, r'Sleep\(120\)\s*if \(GameInTray\)\s*ok := false\s*else\s*Click\(\)\s*if \(ownGrab\)\s*'
+        # (after the hover: PotionClickFine - the game in front, the run fine to carry on, the mouse still on the spot, the
+        # game's window under it - then the click AT x, y)
+        self.assertRegex(rep, r'Sleep\(120\)\s*if \(GameInTray \|\| !PotionClickFine\(x, y, since, [^\n]*\)\)\s*ok := false\s*else\s*Click\(x, y\)\s*if \(ownGrab\)\s*'
                               r'MouseLetGo\(\)\s*MouseLockOff\("route"\)\s*if \(!ok\)\s*break')
-        self.assertEqual(rep.count('Click()'), 1)
+        self.assertEqual(rep.count('Click('), 1)
         # (a hide in the drink's wait: no "none left" booked, no run - whether one was drunk isn't known. Between the hide
         # check and "none left" booked: only the game's own count saying there are potions - then no run either)
         # (a drink that took may be followed by up to 2 more while under the limit - each PotionDrink looks at GameInTray
@@ -416,7 +419,10 @@ class TrayWiring(unittest.TestCase):
         # (the chat line Respond types - "no mana" after a refill a hide cut short: looked at first and before the line)
         resp = self.fn(self.af, 'Respond')
         self.assertTrue(first_is_guard(resp, ''))
-        self.assertRegex(resp, r's\(100\)\s*if \(GameInTray\)\s*return\s*SendInput\(')
+        # (fix2: or GameKeysOk there - it looks at GameInTray first, and at the window in front and the bot on too)
+        # (and the chat box its 'r' opened closed again then, Wizard101 still in front)
+        self.assertRegex(resp, r's\(100\)\s*if \((?:GameInTray|!GameKeysOk\(\))\)\s*(?:\{\s*if \(!GameInTray && GameActive\(\)\)\s*'
+                               r'Send\("\{Esc\}"\)\s*)?return\s*\}?\s*SendInput\(')
         for code, name in ((fl, 'FleeDrinkForMana'), (fl, 'FleeRefillMana'), (self.af, 'Respond')):
             self.assertNotRegex(self.fn(code, name), r'GameInTray\s*:=', name)
         # (Reconnect's click on RECONNECT with the game brought to the front: not on the window behind, none said)

@@ -295,6 +295,10 @@ BotToggle()
 		;(the walker starts afresh: the wizard may have moved meanwhile)
 		if (V1IsFunc("WalkReset"))
 			WalkReset.Call()
+		;(the game at 1x for sure - Cheat Engine's 1x key, only with the speedhack set up: a run killed while walking at 2x,
+		;or a 1x lost, left it fast, and every 1x asked for till the first battle round went unsent - the walker counts it
+		;at 1x already - near an NPC, a dialogue, a shop)
+		SpeedSet(0, "bot on", true)
 		;(battles only - Settings: battlesonly: it waits for battles and plays them, and moves nothing else)
 		if (BattlesOnly())
 			{
@@ -311,6 +315,10 @@ BotToggle()
 		{
 		if (KeysDown || HeldW)
 			ReleaseKeys()
+		;(keys let go while another window had focus: Wizard101 still gets its one clean release once it's back, as after
+		;F8 off - Walker.ahk WalkerRefocusWatch; with the bot off the main loop's WalkStep that gives it never runs)
+		if (Refocus)
+			SetTimer(WalkerRefocusWatch,250)
 		;(your mouse let go at once - Settings.ahk MouseLockRelease)
 		MouseLockRelease("the bot's off")
 		if (IsObject(DeckBoss))
@@ -391,19 +399,38 @@ BotLoopGone()
 	try SpeedSet(0, "the main loop stopped", true)
 	try MouseLockRelease("the bot's main loop stopped")
 	BotOn := 0
+	;(StartBot's own set-up stopped before the loop began - BotSetUp: what it didn't set up isn't there for the loop to
+	;start on - a restart does it all again)
+	if (!BotSetUp)
+		{
+		try DebugLog("The bot's start stopped after an error in the script - the bot is off: restart it (" HkText("restart") " or the tray menu)")
+		try BotOnShow()
+		try TrayTip("The bot couldn't start after an error in the script (debug.log has it). Restart it.", "Wizard101 bot", 2)
+		return
+		}
 	try DebugLog("The bot's main loop stopped after an error in the script - the bot is off: " HkText("bot") " (or the dashboard's button) starts it again")
 	try BotOnShow()
 	try TrayTip("The bot stopped after an error in the script (debug.log has it). " HkText("bot") " starts it again.", "Wizard101 bot", 2)
 	}
 
 ;The main loop started again after an error stopped it (BotToggle - you turned the bot on): StartBot's set-up kept, only
-;the loop - from its top, as each pass
+;the loop - from its top, as each pass. StartBot's set-up itself stopped before the loop (BotSetUp 0): not started - the
+;bot off again and said (BotLoopGone's words): a restart sets it all up
 BotLoopAgain()
 	{
 	local v1Keep := V1Thread() ; (v1: each thread had its own ErrorLevel)
+	global BotOn ; (v1 globals it sets)
 	local loopUp
 	if (!BotLoopDead || !BotOn)
 		return
+	if (!BotSetUp)
+		{
+		BotOn := 0
+		try BotOnShow()
+		try DebugLog("The bot's start stopped after an error in the script - not started: restart it (" HkText("restart") " or the tray menu)")
+		try TrayTip("The bot couldn't start after an error in the script - restart it.", "Wizard101 bot", 2)
+		return
+		}
 	DebugLog("The bot's main loop started again (" HkText("bot") ")")
 	loopUp := BotLoopMark()
 	BattleLoop()
@@ -1236,14 +1263,69 @@ ClickAt(x, y, after := 0)
 		clickExtra := Random(0, Stat("clickrandom"))
 		Sleep(clickExtra)
 		}
-	;(gone to the tray during the waits: not clicked)
-	if (!GameInTray)
-		Click()
+	;(another program's window over Wizard101 where it clicks - Alt+Tab'd to during a round's waits, the dashboard on top:
+	;not clicked, a battle's round left - GameUnderMouse)
+	if (GameInTray || GameUnderMouse("a click"))
+		{
+		;(gone to the tray during the waits: not clicked)
+		if (!GameInTray)
+			Click()
+		}
 	if (after)
 		AfterClick(after)
 	if (ownGrab)
 		MouseLetGo()
 	MouseLockOff("click")
+	}
+
+;Is the window under the pointer the game's - the one a click there lands on (WindowFromPoint, as Reconnect.ahk RcOnGame:
+;the overlay's click-through windows passed by)? The client the bot plays when one's picked (GamePid - carry mode's whose
+;turn it is, Alt+M's main), else any Wizard101's (dual mode's Alt+Tab goes between two), as GameWT. Checked right
+;before the bot's own clicks in the game (ClickAt, TargetClick, the discards' right-clicks) - their only other check was
+;the tray: another program in front over the game there (Alt+Tab'd to in a round's waits - the keyboard's never locked,
+;and the mouse lock lets go once the game isn't in front), the dashboard on top, took the click. Not: false, said (at most
+;every 5 s - what: the click's, for the log; only the other program's name), and in a battle noted (RoundRefused): the
+;round goes on with its other clicks - one that lands may still take it - and its end looks whether its Pass button's
+;still up: then it's left (RoundLeft: seen again, played again - not counted as a new round), else counted as ever (not
+;left here: the next new round read as this one still up - its count, the aura's rounds, the discards stuck). A game
+;behind other windows but showing where it clicks is clicked as ever (a first click on it brings it forward)
+GameUnderMouse(what := "a click")
+	{
+	static saidAt := 0
+	global RoundRefused ; (v1 globals it sets)
+	gumWin := 0, gumClass := "", gumExe := "", gumPid := 0, gumWant := GamePid()
+	try MouseGetPos(, , &gumWin)
+	try gumClass := WinGetClass("ahk_id " gumWin)
+	if (gumWin && gumClass = GameClass)
+		try gumExe := WinGetProcessName("ahk_id " gumWin), gumPid := WinGetPID("ahk_id " gumWin)
+	;(the client the bot plays when one's picked - carry mode's whose turn it is, Alt+M's main: Carry.ahk GamePid, as GameWT)
+	if (gumWin && gumClass = GameClass && gumExe = GameExe && (!gumWant || gumPid = gumWant))
+		return true
+	if (inbattle == 1)
+		RoundRefused := 1
+	if (A_TickCount - saidAt > 5000)
+		{
+		saidAt := A_TickCount
+		if (gumWin && gumExe = "")
+			try gumExe := WinGetProcessName("ahk_id " gumWin)
+		DebugLog("  " what " not clicked - " (!gumWin ? "no window under the pointer (the screen locked?)" : (gumClass = GameClass && gumExe = GameExe) ? "another Wizard101 client's window is there"
+			: "another window is over Wizard101 there (" (gumExe != "" ? gumExe : "?") ")") (inbattle == 1 ? " - the round looked at again at its end" : ""))
+		}
+	return false
+	}
+
+;Is the game's own window what shows at its middle, where a round's Pass and cards are - not another program over it
+;(Alt+Tab'd to in the round's waits, the dashboard on top), not the screen locked (WindowFromPoint, as Reconnect.ahk
+;RcOnGame)? The client the bot plays (GameWT). A screen search for the Pass button reads whatever's showing: its "not
+;found" means the round's gone only when this is true
+GameShowing()
+	{
+	gsWin := 0
+	try gsWin := WinExist(GameWT())
+	;(v1: the game's rect not read yet - blank - made no number: not known to show)
+	if (!gsWin || !IsNumber(GameLeft) || !IsNumber(GameTop) || !IsNumber(GameW) || !IsNumber(GameH))
+		return false
+	return RcOnGame(Integer(GameLeft + GameW // 2), Integer(GameTop + GameH // 2), gsWin)
 	}
 
 ;A wait after a click: ms times clickafter % (PlayerStats.txt; lower is faster)
@@ -1724,8 +1806,8 @@ FindAndClick(&title, &click, &dir) ; (v1: Click - renamed: a v2 script function 
 ;sure (KillCalc.ahk BoostMemBox, as UseMemAt casts a Tower Shield); not sure: the picture's spot as before, unless there's
 ;none or the global already up may be under it (BubbleUpHeld). A global has no target: the card alone is clicked. The
 ;global it put up is noted (BubbleUp - the game's name: the same one isn't cast again this battle; the slot's learned card
-;up already: its picture not clicked, the game's hand read or not). True if clicked; false: nothing was (the chain goes on
-;to the next card)
+;up already: its picture not clicked, the game's hand read or not). True if clicked and gone out (BladeWentOut); false:
+;nothing was, or it didn't go out - nothing noted (the chain goes on to the next card)
 ClickBubble()
 	{
 	global
@@ -1739,6 +1821,9 @@ ClickBubble()
 			{
 			DebugLog("  " cbKey ": " (bubbleX != "" ? "its picture found a global, the game has another in hand too" : "no picture found it") " - the game's " cbAt.name " is card " cbAt.n " of " cbAt.of " in hand: cast at its box " cbAt.x - GameLeft "," cbAt.y - GameTop cbAt.note)
 			ClickAt(cbAt.x, cbAt.y, 100)
+			;(went out? - as a blade's, BladeWentOut: not, the global not noted up - tried again - and the chain goes on)
+			if (!BladeWentOut(cbKey))
+				return false
 			bubble := 1, BubbleUp := cbAt.name
 			return true
 			}
@@ -1764,6 +1849,9 @@ ClickBubble()
 	;(KillCalc.ahk BubbleHandName) - before the hand changes; not known: the global known up stays known, never blanked)
 	cbName := BubbleHandName()
 	if (!FindAndClick(&_title := "bubble", &bubble, &hitschool))
+		return false
+	;(went out? - as above)
+	if (!BladeWentOut(cbKey))
 		return false
 	if (cbName != "")
 		BubbleUp := cbName
@@ -1905,7 +1993,7 @@ UseNegAura()
 		return false
 		}
 	unWhen := NegAuraWhen(unKey)
-	if (unWhen != "" && V1Lt(V1Sub(roundnumber, unWhen), 4))  ; (v1: a blank round - dual mode - counted as within 4)
+	if (unWhen != "" && V1Lt(V1Sub(roundnumber, unWhen), dualmode == 1 ? 8 : 4))  ; (v1: a blank round counted as within 4; dual mode: both wizards' turns counted - BattleLoop)
 		{
 		DebugLog("  negaura: " unWho " has one from round " unWhen " (4 rounds) - not cast again yet")
 		return false
@@ -1931,6 +2019,9 @@ UseNegAura()
 		return false
 		}
 	AfterClick(200)
+	;(went out? - as a blade's, BladeWentOut: not, the enemy not noted - tried again - and the chain goes on)
+	if (!BladeWentOut("negaura"))
+		return false
 	NegAuraNote(unKey, roundnumber), negaura := 0
 	return true
 	}
@@ -2084,7 +2175,9 @@ UseBlade(&title, &blade, &Use1, &Use2, &dir)
 ;(v1.14.1 - CastWentOut's TODO: a blade's cast checked as a hit's is) Did the blade just clicked onto its plate go out?
 ;Not: said, the mouse to the middle - nothing counted (its casts this battle, on you, the round's boosts), so the round
 ;goes on to its next card and the blade's tried again later. Terri on PC_B, 2026-11-15: two clicks in a battle that cast
-;nothing - the game's battle records show no blade of hers - were counted as both its casts, and she never bladed again
+;nothing - the game's battle records show no blade of hers - were counted as both its casts, and she never bladed again.
+;The same for a trap or Feint (UseTrap - TrapPut's trap on the enemy too), the bubble (ClickBubble), a negative aura
+;(UseNegAura) and the aura (the battle chain): title - the card's, for the log
 BladeWentOut(title)
 	{
 	if (CastWentOut())
@@ -2181,7 +2274,8 @@ UseTrap(&title, &trap, &Use1, &Use2, &dir)
 			}
 		;(the Crown buttons read again now - the wait for the hand above takes the first read past TargetClickSpot's 1.5 s, and
 		;a fresh one that says otherwise would refuse the target click with the trap picked: asked again before it's clicked, so
-		;a refusal leaves it made potent in hand, nothing picked; TrapTargetClick then takes this read, under 1.5 s old)
+		;a refusal leaves it made potent in hand, nothing picked; TrapTargetClick then takes this read, however long the
+		;card's click - TargetSpotKeep)
 		if (TrapAtX < GameLeft + Px(300) && TrapAtY < GameTop + Px(130))
 			TargetCrownRead()
 		if (!TargetSpotOk(TrapAtX, TrapAtY, utBox, title))
@@ -2191,6 +2285,10 @@ UseTrap(&title, &trap, &Use1, &Use2, &dir)
 			}
 		ClickAt(foundX, foundY, 150)
 		if (!TrapTargetClick(title, utBox))
+			return false
+		;(went out? - as a blade's, BladeWentOut: not, nothing counted - its cast this battle, TrapPut's trap on the enemy
+		;for the kill check - and the round goes on to its next card)
+		if (!BladeWentOut(title))
 			return false
 		boosts++
 		if (utSrc = "")
@@ -2218,6 +2316,9 @@ UseTrap(&title, &trap, &Use1, &Use2, &dir)
 				}
 			ClickAt(foundX, foundY, 150)
 			if (!TrapTargetClick(title, utBox))
+				return false
+			;(went out? - as above)
+			if (!BladeWentOut(title))
 				return false
 			boosts++
 			if (utSrc != "")
@@ -2523,8 +2624,14 @@ UseHeal(title, &card, dir, tx := "", ty := "")
 			return false
 		lc := V1IsFunc("LearnCardInSlot") ? LearnCardInSlot.Call(dir "\" title) : ""
 		allOf := IsObject(lc) && RegExMatch(lc.text, "i)\ba[l1][l1]\b")
-		StatsSet([[dir "." title "target", allOf ? 2 : 0]])
-		DebugLog("  " title " went out without asking who - " (allOf ? "it heals all of you: still used on an ally (" dir "." title "target:2)" : "it heals only you: not used on an ally again (" dir "." title "target:0)"))
+		;(the screen couldn't be read meanwhile - TargetPending: whether it asked who isn't known - nothing learned)
+		if (TargetPendUnread)
+			DebugLog("  " title ": the screen couldn't be read after its click - not known whether it asked who (nothing learned)")
+		else
+			{
+			StatsSet([[dir "." title "target", allOf ? 2 : 0]])
+			DebugLog("  " title " went out without asking who - " (allOf ? "it heals all of you: still used on an ally (" dir "." title "target:2)" : "it heals only you: not used on an ally again (" dir "." title "target:0)"))
+			}
 		}
 	else
 		{
@@ -2575,13 +2682,21 @@ HitTarget(title, dir, force := 0, dmg := "")
 		return
 		}
 	;(the Crown buttons read now if the plate's by their corner - during the wait below, not after it: TargetClickSpot takes
-	;a read under 1.5 s old)
+	;this read for this plate's click however long the wait - clickafter up to 1000 % makes it 6 s, and a read then, blank
+	;with the helper busy, refused the target with the card picked - TargetSpotKeep)
 	if (tx < GameLeft + Px(300) && ty < GameTop + Px(130))
-		TargetCrownRead()
+		TargetCrownRead(), TargetSpotKeep := tx "," ty "," TargetCrownAt
 	;(the game asking for a target a moment after the card's clicked: then the plate hovered, then clicked)
 	AfterClick(600)
 	if (!TargetClick(tx, ty, tbox))
 		{
+		;(another window over Wizard101 at its plate - GameUnderMouse: not the Crown corner - no other enemy's put on for it,
+		;not the one the plan picked: the card's left as it is, the round's end looks whether it went - EndRound)
+		if (TargetClickCovered)
+			{
+			DebugLog("  " title ": " pick " not clicked as the target - another window over Wizard101 at its plate: the card's left picked")
+			return
+			}
 		;(its plate not clickable - the Crown shop's corner, TargetClickSpot: another enemy's instead, the one the hit does the
 		;most to of the rest - not the card left picked till the round runs out, 2026-11-13 00:10-00:12, knocked out)
 		if (slot = "" || EnemyPlates.Length < 2)
@@ -2609,10 +2724,10 @@ HitTarget(title, dir, force := 0, dmg := "")
 		{
 		if (TargetClick(tx, ty + Px(20), tbox))
 			DebugLog("  " title ": the target click didn't take - clicked the plate again at " tx - GameLeft "," ty + Px(20) - GameTop)
-		else if (TargetClick(tx, ty, tbox))
+		else if (!TargetClickCovered && TargetClick(tx, ty, tbox))
 			DebugLog("  " title ": the target click didn't take - its health line not clickable (the Crown shop's corner), clicked the plate again at " tx - GameLeft "," ty - GameTop)
 		else
-			DebugLog("  " title ": the target click didn't take - not clicked again (the Crown shop's corner) - the card may be left picked")
+			DebugLog("  " title ": the target click didn't take - not clicked again (" (TargetClickCovered ? "another window over Wizard101 at its plate" : "the Crown shop's corner") ") - the card may be left picked")
 		}
 	}
 
@@ -2656,9 +2771,17 @@ TargetClickSpot(&x, &y, box, &why)
 	if (!tsCorner && (x >= GameLeft + Px(300) || y >= GameTop + Px(130)))
 		return true
 	global TargetCrownG, TargetCrownAt ; (read: TargetCrownRead's)
+	global TargetSpotKeep ; (v1 globals it sets)
 	tsPaths := TargetCrownPaths()
-	;(a read just made - HitTarget's, before the after-click wait: under 1.5 s old - else read now)
-	tsG := (TargetCrownAt && A_TickCount - TargetCrownAt < 1500) ? TargetCrownG : TargetCrownRead()
+	;(a read just made - HitTarget's, before the after-click wait: under 1.5 s old - else read now. The click right after a
+	;TargetSpotOk that let this same spot through on that same read - a trap's, a negative aura's, the prism's - or right
+	;after HitTarget's read for it: that read's answer carries to it, however long the card's click took (clickwait,
+	;clickrandom, clickafter - up to 10 s and more): a fresh read past 1.5 s, blank with the helper busy, refused the target
+	;with the card already picked. Once: taken up here - TargetSpotOk, HitTarget set it afresh. Only a read that came back:
+	;one blank then - the helper busy, warming up - is read again past 1.5 s, a fresh one may show EARN CROWNS at the click)
+	tsKeep := (TargetSpotKeep != "" && TargetSpotKeep = x "," y "," TargetCrownAt && IsObject(TargetCrownG))
+	TargetSpotKeep := ""
+	tsG := (TargetCrownAt && (tsKeep || A_TickCount - TargetCrownAt < 1500)) ? TargetCrownG : TargetCrownRead()
 	tsFound := 0, tsUp := 0, tsOdd := 0, tsR := "", tsB := ""
 	if (IsObject(tsG))
 		for tsP in tsPaths
@@ -2682,10 +2805,11 @@ TargetClickSpot(&x, &y, box, &why)
 				tsB := tsWB
 			}
 	tsAll := (tsFound = tsPaths.Length && !tsOdd)
-	;(the strip right of the corner: as before - clicked - unless a shown one's read right there)
+	;(the strip right of the corner: as before - clicked - unless a shown one's read right there: all three read or not - one
+	;the game's memory has shown at the click is there whether or not the others were found, a patch renaming one, say)
 	if (!tsCorner)
 		{
-		if (!tsAll || !tsUp || x > tsR + Px(12) || y > tsB + Px(12))
+		if (!tsUp || tsR = "" || x > tsR + Px(12) || y > tsB + Px(12))
 			return true
 		}
 	else if (tsAll && !tsUp)
@@ -2705,8 +2829,13 @@ TargetClickSpot(&x, &y, box, &why)
 		tsClear := tsR + Px(12) + 1, tsOn := "on the Crown buttons up (" tsAt " - the game's memory)"
 		}
 	else
+		{
 		tsOn := "the Crown buttons not read (" (tsFound = tsPaths.Length ? "a place not read" : tsFound ? "not all found in the game's windows"
 			: IsObject(tsG) ? "not found in the game's windows" : NavGuiWhy != "" ? NavGuiWhy : "the game's memory not read") ")"
+		;(the shown ones that were read cleared too - EARN CROWNS reaches past the corner)
+		if (tsR != "")
+			tsClear := Max(tsClear, tsR + Px(12) + 1), tsOn .= " - one up to " tsR - GameLeft "," tsB - GameTop
+		}
 	if (IsObject(box) && box.x1 != "" && box.x2 != "" && box.y1 != "" && box.y2 != "" && y >= box.y1 && y <= box.y2)
 		{
 		tsX := Max(tsClear, box.x1) + Px(10)
@@ -2752,12 +2881,15 @@ TargetCrownWarm()
 
 ;A target clicked: the mouse there, a moment on it (the game takes a nameplate click better hovered), the click;
 ;the mouse back where it was afterwards (MouseGrab: mousereturn). box: the plate's ({x1, y1, x2, y2}, "" not known) - where
-;a click in the Crown shop's corner may move to (TargetClickSpot). 0: not clicked
+;a click in the Crown shop's corner may move to (TargetClickSpot). 0: not clicked - TargetClickCovered 1 when for another
+;window over Wizard101 at it (GameUnderMouse: not the Crown corner - HitTarget doesn't put the hit on another enemy for it)
 TargetClick(x, y, box := "")
 	{
 	;(Wizard101 in the tray - Settings: traygame: nothing clicked - as ClickAt)
 	if (GameInTray)
 		return 0
+	global TargetClickCovered ; (v1 globals it sets)
+	TargetClickCovered := 0
 	;(never on the Crown shop's button - SHOP and EARN CROWNS at its top left: in the corner kept clear for it, only where
 	;the game's memory has the button well away, or moved along its plate - box - out of the corner: TargetClickSpot)
 	tcX := x, tcY := y
@@ -2776,13 +2908,20 @@ TargetClick(x, y, box := "")
 	;MouseLockRenew)
 	MouseLockRenew()
 	Sleep(Max(150, Stats.Has("clickwait") ? Stats["clickwait"] : 40))
-	;(gone to the tray during the wait: not clicked)
-	if (!GameInTray)
-		Click()
+	;(another program's window over Wizard101 at the plate - GameUnderMouse: not clicked, 0 - as ClickAt)
+	tcOn := (GameInTray || GameUnderMouse("a target click"))
+	if (tcOn)
+		{
+		;(gone to the tray during the wait: not clicked)
+		if (!GameInTray)
+			Click()
+		}
+	else
+		TargetClickCovered := 1
 	if (ownGrab)
 		MouseLetGo()
 	MouseLockOff("click")
-	return 1
+	return tcOn ? 1 : 0
 	}
 
 ;The plate's box ({x1, y1, x2, y2} - EnemyPlates', memclicks) of the enemy whose plate's middle is x, y - a trap's, a
@@ -2804,14 +2943,20 @@ TargetBoxAt(x, y)
 ;why (what: the card, for the log) - not cast
 TargetSpotOk(x, y, box, what)
 	{
+	global TargetSpotKeep ; (v1 globals it sets)
 	if (x = "" || y = "")
 		{
 		DebugLog("  " what ": no plate to put it on - not cast (nowhere to click it onto)")
 		return false
 		}
 	tsoX := x, tsoY := y
+	;(let through: the target click that follows the card's goes by this same answer - TargetClickSpot, TargetSpotKeep -
+	;not by a read the card's click outlasted)
 	if (TargetClickSpot(&tsoX, &tsoY, box, &tsoWhy))
+		{
+		TargetSpotKeep := x "," y "," TargetCrownAt
 		return true
+		}
 	DebugLog("  " what ": its target at " x - GameLeft "," y - GameTop " is in the Crown shop's corner - not cast" (tsoWhy != "" ? " (" tsoWhy ")" : ""))
 	return false
 	}
@@ -2870,14 +3015,23 @@ PassButtonAt(&x, &y)
 ;TODO (TODO.md goal 3, needs the game): ask the game's memory first - Vision.ahk VisionPhase (/phase): what the hand does
 ;between a single-target card's click and its target's is NOT SEEN yet (CastPhaseShadow logs it next to the Pass picture's
 ;verdict); the Pass picture stays as the fallback
+;A look that couldn't run (PassButtonAt 2 - the screen not captured: Remote Desktop gone, the PC locked, the secure desktop)
+;isn't the Pass button gone: false as ever - no click again on it - but TargetPendUnread 1, so nothing's learned from it
+;(UseHeal: an ally heal's "went out without asking who" wrote healNtarget:0 for good)
 TargetPending()
 	{
+	global TargetPendUnread ; (v1 globals it sets)
+	TargetPendUnread := 0
 	t0 := A_TickCount
 	while (A_TickCount - t0 < 800)
 		{
 		Sleep(100)
-		if (PassButtonAt(&pendX, &pendY))
+		tpErr := PassButtonAt(&pendX, &pendY)
+		if (tpErr)
+			{
+			TargetPendUnread := (tpErr = 2)
 			return false
+			}
 		}
 	return true
 	}
@@ -2906,20 +3060,48 @@ Respond(Text)
 		return
 	if (responcemode == 1)
 		{
+		;(only into Wizard101 in front, the bot on and you not playing - GameKeysOk: the line and its Enter would go to the
+		;window in front, or into what you're typing)
+		if (!GameKeysOk())
+			return
 		BlockInput("Send")
 		Send("{r}")
 		s(100)
-		if (GameInTray)
+		;(and again after the wait - switched away, the bot off or you playing meanwhile: no line typed elsewhere. The chat
+		;box the 'r' opened is left to you - it only fails like that when you've taken over (GameKeysOk: the tray, F6, another
+		;window in front, your keys or mouse), and an Esc of the bot's after your own key would open the game's menu)
+		if (!GameKeysOk())
 			return
 		SendInput("{Raw}" Text)
 		Send("{Enter}")
 		}
 	}
 	
+;Keys the legacy modes send (Respond, Spam, LockMove, Log, the mob loop, lore farming, the chat commands) may go now:
+;Wizard101 in front (GameActive - the picked client when one's picked, else any: dual mode's Alt+Tab goes between two),
+;the bot on (F6 stops them, mid-way too) and you not playing (PlayerActing - handsoff). Their only check was the tray: a
+;'w' after the mob loop's 5 s wait, Respond's line and Enter, typed into whatever window you'd switched to. Looked at
+;before each of their keys. what: a step held for it said (the mob loop's, lore farming's - looked at again on the next
+;pass out of battle: the main loop runs them on each one the spellbook's up), at most once a minute; "" not said
+GameKeysOk(what := "")
+	{
+	static saidAt := 0
+	gkoOk := !GameInTray && BotOn && GameActive() && !PlayerActing()
+	if (!gkoOk && what != "" && (!saidAt || A_TickCount - saidAt > 60000))
+		{
+		saidAt := A_TickCount
+		DebugLog(what " held - " (GameInTray ? "Wizard101 in the tray" : !BotOn ? "the bot's off" : !GameActive() ? "Wizard101 isn't in front" : "you're playing") ": tried again on the next pass")
+		}
+	return gkoOk
+	}
+
 Spam(key)
 	{
 	;(Wizard101 gone to the tray - Settings: traygame: not pressed - the keys would go to the window in front)
 	if (GameInTray)
+		return
+	;(only to Wizard101 in front, the bot on and you not playing - GameKeysOk)
+	if (!GameKeysOk())
 		return
 	Send("{" key "}")
 	Send("{" key "}")
@@ -3064,6 +3246,9 @@ LockMove(&direction)
 	;(Wizard101 gone to the tray - Settings: traygame: not pressed - the keys would go to the window in front)
 	if (GameInTray)
 		return
+	;(only to Wizard101 in front, the bot on and you not playing - GameKeysOk)
+	if (!GameKeysOk())
+		return
 	Send("{" direction " down}")
 	s(50)
 	Send("{Shift down}")
@@ -3075,6 +3260,9 @@ LockMove(&direction)
 	
 Log()
 	{
+	;(only to Wizard101 in front, the bot on and you not playing - GameKeysOk: its Esc went to whatever window was in front)
+	if (!GameKeysOk())
+		return
 	Send("{Esc}")
 	s(1000)
 	UpdateGameRect()
@@ -3136,6 +3324,10 @@ CheckAfk()
 				{
 				if (!afkOffSaid)
 					afkOffSaid := 1, DebugLog("holding: the bot's off (" HkText("bot") ") - the hold waits till it's on again")
+				;(the game's log read quietly meanwhile, as the main loop's off - Reconnect.ahk ReconnectOff: on again, the
+				;lines from meanwhile aren't taken as new)
+				if (!GameInTray)
+					ReconnectOff()
 				Sleep(300)
 				continue
 				}
@@ -3149,6 +3341,10 @@ CheckAfk()
 				AfkRetries := 0
 				break
 				}
+			;(you're playing - a key, a click or a move of yours, PlayerActing: no reconnect's clicks or login under your hands,
+			;as the main loop's - the hold goes on, looked at again in a second)
+			if (PlayerActing())
+				continue
 			;(Wizard101 in the tray - Settings: traygame: the bot's off, so no reconnecting on the hidden game, as in the
 			;main loop - the log caught up and the waits started afresh once it's shown, Reconnect.ahk RcAfterTray)
 			if (!GameInTray)
@@ -3470,6 +3666,46 @@ CommandPass()
 		}
 	}
 	
+;A chat command's word (command mode: CommandEnter's "enter", CommandWalk's "walk", CommandPort's) acted on once a
+;chat line: found - true the first time only, not on every pass of the loop while that line still sits in the chat box
+;(three X's, a 2 s walk, a teleport each pass till it scrolled away); not found (gone from the box) - ready for the next.
+;A second command while the first's line is still up waits for that one to go (said once). mark false: only asked - not
+;recorded as acted on: its checks first (the sigil's prompt, the keys' GameKeysOk after Respond), recorded once they've
+;passed, right before its key - not used up by a pass whose checks stopped it (the line looked at again next pass) - for
+;30 s from its first look: a line still up after that with its checks never passed is done for (2026-11-27 review: a
+;quiet area's 'enter' line kept armed for hours, the prompt OCR'd on every pass, the X pressed at whatever sigil the
+;wizard stood at much later). cnSeen: 1 or 2 done (2 said), a negative tick asked since
+CommandNew(word, found, mark := true)
+	{
+	static cnSeen := Map()
+	if (!found)
+		{
+		if (cnSeen.Has(word))
+			cnSeen.Delete(word)
+		return false
+		}
+	if (cnSeen.Has(word) && cnSeen[word] > 0)
+		{
+		if (cnSeen[word] = 1)
+			cnSeen[word] := 2, DebugLog("Command mode: " word " - its chat line's still up and it's done already: not again till that line's gone")
+		return false
+		}
+	if (mark)
+		{
+		cnSeen[word] := 1
+		return true
+		}
+	if (!cnSeen.Has(word))
+		cnSeen[word] := -A_TickCount
+	else if (A_TickCount + cnSeen[word] > 30000)
+		{
+		cnSeen[word] := 2
+		DebugLog("Command mode: " word " - its checks didn't pass within 30 s of its chat line: not done for this line (a new line asks again)")
+		return false
+		}
+	return true
+	}
+
 CommandWalk()
 	{
 	global
@@ -3477,12 +3713,25 @@ CommandWalk()
 	if (commandmode == 1)
 		{
 		V1ImageSearch(&walkX, &walkY, GameLeft, GameTop + GameH * 0.65, GameLeft + GameW / 7.4, GameTop + GameH * 0.775, PicOpt("resources\walk.png", 120))
+		;(gone from the chat box: the next line with it is a new command - CommandNew)
+		if (ErrorLevel == 1)
+			CommandNew("walk", false)
 		if (ErrorLevel == 0) 
 			{
 			;(battles only - Settings: battlesonly: the command's walk not done - it moves nothing out of battle)
 			if (BattlesOnlyNo("walk the chat command asked for (command mode)"))
 				return false
+			;(W only to Wizard101 in front, the bot on and you not playing - GameKeysOk)
+			if (!GameKeysOk())
+				return false
+			;(once a chat line: not again on every pass while it's still in the chat box - a 2 s walk each time - CommandNew;
+			;recorded right before the W, not used up by a pass you touched the mouse in during Respond's typing)
+			if (!CommandNew("walk", true, false))
+				return false
 			Respond("I'm Not A Dog, But Ill Do It Anyways")
+			if (!GameKeysOk())
+				return false
+			CommandNew("walk", true)
 			Send("{w Down}")
 			Sleep(2000)
 			Send("{w Up}")
@@ -3503,20 +3752,47 @@ CommandEnter()
 	{
 	global
 	local _funcn ; (v1 passed these literals as temporaries: locals here, not globals)
+	local cePrompt, ceWhy
+	static ceSaid := ""
 	if (commandmode == 1)
 		{
 		V1ImageSearch(&enterX, &enterY, GameLeft, GameTop + GameH * 0.65, GameLeft + GameW / 7.4, GameTop + GameH * 0.775, PicOpt("resources\enter.png", 120))
+		;(gone from the chat box: the next line with it is a new command - CommandNew)
+		if (ErrorLevel == 1)
+			CommandNew("enter", false), ceSaid := ""
 		if (ErrorLevel == 0) 
 			{
 			;(battles only - Settings: battlesonly: no X at the sigil the command asked for)
 			if (BattlesOnlyNo("X at a sigil the chat command asked for (command mode)"))
 				return false
+			;(X only to Wizard101 in front, the bot on and you not playing - GameKeysOk; only at a sigil's prompt, and never one
+			;with Crowns on it - the walker's InteractPrompt, WalkPromptCrowns: an NPC's, a shop's, a Crown-priced one isn't X'd)
+			if (!GameKeysOk())
+				return false
+			;(once a chat line - the word in any line, "center" too: not again on every pass while it's still in the chat box,
+			;X X X each time - CommandNew; recorded right before the X: a pass with no sigil's prompt read yet - the wizard still
+			;walking up, the OCR garbled once - or you at the mouse during Respond's typing doesn't use it up, looked at again)
+			if (!CommandNew("enter", true, false))
+				return false
+			cePrompt := InteractPrompt()
+			if (cePrompt != "sigil" || WalkPromptCrowns())
+				{
+				;(said once a line and why - not on every pass it's looked at again)
+				ceWhy := (cePrompt = "sigil" ? "Crowns on the sigil's prompt" : "no sigil's prompt up (" (cePrompt = "" ? "none read" : cePrompt) ")")
+				if (ceWhy != ceSaid)
+					ceSaid := ceWhy, DebugLog("Command mode: enter - " ceWhy ": no X (looked at again while its line's up)")
+				return false
+				}
 			Respond("Entering Sigil. Make Sure You Have The Right Deck On.")
-			Send("{x}")
-			Sleep(Tick)
-			Send("{x}")
-			Sleep(Tick)
-			Send("{x}")
+			if (!GameKeysOk())
+				return false
+			CommandNew("enter", true)
+			ceSaid := ""
+			;(held a moment - the game reads its keys once a frame and misses a bare tap: Walker.ahk PressKey; one press, not
+			;three taps)
+			Send("{Blind}{x down}")
+			Sleep(80)
+			Send("{Blind}{x up}")
 			return true
 			} else if (Errorlevel == 1)
 				{
@@ -3559,10 +3835,19 @@ CommandPort()
 	if (commandmode == 1)
 		{
 		V1ImageSearch(&wordportX, &wordportY, GameLeft, GameTop + GameH * 0.65, GameLeft + GameW / 7.4, GameTop + GameH * 0.775, PicOpt("resources\wordport.png", 120))
+		;(gone from the chat box: the next line with it is a new command - CommandNew)
+		if (ErrorLevel == 1)
+			CommandNew("port", false)
 		if (ErrorLevel == 0)
 			{
 			;(battles only - Settings: battlesonly: no teleport to the friend the command named)
 			if (BattlesOnlyNo("teleport the chat command asked for (command mode)"))
+				return false
+			;(its keys only to Wizard101 in front, the bot on and you not playing - GameKeysOk)
+			if (!GameKeysOk())
+				return false
+			;(once a chat line: not again on every pass while it's still in the chat box - CommandNew)
+			if (!CommandNew("port", true))
 				return false
 		
 			Send("{/}")
@@ -3633,7 +3918,8 @@ CommandPort()
 		}
 	}
 
-#HotIf BotOn
+;(only in Wizard101 - Alt+0 isn't swallowed in every other program while the bot's on, as the mode keys)
+#HotIf BotOn && WinActive("ahk_exe WizardGraphicalClient.exe")
 !0::HK1_()
 
 #`::HK2_()
@@ -3707,8 +3993,8 @@ SchoolGroup(sch)
 ;the hand updates) - looked at every 100 ms; still there 0.7 s after the click = the card didn't cast
 ;v1.0.0: the game's memory's phase logged beside the verdict (CastPhaseShadow - log only, nothing acts on it yet)
 ;TODO (TODO.md goal 3, needs the game): once those lines show how the hand reads right after a cast goes out (state
-;"waiting" or the planning flag dropping, and how fast), the memory's verdict first here, the Pass picture as the fallback;
-;then the same check before UseBlade, UseTrap, ClickBubble, the aura and UseNegAura record a cast (none of them checks now)
+;"waiting" or the planning flag dropping, and how fast), the memory's verdict first here, the Pass picture as the fallback
+;(UseBlade, UseTrap, ClickBubble, the aura and UseNegAura check theirs here - BladeWentOut - before they record a cast)
 CastWentOut()
 	{
 	global
@@ -4192,6 +4478,9 @@ DiscardSpent(done)
 			}
 		MoveToCard(dspAt.x, dspAt.y)
 		s(Stats.Has("clickwait") ? Stats["clickwait"] : 40)
+		;(another program's window over Wizard101 there - GameUnderMouse: not clicked - as ClickAt)
+		if (!GameInTray && !GameUnderMouse("a discard"))
+			break
 		;(Wizard101 gone to the tray - Settings: traygame: not clicked - it would land on the window behind it)
 		if (GameInTray)
 			break
@@ -4242,6 +4531,9 @@ DiscardCard(title, dir)
 		}
 	MoveToCard(cardX + Px(5), cardY + Px(5))
 	s(Stats.Has("clickwait") ? Stats["clickwait"] : 40)
+	;(another program's window over Wizard101 there - GameUnderMouse: not clicked - as ClickAt)
+	if (!GameInTray && !GameUnderMouse("a discard"))
+		return 0
 	;(Wizard101 gone to the tray - Settings: traygame: not clicked - it would land on the window behind it)
 	if (GameInTray)
 		return 0
@@ -4365,6 +4657,11 @@ StatsAuto()
 		TrayTip("Couldn't read your stats: " err, "Wizard101 bot", 2)
 		return
 		}
+	;(the write itself Critical too, as CfgWrite's and LearnStatsWrite's: a settings save in between - the dashboard's, the
+	;tray's, Settings' Save: CfgWrite - was lost under the older copy read here, or took the shared PlayerStats.txt.tmp from
+	;under it and the stats were said written when they weren't. swCrit: as it was before both)
+	swCrit := A_IsCritical
+	Critical()
 	msg := StatsWrite(statsGot, statsFor, charNow)
 	;(Critical, as CfgWrite and LearnStatsWrite: no timer - the overlay's OvTick, PartyTimer - reads Stats half
 	;reloaded, its built-in defaults - overlay:0 - before PlayerStats.txt's lines)
@@ -4372,6 +4669,7 @@ StatsAuto()
 	Critical()
 	LoadStats(true)
 	CfgUncritical(wasCrit, 0)
+	CfgUncritical(swCrit, 0)
 	DebugLog("Stats: " StrReplace(msg, "`n", " "))
 	TrayTip(msg, "Wizard101 bot", 1)
 	}
@@ -4943,6 +5241,11 @@ StartBot() { ; (v1: a label)
 global
 local v1Keep := V1Thread() ; (v1: each thread had its own ErrorLevel)
 local loopUp ; (the main loop's thread up - BotLoopMark: StartBot's own, freed only as its thread ends)
+;(the main loop's thread up while it runs - an error the script didn't expect that ends it leaves the bot off, and F6
+;starts the loop again: BotLoopMark, BotLoopGone, BotToggle. Marked from the first line of the set-up: an error in the
+;set-up itself ends this thread too - the bot left off and said, not on with nothing running (BotSetUp 0: a restart
+;sets it up, F6 doesn't start a loop on half of it)
+loopUp := BotLoopMark()
 global on := 1
 ;(the keys - yours from the Keys tab, else F6, F8, Alt+1...: Hotkeys.ahk)
 HkApply()
@@ -4980,8 +5283,9 @@ global PipSaveFor := "", PipSaveRounds := 0, PipSaveGaveUp := 0, OwnHpPct := 0, 
 global PipSaveBare := 0, PipSaveTarget := "", PipSaveLastPips := -1, PipSaveStall := 0, PipOrbs := 0
 ;You're at the keyboard and mouse right now (PlayerActing): the bot waits. PlayerTookRound: you played (part
 ;of) a round of this battle - the bot's record of blades/traps may be wrong, so no kill check till it ends.
-;RoundLeft: the bot left the round that's up to you (seeing it again isn't a new round)
-global PlayerActive := 0, PlayerActedAt := "", PlayerTookRound := 0, RoundLeft := 0, RoundAgain := 0
+;RoundLeft: the bot left the round that's up to you (seeing it again isn't a new round). RoundRefused: one of this
+;round's clicks refused - another window over Wizard101 there (GameUnderMouse): its end looks whether it's still up
+global PlayerActive := 0, PlayerActedAt := "", PlayerTookRound := 0, RoundLeft := 0, RoundAgain := 0, RoundRefused := 0
 ;"Play for me" (the dashboard's button - green while on -, the tray menu): every check for you off - nothing waits for you or keeps its
 ;hands off the mouse for you (UserIdle, Walker.ahk). Off at every start: the bot takes control only once you've said so
 global PlayForMe := 0
@@ -5187,6 +5491,11 @@ if (WalkerInit("Wizard101 bot " BotVersion()))
 	}
 else
 	DebugLog("Walking off: couldn't load the quest arrow shapes (AutoQuester\resources\arrow_refs.txt)")
+;(the game at 1x for sure from the start - Cheat Engine's 1x key, only with the speedhack set up (SpeedSet's force): the
+;walker counts it at 1x (WalkerInit), and a run killed while walking at 2x left it fast - every 1x asked for till the first
+;battle round went unsent. Off - /off, standby: when it's switched on, BotToggle)
+if (BotOn)
+	SpeedSet(0, "the bot started", true)
 
 ;Auto-reconnect (Reconnect.ahk): on from the start (tray menu switches it off and on)
 ReconnectInit()
@@ -5258,10 +5567,10 @@ global Five := 5000
 global Ten := 10000
 global Loading := 15000 
 
-ResetUsed()	
-;(the main loop's thread up while it runs - an error the script didn't expect that ends it leaves the bot off, and F6
-;starts the loop again: BotLoopMark, BotLoopGone, BotToggle)
-loopUp := BotLoopMark()
+ResetUsed()
+;(the set-up's done: from here an error that ends the thread is the main loop's - F6 starts it again: BotLoopAgain.
+;loopUp, marked at the top, held on - BotLoopMark)
+global BotSetUp := 1
 ;(v1: on into the label TestRound - the battle loop, for good)
 BattleLoop()
 }
@@ -5272,6 +5581,7 @@ BattleLoop()
 BattleLoop() {
 global
 local _dir, _title ; (v1 passed these literals as temporaries: locals here, not globals)
+local startPic ; (v2-only: the round start's Pass picture's path, for its messages)
 ;Checks if in battle
 ;(TODO - TODO.md goal 3, needs the game: the round's start and the battle's end from the game's memory - Vision.ahk
 ;VisionPhase's "hand" / "none" with EnemySpells.ahk BattleLogPlanning - once it's been seen that the planning window's flag
@@ -5294,6 +5604,8 @@ Loop
 		{
 		SpApplyPending()
 		UpdAuto()
+		;(the game's memory readers a game patch broke: asked every 60 s, said once a build - Vision.ahk VisionReadersLook)
+		VisionReadersLook()
 		;(the deck for what's ahead - Decks.ahk)
 		DeckTick()
 		}
@@ -5316,6 +5628,10 @@ Loop
 				ExitApp()
 				}
 			}
+		;(the game's log read quietly meanwhile - Reconnect.ahk ReconnectOff: switched on again, a disconnect and relog from
+		;while it was off aren't replayed as new - no stale tips or Discord alert, no relog stamped now, no login marked bad)
+		if (!GameInTray)
+			ReconnectOff()
 		Sleep(300)
 		continue
 		}
@@ -5362,8 +5678,9 @@ Loop
 				playerX := 0, playerY := 0
 			EnemyPhaseDone := BlPhaseAt, EnemyDanger()
 			}
-		;(the round left to you is over once its Pass button goes)
-		if (RoundLeft)
+		;(the round left to you is over once its Pass button goes - looked for only with the game showing there, GameShowing:
+		;another program over it hides the Pass too, and that's no round over)
+		if (RoundLeft && GameShowing())
 			{
 			if (PassButtonAt(&gx, &gy))
 				RoundLeft := 0
@@ -5454,13 +5771,26 @@ Loop
 	;global ErrorLevel afterwards: writing the log line below resets ErrorLevel (which would start a round that isn't
 	;there), and so does a thread that interrupts in between without its V1Thread (test_thread_errorlevel.py)
 	startErr := PassButtonAt(&startX, &startY)
-	if (startErr = 2 && !PicError)
+	;(the search couldn't run: the picture missing - said once, till it's found again - or, the file there, the screen not
+	;captured - a Remote Desktop session disconnected, the PC locked, the secure desktop, the window resized under the
+	;search: said so, at most every 10 minutes - not as a missing picture, 2026-11-26 18:09 with roundstart.png there)
+	if (startErr = 2)
 		{
-		DebugLog("Can't open " PicPath("resources\roundstart.png") " - the pictures aren't where the script expects them")
-		PicError := 1
+		startPic := PicPath("resources\roundstart.png")
+		if (startPic != "" && FileExist(startPic))
+			{
+			if (!PicUnreadSaidAt || A_TickCount - PicUnreadSaidAt > 600000)
+				PicUnreadSaidAt := A_TickCount, DebugLog("The screen couldn't be read for the round's Pass button (" startPic " is there) - the session disconnected or locked? Looked for again")
+			}
+		else if (!PicError)
+			{
+			DebugLog("Can't open " startPic " - the pictures aren't where the script expects them")
+			PicError := 1
+			}
 		}
 	If (startErr = 0)
 		{
+		PicError := 0
 		PassSeenAt := A_TickCount, PassNudges := 0
 		;(a battle: the game at normal speed - Cheat Engine's speedhack, if walking had it on)
 		SpeedSet(0, "a battle round", true)
@@ -5508,7 +5838,8 @@ Loop
 		;A battle round is up: stop walking first (a key could still be held from the last step)
 		if (KeysDown || HeldW)
 			ReleaseKeys()
-		RoundAgain := RoundLeft, RoundLeft := 0
+		;(no click of this round's refused yet - GameUnderMouse, EndRound)
+		RoundAgain := RoundLeft, RoundLeft := 0, RoundRefused := 0
 		if (RoundAgain)
 			{
 			;(the round the bot left to you, still up: not a new round)
@@ -5527,9 +5858,10 @@ Loop
 		if (dualmode == 1)
 			{
 			;(v1: blank counted as 0; "%roundnumber% / 2" read the variable named by the number - a command-line parameter,
-			;never a number - so the round number was blank in dual mode)
+			;never a number - so the round number was blank in dual mode: every check by the round then matched all battle -
+			;your health read only in the first round, a negative aura cast again every round. Counted on each Pass now - each
+			;wizard's turn its own number, two a round: UseNegAura's 4 rounds are 8 of them)
 			roundnumber := V1N(roundnumber) + 1
-			roundnumber := ""
 			} else
 				{
 				;(carry mode: the main's pass (carrymain: Passes) isn't a round of its battle - each wizard counts its own: Carry.ahk)
@@ -6112,8 +6444,9 @@ if (hitter != 0) && (DualBattle != 1) && (!PlayerTookRound) && (Stat("healthocr"
 ;first (a hit that ends the battle went first, above)
 ;(worked out every round the bot plays - the dashboard's list kept up even after you played one; defending only while
 ;the bot's record of the battle is its own)
-;(your plate found, or your health read this round anyway - the game's memory, above: the danger worked out and shown. Not in
-;dual mode, whose round number is always blank. Defending only with the plate - a heal or Tower Shield clicks it)
+;(your plate found, or your health read this round anyway - the game's memory, above: the danger worked out and shown - dual
+;mode's too, each wizard's turn its own round number now (v1's was always blank). Defending only with the plate - a heal or
+;Tower Shield clicks it)
 if (hitter != 0) && (playerX != "" || (roundnumber != "" && OwnHpRound = roundnumber))
 	{
 	EnemyPhaseDone := BlPhaseAt
@@ -6252,15 +6585,14 @@ if (feint == 1) && (TrapOn == 1) && BoostOk && Stat("usetraps") && UseTrap(&_tit
 											;(by its picture, else at the game's card's box - ClickBubble; not clicked: on
 											;down the chain, not a round with nothing cast)
 											BoostRun++
-											} else if (aura == 1) && BoostOk && Stat("useaura") && (AuraRounds <= 0)
+											} else if (aura == 1) && BoostOk && Stat("useaura") && (AuraRounds <= 0) && FindAndClick(&_title := "aura", &aura, &hitschool) && BladeWentOut("aura")
 												{
-												if FindAndClick(&_title := "aura", &aura, &hitschool)
-													{
-													AuraRounds := 4
-													;(the schools it boosts: its card's in the game's hand, else yours)
-													AuraSch := BoostAuraSchools()
-													BoostRun++
-													}
+												;(clicked and gone out - BladeWentOut - in the condition, as the bubble's: not found
+												;again, or it didn't go, on down the chain - not a round with nothing cast)
+												AuraRounds := 4
+												;(the schools it boosts: its card's in the game's hand, else yours)
+												AuraSch := BoostAuraSchools()
+												BoostRun++
 												} else if (BattleRole = "blader") && PartyShield()
 													{
 													Goto("EndRound")
@@ -6279,20 +6611,16 @@ if (feint == 1) && (TrapOn == 1) && BoostOk && Stat("usetraps") && UseTrap(&_tit
 															;absorb that costs no pips the same way - AbsorbFiller, 2026-10-26)
 															if (!CastWentOut())
 																ClickPass()
-															} else if (reshuffle == 1) && Stat("usereshuffle")
+															} else if (reshuffle == 1) && Stat("usereshuffle") && (PartySupport() ? UseOnSelf(&_title := "reshuffle", &reshuffle, &_dir := "resources") : UseOnHammer(&_title := "reshuffle", &reshuffle, &_dir := "resources"))
 																{
 																;(a party battle's blader or healer: on itself - hammerX/Y is the hitter's
-																;plate; its boosts on the hitter are cast again by Party.ahk, not here)
-																if (PartySupport())
-																	UseOnSelf(&_title := "reshuffle", &reshuffle, &_dir := "resources")
-																else
-																	{
-																	;(the used flags reset only once it's clicked - not when
-																	;its card wasn't found again or there's no plate to
-																	;cast it onto: UseOnHammer)
-																	if (UseOnHammer(&_title := "reshuffle", &reshuffle, &_dir := "resources"))
-																		ResetUsed()
-																	}
+																;plate; its boosts on the hitter are cast again by Party.ahk, not here.
+																;Clicked - in the condition: not (its card not found again, no plate to
+																;cast it onto - UseOnSelf / UseOnHammer), on to Pass - not a round with
+																;nothing cast, played again as a new one till its timer. The used flags
+																;reset only once it's clicked onto the hitter)
+																if (!PartySupport())
+																	ResetUsed()
 																} else if ClickPass()
 																	{
 																	Goto("EndRound")
@@ -6308,6 +6636,25 @@ if (MouseLetGo() = 0)
 	CenterMouse()
 ;(your mouse unlocked - Settings.ahk MouseLockOff)
 MouseLockOff("round")
+;(a click of this round's refused - another window over Wizard101 there, GameUnderMouse: its Pass button still up now -
+;CastWentOut, before the window's switched - the round's cast didn't go out: left, played again when seen, not counted as
+;a new round. Gone: a later click took it - counted as ever. Left already - F6, you playing: as it is. The game not
+;showing there - the window that refused the click still over it, the screen locked (GameShowing): its Pass can't be looked
+;for, a "not found" is no cast gone out - left too, as at first (the screen search reads the other program's pixels)
+if (RoundRefused)
+	{
+	RoundRefused := 0
+	if (!RoundLeft && inbattle == 1 && !GameShowing())
+		{
+		RoundLeft := 1
+		DebugLog("  a click of this round's was refused and Wizard101 isn't showing now (another window over it?) - the round left (played again when it's seen)")
+		}
+	else if (!RoundLeft && inbattle == 1 && !CastWentOut())
+		{
+		RoundLeft := 1
+		DebugLog("  a click of this round's was refused and its Pass button's still up - the round left (played again when it's seen)")
+		}
+	}
 ;(carry mode: the main just passed - the carry's window up for its round; the carry's done - the main's back: Carry.ahk)
 CarryRoundEnd()
 
@@ -6324,6 +6671,10 @@ if (GameInTray)
 ;(battles only - Settings: battlesonly: no mob-loop step - S back, W on - it moves nothing out of battle)
 if (loopmode == 1 && !BattlesOnlyNo("mob-loop step (" HkText("loop") ")"))
 	{
+	;(only to Wizard101 in front, the bot on and you not playing - GameKeysOk: S and W went to whatever window was in front.
+	;Held: said, and tried again on the next pass with the spellbook up)
+	if (!GameKeysOk("The mob-loop step (" HkText("loop") ")"))
+		return
 	Send("{s down}")
 	s(1000)
 	Send("{s up}")
@@ -6331,7 +6682,9 @@ if (loopmode == 1 && !BattlesOnlyNo("mob-loop step (" HkText("loop") ")"))
 	;after the battle, by the game's memory. resources\full.png never existed - that search never found anything)
 	if (QsStillFull())
 		{
-		AlertSend("inventory", "backpack full", "The backpack is full and wasn't quick sold - mob-loop farming has stopped (kept from timing out).")
+		;(its own title: quick sell's own "backpack full" alerts, moments before in the same pass, would swallow it - Alerts.ahk
+		;goes by kind and title)
+		AlertSend("inventory", "mob-loop farming stopped", "The backpack is full and wasn't quick sold - mob-loop farming has stopped (kept from timing out).")
 		afk()
 		loopmode := 0
 		return
@@ -6339,6 +6692,10 @@ if (loopmode == 1 && !BattlesOnlyNo("mob-loop step (" HkText("loop") ")"))
 	s(5000)
 	;(gone to the tray meanwhile: no W)
 	if (GameInTray)
+		return
+	;(nor with another window in front now, the bot off or you playing - the 5 s are long enough to switch to a browser:
+	;its 'w' typed into the page - GameKeysOk)
+	if (!GameKeysOk())
 		return
 	Send("{w down}")
 	s(1000)
@@ -6356,6 +6713,11 @@ LoreLoop()
 		return
 	;(battles only - Settings: battlesonly: no lore farming's moves - its log out and join, X at the sigil, the walk in)
 	if (loremode == 1 && BattlesOnlyNo("lore farming (" HkText("lore") ")"))
+		return
+	;(only with Wizard101 in front, the bot on and you not playing - GameKeysOk; each of its steps looks again before its
+	;keys - Log, Spam, LockMove - and its clicks too - ClickAt's GameUnderMouse. Held, or a step of it skipped: tried again
+	;from its start on the next pass with the spellbook up - the main loop runs it on each)
+	if (loremode == 1 && !GameKeysOk("Lore farming (" HkText("lore") ")"))
 		return
 	if ((loremode == 1) && (dualmode == 0))
 		{
@@ -6496,6 +6858,29 @@ if (on == 1)
 	}
 return
 }
+;Alt+1 / Alt+2 / Windows+3's pick (HkBoss, HkBoost, HkPlayer): the left click that follows, within 10 s, on the game's
+;picture (MouseOnGame - after UpdateGameRect). True if so; else said, and the "Please Select" box closed - nothing picked.
+;(v1: "D, 10" - no T, no time limit: the hotkey's thread waited for a click for good, on top of the battle loop - no round
+;played meanwhile, F6 waiting too - and the next click anywhere, the taskbar's, was taken for the boss's plate)
+HkPickClick()
+	{
+	if (!KeyWait("LButton", "D T10"))
+		{
+		DebugLog("  the pick: no click within 10 s - nothing picked")
+		Gui1Destroy()
+		return false
+		}
+	MouseGetPos(&hpX, &hpY)
+	UpdateGameRect()
+	if (!MouseOnGame(hpX, hpY))
+		{
+		DebugLog("  the pick: the click wasn't on Wizard101 - nothing picked")
+		Gui1Destroy()
+		return false
+		}
+	return true
+	}
+
 ;##############################################
 HkBoss(*) { ; (v1: a label - a hotkey's: Hotkeys.ahk HkRun calls it by name)
 global
@@ -6505,7 +6890,8 @@ if ((on == 1) && (inbattle == 1))
 	;(your mouse free for the pick - Settings.ahk MouseLockPause; locked again after if a round still has it)
 	MouseLockPause(1)
 	NewStaticGui(&_text := "Please Select Boss Location.", &_x := 10, &_y := 10, &_w := 140, &_h := 30)
-	ErrorLevel := !KeyWait("LButton", "D, 10")
+	;(10 s for the click, on Wizard101 - HkPickClick)
+	ErrorLevel := !HkPickClick()
 		If (Errorlevel = 0)
 			{
 			global BossChoosen := 1
@@ -6541,7 +6927,8 @@ if ((on == 1) && (inbattle == 1))
 	{
 	MouseLockPause(1)
 	NewStaticGui(&_text := "Please Select Hammer Location.", &_x := 10, &_y := 10, &_w := 140, &_h := 30)
-	ErrorLevel := !KeyWait("LButton", "D, 10")
+	;(10 s for the click, on Wizard101 - HkPickClick)
+	ErrorLevel := !HkPickClick()
 		If (Errorlevel == 0)
 			{
 			Manual := 1
@@ -6565,7 +6952,8 @@ if ((on == 1) && (inbattle == 1))
 	{
 	MouseLockPause(1)
 	NewStaticGui(&_text := "Please Select New Player Location.", &_x := 10, &_y := 10, &_w := 140, &_h := 30)
-	ErrorLevel := !KeyWait("LButton", "D, 10")
+	;(10 s for the click, on Wizard101 - HkPickClick)
+	ErrorLevel := !HkPickClick()
 		If (Errorlevel = 0)
 			{
 			global ManualPlayer := 1
@@ -6650,10 +7038,23 @@ Lore(" loremode ")"
 }
 return
 }
+;The developer loops (Alt+0's, Windows+`'s - dev mode) go on only while the bot's on, Wizard101's in front and you've
+;left the keys and mouse alone (PlayerActing): F6, another window or a touch of yours ends them - before, nothing did
+;but Quit or a restart, and Windows+`'s clicked on whatever was under the pointer. Said when it stops
+DevLoopOn()
+	{
+	if (BotOn && GameActive() && !PlayerActing())
+		return true
+	DebugLog("Developer loop stopped - " (!BotOn ? "the bot's off" : !GameActive() ? "Wizard101 isn't in front" : "you're playing"))
+	return false
+	}
 ;##############################################
 HK1_() { ; (v1: a hotkey)
 global
 local v1Keep := V1Thread() ; (v1: each thread had its own ErrorLevel)
+;(its own timings and places - v1 set the bot's Loading and BufferVar for good)
+local leftoffset, topoffset, up, left, right, down, Mousespeedfast, Mousespeedslow, Loading, Wait, Delay, BufferVar, direction
+local devStop := 0 ; (DevLoopOn said stop in the middle of a turn's keys)
 if (on = 1)
 	{
 	if (devmode = 1)
@@ -6680,7 +7081,8 @@ if (on = 1)
 			Delay := 175 ;Default is 150
 			BufferVar := 10 ;Default is 10
 			
-			Loop
+			;(till F6, another window in front or a touch of yours - DevLoopOn: it never ended, only Quit or a restart did)
+			while (DevLoopOn())
 				{
 				BlockInput("SendAndMouse")
 				;(your mouse locked - Settings.ahk MouseLockOn; a loop's turn takes about 20 s)
@@ -6702,6 +7104,12 @@ if (on = 1)
 				Sleep(Loading)
 				Loop 600
 					{
+					;(looked at every 50 keys - about a second)
+					if (Mod(A_Index, 50) = 1 && !DevLoopOn())
+						{
+						devStop := 1
+						break
+						}
 					direction := Random(1, 4)
 					if (direction == up) 
 					{
@@ -6721,6 +7129,9 @@ if (on = 1)
 					 }
 					Sleep(BufferVar)
 					}
+				;(stopped meanwhile: not the clicks after the keys either)
+				if (devStop || !DevLoopOn())
+					break
 				;(v1: "sleep, %Loading% - 1500a" - not a number: it slept 0 ms)
 				Sleep(0)
 				MouseMove(610 + leftoffset, 575 + topoffset, Mousespeedfast)
@@ -6743,6 +7154,10 @@ if (on = 1)
 				BlockInput("Off")
 				MouseLockOff("dev")
 				}
+			;(stopped mid-turn: the input and your mouse let go - MouseLockOff gives back only a hold it has)
+			BlockInput("Off")
+			MouseLockOff("dev")
+			return
 			}
 		}
 	}
@@ -6760,8 +7175,11 @@ if (on = 1)
 		;(battles only - Settings: battlesonly: not developer mode's endless clicks out of battle - as Alt+0's loop)
 		if (inbattle = 0 && BattlesOnlyNo("developer clicks (Windows+``)", true))
 			return
+		;(till F6, another window in front or a touch of yours - DevLoopOn, every 20 clicks: they never ended)
 		Loop
 			{
+			if (Mod(A_Index, 20) = 1 && !DevLoopOn())
+				break
 			Click()
 			}
 		}
@@ -6821,6 +7239,12 @@ AutofarmerBlank()
 	;bot on then, when, and the window the X's hotkey is for)
 	global GameInTray := 0, GameTrayHwnd := 0, GameTrayPid := 0, GameTrayMin := 0, GameTrayBotWas := 0, GameTrayAt := 0
 	global GameTrayXWin := 0
-	;(v2-only: the main loop's thread stopped by an error the script didn't expect - BotLoopMark, BotLoopGone)
-	global BotLoopDead := 0
+	;(v2-only: the main loop's thread stopped by an error the script didn't expect - BotLoopMark, BotLoopGone; StartBot's
+	;set-up done, the loop about to start - BotSetUp)
+	global BotLoopDead := 0, BotSetUp := 0
+	;(v2-only: TargetPending's last look couldn't read the screen - UseHeal; the spot TargetSpotOk let through, with the
+	;Crown buttons' read it went by - TargetClickSpot, the click right after it; when the round-start screen couldn't be read
+	;last said; one of the round's clicks refused, another window over the game there - GameUnderMouse, EndRound; the last
+	;target click refused for that - TargetClick, HitTarget)
+	global TargetPendUnread := 0, TargetSpotKeep := "", PicUnreadSaidAt := 0, RoundRefused := 0, TargetClickCovered := 0
 	}

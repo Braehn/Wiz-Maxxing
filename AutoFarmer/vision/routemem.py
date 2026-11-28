@@ -85,6 +85,8 @@ AFTER_MAX = 2700.0      # there, the goal not moving on in this long (s): droppe
 MIN_LEN = 300.0         # walked less than this (units): neither kept nor said
 HALF_LIFE = 14.0        # days: an older leg's weight halved every this many
 KEEP = 300              # legs kept a zone
+ZONES_HEAT = 8          # zones whose legs and heat are kept in memory, the last asked for (an older one read again
+                        # from its file when next asked for)
 FULL = 3.0              # legs' weight at which a square's heat is their mean eff (fewer: less)
 REBASE = 30.0           # days: a zone's heat built afresh this long after it was last (its weights' base time)
 QUEST_MIN = 30.0        # a quest followed for less than this (s): not written to quests.jsonl
@@ -159,6 +161,22 @@ def trail_cells(pts, x0, y0, nx, ny, cell=CELL, wide=WIDE):
     return np.unique(jj[ok] * nx + ii[ok])
 
 
+def _parse(raw):
+    """(legs, lines) of a zone file's bytes: its legs (lines that don't parse skipped) and its lines (bad ones too)"""
+    legs, lines = [], 0
+    for line in raw.split(b'\n'):
+        if not line.strip():
+            continue
+        lines += 1
+        try:
+            leg = json.loads(line.decode('utf-8'))
+        except (ValueError, UnicodeDecodeError):
+            continue
+        if isinstance(leg, dict) and isinstance(leg.get('pts'), list):
+            legs.append(leg)
+    return legs, lines
+
+
 class ZoneHeat:
     """one zone's kept legs and their heat: n and e by CELL squares from (x0, y0), their weights as at base (epoch s)"""
 
@@ -227,7 +245,7 @@ class RouteMem:
         self.zlock = threading.Lock()
         self.flock = threading.Lock()
         self.wlock = threading.Lock()
-        self.zones = {}         # zone: ZoneHeat
+        self.zones = {}         # zone: ZoneHeat - the ZONES_HEAT last asked for (zone_heat), the last asked last
         self.reading = {}       # zone: threading.Event - its file being read by one thread (the others wait for it)
         self.leg = None         # the leg being walked (a dict), None none
         self.qs = None          # the quest being followed (a dict), None none
@@ -500,7 +518,8 @@ class RouteMem:
     def _keep(self, zone, kept):
         """(the writer thread) a kept leg appended to its zone's file - and to its heat, when that's built and the leg
         fits in it (else built again when next asked for). The file rewritten with the newest KEEP once it has twice
-        that many lines"""
+        that many lines - counted in the file itself when its heat isn't kept (the routeheat setting off: nothing asks
+        for it; or not asked for lately)"""
         path = zone_file(self.folder, zone)
         with self.flock:
             os.makedirs(self.folder, exist_ok=True)
@@ -520,6 +539,8 @@ class RouteMem:
             else:
                 with open(path, 'a', encoding='utf-8', newline='\n') as f:
                     f.write(json.dumps(kept, separators=(',', ':')) + '\n')
+                if zh is None:
+                    self._cut(path)
             st = self._stat(path)
             if zh is None:
                 return
@@ -537,6 +558,24 @@ class RouteMem:
                         zh.n = zh.e = None
                 zh.stat, zh.ver = st, zh.ver + 1
 
+    def _cut(self, path):
+        """(under the files' lock) a zone's file whose heat isn't kept rewritten with its newest KEEP legs once it has
+        more than twice that many lines - else, nothing asking for its heat, it'd grow for ever"""
+        try:
+            if os.path.getsize(path) <= 2 * KEEP * 64:      # (a leg's line is longer than that: not that many)
+                return
+            with open(path, 'rb') as f:
+                raw = f.read()
+            if raw.count(b'\n') <= 2 * KEEP:
+                return
+            legs = _parse(raw)[0][-KEEP:]
+            tmp = path + '.tmp'
+            with open(tmp, 'w', encoding='utf-8', newline='\n') as f:
+                f.writelines(json.dumps(leg, separators=(',', ':')) + '\n' for leg in legs)
+            os.replace(tmp, path)
+        except OSError as e:
+            self.log("route memory: %s couldn't be made shorter (%s)" % (path, e))
+
     def _read(self, zone):
         """(legs, lines, stat) from the zone's file - its text read under the files' lock, parsed after; lines that
         don't parse skipped; ([], 0, None) with none"""
@@ -550,17 +589,7 @@ class RouteMem:
                     raw = f.read()
             except OSError:
                 return [], 0, None
-        legs, lines = [], 0
-        for line in raw.split(b'\n'):
-            if not line.strip():
-                continue
-            lines += 1
-            try:
-                leg = json.loads(line.decode('utf-8'))
-            except (ValueError, UnicodeDecodeError):
-                continue
-            if isinstance(leg, dict) and isinstance(leg.get('pts'), list):
-                legs.append(leg)
+        legs, lines = _parse(raw)
         return legs[-KEEP:], lines, st
 
     def zone_heat(self, zone, now=None):
@@ -575,6 +604,8 @@ class RouteMem:
             mine = None
             with self.zlock:
                 zh = self.zones.get(zone)
+                if zh is not None:
+                    self.zones[zone] = self.zones.pop(zone)      # (the last asked for: kept longest)
                 fresh = zh is not None and zh.stat == st
                 if fresh and zh.n is not None and now - zh.base <= REBASE * 86400:
                     return zh.n, zh.e, zh.x0, zh.y0, 0.5 ** ((now - zh.base) / 86400.0 / HALF_LIFE)
@@ -595,8 +626,13 @@ class RouteMem:
                     with self.zlock:
                         if self.zones.get(zone) is not zh:
                             continue
+                        self.zones.pop(zone, None)
                         zh = self.zones[zone] = ZoneHeat(legs, lines, st)
                         ver = zh.ver
+                        # (the ZONES_HEAT last asked for kept - the first in the dict asked for longest ago; this one's
+                        # last; a writer or an asker holding an older one sees it's gone and reads it again)
+                        while len(self.zones) > ZONES_HEAT:
+                            self.zones.pop(next(iter(self.zones)))
                 finally:
                     with self.zlock:
                         self.reading.pop(zone, None)

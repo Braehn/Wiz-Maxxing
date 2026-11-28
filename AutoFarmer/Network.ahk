@@ -111,6 +111,8 @@ NetTick()
 ;(Dashboard.ahk DashNetShow) - an answer at once, never a wait on the network
 NetFetchPicked()
 	{
+	static shownLog := ""
+	global NetSnapAt ; (v1 globals it sets)
 	sel := NetSel
 	if (sel = "")
 		return
@@ -120,11 +122,13 @@ NetFetchPicked()
 	if (ans = "")
 		{
 		why := RegExReplace(VisionErr, "^ERR\s*")
+		;(shown afresh once it answers again)
+		NetSnapAt := ""
 		if (V1IsFunc("DashNetShow"))
 			DashNetShow.Call("", "", why != "" ? why : "The vision helper didn't answer")
 		return
 		}
-	text := "", pic := "", why := "", at := ""
+	text := "", pic := "", why := ""
 	Loop Parse, ans, "`n", "`r"
 		{
 		if (SubStr(A_LoopField, 1, 4) = "log|")
@@ -133,14 +137,20 @@ NetFetchPicked()
 			pic := SubStr(A_LoopField, 6)
 		else if (SubStr(A_LoopField, 1, 4) = "why|")
 			why := SubStr(A_LoopField, 5)
-		else if (SubStr(A_LoopField, 1, 3) = "at|")
-			at := SubStr(A_LoopField, 4)
 		}
-	;(the same picture as before: not loaded again)
-	if (at != "" && at = NetSnapAt && text = "")
+	pic := pic != "" && FileExist(pic) ? pic : ""
+	;(the same picture and log as last shown: not loaded again - the helper's fetch thread gets them every 6 s, this runs
+	;every 2 s, and the tab's note gives the time it's shown: it stays the time the picture came. Its "at" is how many
+	;seconds ago - new at every ask, so 2026-11-27 review: never the same, every picture loaded again and stamped now. The
+	;picture told by its file's time and size - the helper writes a new one over it each fetch. NetSnapAt: "" on a new
+	;pick, Dashboard.ahk)
+	snapKey := pic = "" ? "none" : pic "|" V1Try(FileGetTime, pic, "M") "|" V1Try(FileGetSize, pic)
+	snapKey .= "|" why
+	if (NetSnapAt != "" && snapKey == NetSnapAt && text == shownLog)
 		return
+	NetSnapAt := snapKey, shownLog := text
 	if (V1IsFunc("DashNetShow"))
-		DashNetShow.Call(text, pic != "" && FileExist(pic) ? pic : "", why)
+		DashNetShow.Call(text, pic, why)
 	}
 
 ;A command from another bot on the network (netmon.py checked its PIN): done here, and said in the log

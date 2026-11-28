@@ -107,7 +107,7 @@ class StateMem:
         if props is None:
             import handmem as H
             import questmem as Q
-            img = H.Image(st)
+            img = H.shared_image(st)
             got = {c: Q.class_props(img, c) for c in CLASSES}
             del img
             props = {c: {k: v[0] for k, v in got[c][0].items()} for c in got}

@@ -37,20 +37,25 @@ jobs:
   release:
     runs-on: windows-latest
     timeout-minutes: 30
+    # (GH_TOKEN - this run's token, contents: write - only in the steps that talk to GitHub, never in the ones that run
+    # the downloaded AutoHotkey and Ahk2Exe; nor kept in .git\config by the checkout - 2026-11-27)
     env:
       VERSION: ${{ inputs.version }}
       PRERELEASE: ${{ inputs.prerelease }}
       DRYRUN: ${{ inputs.dryrun }}
-      GH_TOKEN: ${{ github.token }}
     steps:
       # (the repo's own bytes: some files are CRLF and some LF on purpose - Windows runners turn LF into CRLF otherwise)
       - name: Keep the repo's line endings
         run: git config --global core.autocrlf false
 
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Check the version
         shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           $PSNativeCommandUseErrorActionPreference = $false
           if ($env:VERSION -notmatch '^v\d+\.\d+(\.\d+)?$') { throw "'$env:VERSION' isn't a version like v1.0.0" }
@@ -72,14 +77,19 @@ jobs:
               "Deleted the draft $env:VERSION a failed run left (release $id)"
           }
           # (a tag of that name already on another commit: the release would be made from that commit, not this one -
-          # an annotated tag's commit is its peeled ^{} ref, asked for by name: a plain pattern never matches it)
-          $tag = (git ls-remote --tags origin "refs/tags/$env:VERSION" "refs/tags/$($env:VERSION)^{}") -join "`n"
+          # an annotated tag's commit is its peeled ^{} ref, asked for by name: a plain pattern never matches it. The
+          # token given for this one command - the checkout keeps none)
+          $auth = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes("x-access-token:$env:GH_TOKEN"))
+          $tag = (git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $auth" ls-remote --tags origin "refs/tags/$env:VERSION" "refs/tags/$($env:VERSION)^{}") -join "`n"
+          if ($LASTEXITCODE -ne 0) { throw "The tags couldn't be read" }
           if ($tag -and $tag -notmatch $env:GITHUB_SHA) { if ($dry) { "Tag $env:VERSION is on another commit ($tag) - a real run would stop" } else { throw "Tag $env:VERSION is on another commit ($tag)" } }
           "$(if ($dry) { 'Dry run of' } else { 'Publishing' }) $env:VERSION from $env:GITHUB_REF_NAME at $env:GITHUB_SHA"
           exit 0
 
       - name: Get AutoHotkey v2 and Ahk2Exe
         shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           $PSNativeCommandUseErrorActionPreference = $false
           # (both from their GitHub releases - www.autohotkey.com shows runners a browser check, not the file - each
@@ -93,6 +103,8 @@ jobs:
               if (-not $asset) { throw "$repo's latest release ($($rel.tag_name)) has no zip" }
               $zip = Join-Path $env:RUNNER_TEMP $asset.name
               Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $zip
+              # (its SHA-256 in the log: what each release was built with, to compare or pin later)
+              Write-Host "$($asset.name) SHA-256 $((Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash)"
               $out = Join-Path $env:RUNNER_TEMP ([IO.Path]::GetFileNameWithoutExtension($asset.name))
               Expand-Archive -LiteralPath $zip -DestinationPath $out -Force
               $found = Get-ChildItem -Path $out -Filter $exe -Recurse -File | Select-Object -First 1
@@ -189,6 +201,8 @@ jobs:
       - name: Publish the release
         if: ${{ !inputs.dryrun }}
         shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           $PSNativeCommandUseErrorActionPreference = $false
           # (made as a draft with its zip, then published: the updater never sees the release without its zip - a run

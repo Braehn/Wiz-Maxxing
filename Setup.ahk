@@ -907,7 +907,7 @@ SuDownloadOnly(rel)
 			V1Do(DirDelete, tmp, 1)
 			return SuSay("the download failed: " err, -1)
 			}
-		V1RunWait("powershell -NoProfile -ExecutionPolicy Bypass -Command `"try { Expand-Archive -LiteralPath '" zip "' -DestinationPath '" dest "' -Force -ErrorAction Stop } catch { exit 1 }`"", , "Hide")
+		V1RunWait("powershell -NoProfile -ExecutionPolicy Bypass -Command `"try { Expand-Archive -LiteralPath " UpPsQuote(zip) " -DestinationPath " UpPsQuote(dest) " -Force -ErrorAction Stop } catch { exit 1 }`"", , "Hide")
 		unzipped := (ErrorLevel = 0)
 		V1Do(DirDelete, tmp, 1)
 		if (!unzipped)
@@ -995,8 +995,29 @@ SuOfferDelete(old)
 	list := "`n   " top
 	for i, z in zips
 		list .= "`n   " z
-	note := SuMovedSaved = "" ? "(Everything was copied over - your settings, learned cards and routes too.)"
+	;(what of it the install hasn't got, by the same path: only a whole folder's copy has it all - a version picked in the
+	;Version list, or this one put over an install, took only your settings, learned cards and routes from there
+	;(SuCopyMine), not its backups\, logs or made pictures - 2026-11-27. Its backups\ there - the pictures and numbers a
+	;learned card took the place of, put back from there: never offered then; anything else named in the question.
+	;Setup's and the updater's own files and Explorer's not counted)
+	missing := 0, first := "", backups := 0
+	Loop Files, old "\*", "FR"
+		{
+		rel := SubStr(A_LoopFilePath, StrLen(old) + 2)
+		if (RegExMatch(rel, "i)(^|\\)(updater\.(ini|log)|desktop\.ini|Thumbs\.db)$|\.old$") || FileExist(home "\" rel))
+			continue
+		missing++
+		if (first = "")
+			first := rel
+		if (RegExMatch(rel, "i)(^|\\)backups\\"))
+			backups++
+		}
+	if (backups)
+		return SuLogLine("the download was left where it is: " backups " file(s) in its backups folder (copies the bot kept there) aren't in the install - delete " top " yourself once you don't need them")
+	note := SuMovedSaved = "" ? (missing ? "" : "(Everything was copied over - your settings, learned cards and routes too.)")
 		: "(The settings, learned cards and routes in use are in the install; the other copy was saved in`n   " SuMovedSaved ")"
+	if (missing)
+		note .= (note = "" ? "" : "`n`n") "Not everything there is in the install: " missing " file(s) aren't (" first (missing > 1 ? ", ..." : "") ") - say No to keep them."
 	msgResult := MsgBox("Wiz-Maxxing is installed in`n   " home "`n`nMove the download to the Recycle Bin?" list "`n`n" note, "Wiz-Maxxing setup", 262436)
 	if (msgResult = "No")
 		return SuLogLine("the download was left where it is")
@@ -1088,7 +1109,7 @@ SuUnblock()
 	{
 	SuLogLine("== Unblock the bot's files")
 	before := SuMarkedCount()
-	SuRun("powershell -NoProfile -ExecutionPolicy Bypass -Command `"Get-ChildItem -LiteralPath '" A_ScriptDir "' -Recurse -File | Unblock-File`"")
+	SuRun("powershell -NoProfile -ExecutionPolicy Bypass -Command `"Get-ChildItem -LiteralPath " UpPsQuote(A_ScriptDir) " -Recurse -File | Unblock-File`"")
 	SuLogLine(before " file(s) were marked; " SuMarkedCount() " still are")
 	}
 
@@ -1140,8 +1161,17 @@ SuToken()
 	{
 	global ErrorLevel ; (v1 globals it sets)
 	SuLogLine("== GitHub updates")
-	if (UpToken() != "" && UpTokenTest(UpToken()) = "")
-		return SuLogLine("the saved token works")
+	;(the saved one asked for again only when GitHub says it's no good - not when it can't be checked: offline, GitHub's
+	;limit for the hour - a new one couldn't be checked either)
+	if (UpToken() != "")
+		{
+		why := UpTokenTest(UpToken(), &bad)
+		if (why = "")
+			return SuLogLine("the saved token works")
+		if (!bad)
+			return SuLogLine("the saved token couldn't be checked: " why " - it's kept (tick GitHub updates and Install again later to check it)")
+		SuLogLine("the saved token doesn't work any more: " why " - make a new one")
+		}
 	Run("https://github.com/settings/personal-access-tokens/new")
 	MsgBox("A GitHub page opened (sign in if it asks). Make a token there:`n`n1. Token name: Wiz-Maxxing updates`n2. Expiration: the longest it offers (or No expiration)`n3. Repository access: Only select repositories -> Wiz-Maxxing`n4. Permissions -> Repository permissions -> Contents: Read-only, and Issues: Read and write (for the dashboard's Report a bug)`n5. Generate token, then copy it`n`nClick OK, then paste it into the next box.", "GitHub updates", 64)
 	IB := InputBox("Paste the token (it's kept in Windows Credential Manager on this PC only):", "GitHub updates", "Password w560 h150"), token := IB.Value, ErrorLevel := IB.Result="OK" ? 0 : IB.Result="CANCEL" ? 1 : IB.Result="Timeout" ? 2 : "ERROR"
@@ -1259,6 +1289,11 @@ SuInstallCe()
 	text := SuCeScript()
 	if (text = "")
 		return SuLogLine("CheatEngine\wiz-maxxing.lua isn't in " A_ScriptDir " - download the bot's zip again")
+	;(this folder's path with letters beyond plain English and no short name for it - 8.3 names off on that drive: Cheat
+	;Engine's Lua opens files by the old code page, so it couldn't read the bot's PlayerStats.txt - its keys and speed -
+	;and the speedhack would stay off. Not put in)
+	if (RegExMatch(text, "[^\x01-\x7F]"))
+		return SuLogLine("not set up: Cheat Engine can't open files in " A_ScriptDir " (letters beyond plain English in its path, and Windows keeps no short name for it) - put the bot in a folder named in plain English letters, then tick Cheat Engine speedhack and Install again")
 	ce := CeDir()
 	if (ce = "")
 		ce := SuGetCheatEngine()
@@ -1293,10 +1328,10 @@ SuGetCheatEngine()
 	V1Do(Download, page, html)
 	text := V1FileRead(html)
 	V1Do(FileDelete, html)
-	;(its Windows download: a cloudfront link to an .exe - its name changes with every version)
+	;(its Windows download: a cloudfront link to an .exe - its name changes with every version. Only that: the page's
+	;first other .exe link could be someone else's download offer, signed by them and then shown as Cheat Engine's
+	;installer - 2026-11-27. Not found: its download page opens instead)
 	url := RegExMatch(text, "i)https://[a-z0-9.-]+\.cloudfront\.net/[^\x22'<>\s]+\.exe", &suM) ? suM[0] : ""
-	if (url = "" && RegExMatch(text, "i)https://[^\x22'<>\s]+\.exe", &suM))
-		url := suM[0]
 	if (url = "")
 		return SuCeByHand(page, "its download link wasn't found on " page)
 	file := A_Temp "\CheatEngineSetup.exe"
@@ -1341,7 +1376,7 @@ SuCeByHand(page, why)
 SuSigner(file)
 	{
 	tmp := A_Temp "\su_signer.txt"
-	V1RunWait(A_ComSpec " /c powershell -NoProfile -ExecutionPolicy Bypass -Command `"$s = Get-AuthenticodeSignature -LiteralPath '" StrReplace(file, "'", "''") "'; if ($s.Status -eq 'Valid') { $s.SignerCertificate.GetNameInfo('SimpleName', $false) }`" > `"" tmp "`" 2>nul", , "Hide")
+	V1RunWait(A_ComSpec " /c powershell -NoProfile -ExecutionPolicy Bypass -Command `"$s = Get-AuthenticodeSignature -LiteralPath " UpPsQuote(file) "; if ($s.Status -eq 'Valid') { $s.SignerCertificate.GetNameInfo('SimpleName', $false) }`" > `"" tmp "`" 2>nul", , "Hide")
 	out := Trim(V1FileRead(tmp), " `t`r`n")
 	V1Do(FileDelete, tmp)
 	return out
@@ -1369,12 +1404,37 @@ SuCePut(ce, text)
 	V1Do(FileCopy, tmp, dest, 1)
 	if (V1FileRead(dest, "UTF-8") !== text)
 		{
-		SuLogLine("putting it in " ce "\autorun (Windows asks for admin)...")
-		V1RunWait("*RunAs `"" A_ComSpec "`" /c mkdir `"" ce "\autorun`" 2>nul & copy /y `"" tmp "`" `"" dest "`"", , "Hide")
+		;(the text itself in the admin command, not copied from %TEMP%: a file there anything of yours can change while
+		;Windows asks - and Cheat Engine 7.4 / 7.5 run its autorun as admin - 2026-11-27)
+		b64 := SuBase64(text)
+		ps := "$b = [Convert]::FromBase64String('" b64 "'); New-Item -ItemType Directory -Force -Path " UpPsQuote(ce "\autorun") " | Out-Null; [IO.File]::WriteAllBytes(" UpPsQuote(dest) ", $b)"
+		if (b64 = "" || StrLen(ps) > 30000)
+			SuLogLine("the script couldn't be put in the admin command (" StrLen(b64) " characters)")
+		else
+			{
+			SuLogLine("putting it in " ce "\autorun (Windows asks for admin)...")
+			V1RunWait("*RunAs `"" A_WinDir "\System32\WindowsPowerShell\v1.0\powershell.exe`" -NoProfile -ExecutionPolicy Bypass -Command `"" ps "`"", , "Hide")
+			}
 		}
 	ok := V1FileRead(dest, "UTF-8") == text
 	V1Do(FileDelete, tmp)
 	return ok
+	}
+
+;text as UTF-8 (no BOM - as FileAppend's "UTF-8-RAW" writes it) in base64, on one line. "" if Windows wouldn't
+SuBase64(text)
+	{
+	n := StrPut(text, "UTF-8") - 1
+	buf := Buffer(n + 1, 0)
+	StrPut(text, buf, "UTF-8")
+	size := 0
+	;(CRYPT_STRING_BASE64 | CRYPT_STRING_NOCRLF; first its length, then the text)
+	if (n < 1 || !DllCall("crypt32\CryptBinaryToStringW", "Ptr", buf, "UInt", n, "UInt", 0x40000001, "Ptr", 0, "UInt*", &size) || !size)
+		return ""
+	out := Buffer(size * 2, 0)
+	if (!DllCall("crypt32\CryptBinaryToStringW", "Ptr", buf, "UInt", n, "UInt", 0x40000001, "Ptr", out, "UInt*", &size))
+		return ""
+	return StrGet(out, "UTF-16")
 	}
 
 ;The bot's speed keys and speed for the log, as its Settings have them: "F14 = 2x (walking), F13 = 1x"
@@ -1505,7 +1565,7 @@ SuWhere(exe)
 SuMarkedCount()
 	{
 	tmp := A_Temp "\su_marked.txt"
-	V1RunWait(A_ComSpec " /c powershell -NoProfile -ExecutionPolicy Bypass -Command `"(Get-ChildItem -LiteralPath '" A_ScriptDir "' -Recurse -File | Get-Item -Stream Zone.Identifier -ErrorAction SilentlyContinue | Measure-Object).Count`" > `"" tmp "`" 2>nul", , "Hide")
+	V1RunWait(A_ComSpec " /c powershell -NoProfile -ExecutionPolicy Bypass -Command `"(Get-ChildItem -LiteralPath " UpPsQuote(A_ScriptDir) " -Recurse -File | Get-Item -Stream Zone.Identifier -ErrorAction SilentlyContinue | Measure-Object).Count`" > `"" tmp "`" 2>nul", , "Hide")
 	n := V1FileRead(tmp)
 	V1Do(FileDelete, tmp)
 	n := Trim(n, " `t`r`n")

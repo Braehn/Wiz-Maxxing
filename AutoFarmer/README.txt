@@ -608,7 +608,10 @@ mostly AoEs. A deck already on that Equipment Set takes the link instead of a
 new one; six decks at most on the tab. Read again later, a linked deck
 follows its in-game deck (a set moved, cards changed) - but a setting you set
 or clear yourself on the tab is yours: never changed again (the file's
-learned| line lists the ones learning set).
+learned| line lists the ones learning set). A learned deck you delete on the
+tab isn't made again by itself every 30 minutes - the From game button makes
+it again. A linked deck whose in-game deck leaves its Equipment Set has its
+Equipment Set cleared here too (it's in none now).
 Can this deck beat it (the battle simulator - vision\battlesim.py): when a boss
 is ahead, each deck for bosses linked to an in-game deck is fought against it
 300 times in the simulator - your real cards (the main deck shuffled, 7 in
@@ -698,7 +701,8 @@ battles recorded there), each with the settings the bot would play it with (its
 deck profile's, then yours - no profile: yours and those its cards call for; a
 group with a boss as a boss fight); of your decks for the same use as the one
 picked (collect, farming, dungeon, anything else - never a boss deck, the
-pinned one or a dungeon run's), the one that wins clearly more often (5 points,
+pinned one or a dungeon run's - and only decks with an Equipment Set: one with
+none can't be put on in the game), the one that wins clearly more often (5 points,
 or as often in a round fewer) is put on - "Deck: Small deck - the simulator's
 pick for WizardCity/WC_Streets's enemies: 96% won in 3.1 rounds - Large deck
 88%". Worked out by the helper in the background (a few seconds), kept 10
@@ -1927,7 +1931,10 @@ off (F6), walking (F8), the dashboard (Windows+2), the overlay over the game
 (F9), the battle picks (Alt+1 the boss, Alt+2 who your boosts go to, Windows+3
 your own plate) and the modes (Alt+E loop, Alt+L lore, Alt+D dual, Alt+C
 command, Alt+S statistic, Alt+R response, Windows+Alt+D developer) - with its
-key, its default and when it works. Pick one and click Change (or double-click
+key, its default and when it works. The battle picks and the modes (and the
+developer's Alt+0) are taken only while the bot is on AND Wizard101 is in
+front (the Keys tab: "the bot on, in Wizard101") - in another program Alt+E,
+Alt+D, Alt+S... stay that program's own. Pick one and click Change (or double-click
 it), then press the new key, with Ctrl, Alt, Shift or Windows if you like
 (8 s; Esc leaves it as it was). Its default and No key (switched off - not for
 the bot on / off, quit or stop recording), All to defaults.

@@ -481,10 +481,14 @@ class Charms(unittest.TestCase):
         self.assertEqual(c["by"][0]["shields"][0]["name"], "Dark Shield")    # (not in the facts: the log's)
 
     def test_absorb_soaks_damage(self):
+        # (fix2: the hit's own number, not the health lost past the absorb - ModifyHealth's delta is after it: a hit it
+        # soaked loses no health, and health lost means it soaked all it had)
         d = duel([cast(4, "Spirit Armor", [(4, "kAbsorbDamage", 1, 500)])],
-                 [cast(0, "Bite", hp=[(4, 3000, -200)])])
+                 [cast(0, "Bite", fx=[(4, "kDamage", 200)])])
         c = R.charms_now(d, FACTS)
         self.assertEqual([x["pct"] for x in c["by"][4]["absorb"]], [300])
+        d["rounds"][1]["casts"] = [cast(0, "Bite", hp=[(4, 3000, -200)], fx=[(4, "kDamage", 700)])]
+        self.assertEqual(R.charms_now(d, FACTS)["by"][4]["absorb"], [])
 
     def test_record_shaped_and_junk(self):
         rec = {"me": {"sc": 4}, "rounds": [{"n": 1, "casts": [cast(4, "Stormblade", [(4, "kModifyOutgoingDamage", 1, 35)])]}]}

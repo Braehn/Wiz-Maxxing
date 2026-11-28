@@ -2,9 +2,10 @@
 and POST /ovlog and the map they share with /navmap (vision.py) - no game, no Windows:
 python -m unittest vision\\test_overlay.py  (from AutoFarmer\\vision: python -m unittest test_overlay)
 
-/navmap's default picture is pinned by golden digests (on the Pillow and numpy they were taken with, no Windows
-fonts); AhkParity reads Overlay.ahk and the files wired to it (once they're there) for the constants and names this
-side relies on - static checks, not a run of AutoHotkey."""
+/navmap's default picture is pinned by golden digests (the map's Windows fonts kept out - Pillow's own font draws the
+text; the same on Pillow 12.3.0 / numpy 2.5.3 and Pillow 13.0.0 / numpy 2.5.5); AhkParity reads Overlay.ahk and the
+files wired to it for the constants and names this side relies on - static checks, not a run of AutoHotkey. Overlay.ahk
+has shipped since v1.4.0: gone or moved is a failure, not a skip."""
 import hashlib
 import http.client
 import os
@@ -17,6 +18,7 @@ import tempfile
 import threading
 import time
 import unittest
+from unittest import mock
 from http.server import ThreadingHTTPServer
 from urllib.parse import quote
 
@@ -81,18 +83,23 @@ def digest(im):
     return hashlib.sha256(im.tobytes()).hexdigest()
 
 
-def no_map_fonts():
-    """none of the map's Windows fonts loads (Pillow's own font draws the golden scenes' text)"""
-    for n in ('segoeuib.ttf', 'segoeui.ttf', 'arialbd.ttf', 'arial.ttf'):
-        try:
-            ImageFont.truetype(n, 10)
-            return False
-        except OSError:
-            pass
-    return True
+MAP_WIN_FONTS = ('segoeuib.ttf', 'segoeui.ttf', 'arialbd.ttf', 'arial.ttf')     # (vision.py map_font's, in its order)
 
 
-GOLDEN_ENV = PIL.__version__ == '12.3.0' and np.__version__ == '2.5.3' and no_map_fonts()
+def without_map_fonts():
+    """ImageFont.truetype with the map's Windows fonts missing (as on a PC without them - Pillow's own font draws the
+    golden scenes' text), any other font as it is: Pillow's load_default reads its own through truetype too"""
+    real = ImageFont.truetype
+
+    def truetype(font=None, *a, **kw):
+        if isinstance(font, str) and os.path.basename(font).lower() in MAP_WIN_FONTS:
+            raise OSError('cannot open resource')
+        return real(font, *a, **kw)
+    return mock.patch.object(ImageFont, 'truetype', truetype)
+
+
+GOLDEN_TAKEN = 'the golden digests were taken on Pillow 12.3.0 / numpy 2.5.3 and 13.0.0 / 2.5.5 - this is %s / %s' % (
+    PIL.__version__, np.__version__)
 
 
 # ---------------------------------------------------------------- BattleRec.ahk BrecEsc, in Python
@@ -486,13 +493,22 @@ class LogPicture(Base):
 
 
 class MapPicture(Base):
-    @unittest.skipUnless(GOLDEN_ENV, 'the golden digests were taken on Pillow 12.3.0, numpy 2.5.3, no Windows fonts')
     def test_navmap_default_unchanged(self):
+        """run everywhere (it was skipped unless Pillow 12.3.0, numpy 2.5.3 and no Windows fonts - on no PC of the
+        bot's): the fonts kept out here, the map's font cache emptied before and put back after"""
         V = self.V
-        self.assertEqual(digest(scene_a(V)), 'ba2a1ab1cb3529c69bc325170dca8dc4227f31a5176dcdd1edf23f8a247d4f82')
-        self.assertEqual(digest(scene_b(V)), '114979cd63e872f42b695f120d1e142db764cde9acd17c9efedc4ebe764cd39b')
-        self.assertEqual(digest(fake_layers(V).tile(6000.0 / 160, 0, -1)),
-                         '78105f9f95b1b4e4b5bb4a6c0d4f34b515ad51a6d89e257242136ab3267ab1ca')
+        fonts = dict(V.MAP_FONTS)
+        V.MAP_FONTS.clear()
+        try:
+            with without_map_fonts():
+                a, b = digest(scene_a(V)), digest(scene_b(V))
+                t = digest(fake_layers(V).tile(6000.0 / 160, 0, -1))
+        finally:
+            V.MAP_FONTS.clear()
+            V.MAP_FONTS.update(fonts)
+        self.assertEqual(a, 'ba2a1ab1cb3529c69bc325170dca8dc4227f31a5176dcdd1edf23f8a247d4f82', GOLDEN_TAKEN)
+        self.assertEqual(b, '114979cd63e872f42b695f120d1e142db764cde9acd17c9efedc4ebe764cd39b', GOLDEN_TAKEN)
+        self.assertEqual(t, '78105f9f95b1b4e4b5bb4a6c0d4f34b515ad51a6d89e257242136ab3267ab1ca', GOLDEN_TAKEN)
 
     def test_navmap_default_opaque(self):
         V = self.V
@@ -842,13 +858,14 @@ def ahk_code(lines):
 OVERLAY_AHK = os.path.join(AF, 'Overlay.ahk')
 
 
-@unittest.skipUnless(os.path.exists(OVERLAY_AHK), 'no Overlay.ahk yet')
 class AhkParity(unittest.TestCase):
     """the constants and names the Python side relies on, as Overlay.ahk, Settings.ahk, Hotkeys.ahk, Autofarmer.ahk,
-    Dashboard.ahk and Decks.ahk have them (their code - comments left out)"""
+    Dashboard.ahk and Decks.ahk have them (their code - comments left out). Never skipped: Overlay.ahk ships - moved,
+    renamed or split, these checks (test_overlay_never among them) fail till they read it where it is"""
 
     @classmethod
     def setUpClass(cls):
+        assert os.path.exists(OVERLAY_AHK), OVERLAY_AHK + ' gone - Autofarmer.ahk #Includes it'
         import overlay
         cls.OV = overlay
         cls.ov_lines = ahk_lines('Overlay.ahk')
@@ -1349,7 +1366,15 @@ class AhkParity(unittest.TestCase):
                                      r'lethal := IsLethal\(name, 0\)')
         m = re.search(r'\nIsLethal\(hitName, useEnchant\)\s*\{.*?\n\t\}', kc, re.S)
         self.assertIsNotNone(m)
-        self.assertIn('if (Stat(hitschool "." hitName "target") = 1 && EnemyHP.Length > 1)', m.group(0))
+        # (a single-target hit is no kill of all with more than one enemy: by its <school>.<hit>target line, or - 2026-11-27
+        # review - by KillCalc.ahk's HitOne, the game's kind first and that line last)
+        one = re.search(r'if \((Stat\(hitschool "\." hitName "target"\) = 1|HitOne\(hitName\)) && EnemyHP\.Length > 1\)\n'
+                        r'\t\treturn false\n', m.group(0))
+        self.assertIsNotNone(one, m.group(0))
+        if one.group(1).startswith('HitOne'):
+            ho = re.search(r'\nHitOne\(hitName\)\n\t\{\n(.*?)\n\t\}', kc, re.S)
+            self.assertIsNotNone(ho)
+            self.assertIn('return (Stat(hitschool "." hitName "target") = 1) ? 1 : 0', ho.group(1))
         self.assertIn('margin := 1 + Stat("killmargin") / 100', m.group(0))
         # (the round: PipSaveFor cleared, the kill check, a Draw, PlanPips - not a support's -, the kill's cast resets
         # the count; a battle's start resets all, given up too)

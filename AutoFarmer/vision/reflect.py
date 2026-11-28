@@ -71,6 +71,11 @@ ANCHORS = (("Window", "m_sName", "std::string"), ("ControlText", "m_sText", "std
            ("ItemTemplate", "m_equipEffects", "std::list<SharedPointer<GameEffectInfo>>"))
 # a reflected name in .rdata: a NUL-terminated C string of these characters, a NUL before it
 NAME = re.compile(rb"\x00([A-Za-z_][A-Za-z0-9_:<>,. ]{1,127})(?=\x00)")
+# ...or (loose) one right after other bytes - a constant's, no NUL between (build 6AFBB954-37B4000, 2026-11-20: the
+# only copy of "CombatPlanningPhaseWindow" its GetType loads came after "(@" - handmem.find_types): no space in it, the
+# byte before it none of a name's characters (so never the tail of a longer one)
+NAME_LOOSE = re.compile(rb"(?<![\x00A-Za-z0-9_:<>,. ])([A-Za-z_][A-Za-z0-9_:<>,.]{1,127})(?=\x00)")
+NAME_CHARS = frozenset(b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_:<>,. ")
 IDENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 CLASSY = re.compile(r"[A-Za-z_][A-Za-z0-9_:<>, ]*")      # (navmem.TypeNamer's TYPE_NAME: a class's name as GetType loads it)
 ENUM = re.compile(r"k[A-Z0-9][A-Za-z0-9_]*|[A-Za-z_][A-Za-z0-9_]*::[A-Za-z0-9_:]+")
@@ -89,14 +94,18 @@ def cell(v):
     return '' if v is None else re.sub(r'[|\r\n]+', ' ', str(v)).strip()
 
 
-def grep_names(buf, pattern, base=0, case=False):
+def grep_names(buf, pattern, base=0, case=False, loose=False):
     """[(address, name, copies)] of the reflected-looking names in buf (a copy of .rdata at address base - NAME: a
-    NUL-terminated C string of identifier characters with a NUL before it) that pattern (a regex: str or compiled -
-    re.search, any case unless case) finds, each name once (its first address, how many times it's there), in buf's
-    order"""
+    NUL-terminated C string of identifier characters with a NUL before it; loose: NAME_LOOSE's too, right after other
+    bytes - report()'s) that pattern (a regex: str or compiled - re.search, any case unless case) finds, each name once
+    (its first address, how many times it's there), in buf's order"""
     rx = pattern if hasattr(pattern, "search") else re.compile(pattern, 0 if case else re.IGNORECASE)
     seen, out = {}, []
-    for m in NAME.finditer(b"\x00" + bytes(buf)):
+    padded = b"\x00" + bytes(buf)
+    ms = list(NAME.finditer(padded))
+    if loose:
+        ms = sorted(ms + list(NAME_LOOSE.finditer(padded)), key=lambda m: m.start(1))
+    for m in ms:
         s = m.group(1).decode("latin-1")
         i = seen.get(s)
         if i is None:
@@ -122,10 +131,11 @@ def name_kind(s):
 
 
 def name_at(rdata, r0, addr):
-    """the C string at addr in a copy of .rdata at r0 when it starts there (a NUL before it) and looks like a class's
-    name (CLASSY, not a property's m_...), else None"""
+    """the C string at addr in a copy of .rdata at r0 when it starts there (the byte before it a NUL, or none of a
+    name's characters: a constant's - NAME_LOOSE) and looks like a class's name (CLASSY, not a property's m_...), else
+    None"""
     i = addr - r0
-    if not (0 < i < len(rdata)) or rdata[i - 1] != 0:
+    if not (0 < i < len(rdata)) or rdata[i - 1] in NAME_CHARS:
         return None
     s = bytes(rdata[i:i + 128]).split(b"\0", 1)[0].decode("latin-1")
     return s if s and CLASSY.fullmatch(s) and not s.startswith("m_") else None
@@ -232,14 +242,14 @@ def report(img, base, classes=(), pattern=None, case=False, limit=GREP_LIMIT, pr
     if pattern:
         r0, rdata = img.secs[".rdata"]
         t0, text = img.secs[".text"]
-        found = grep_names(rdata, pattern, r0, case)
+        found = grep_names(rdata, pattern, r0, case, loose=True)
         hits, dump = [], []
         for addr, name, copies in found[:limit]:
             kind, what = name_kind(name), ""
             try:
                 if kind == "prop":
                     owners = []
-                    for sa in img.strings(name):
+                    for sa in img.strings(name) + img.strings(name, loose=True):
                         for la in list(img.lea_at[img.lea_tgt == sa])[:SITES]:
                             for cand in owner_candidates(text, t0, int(la), img.lea_at, img.lea_tgt,
                                                          lambda a: name_at(rdata, r0, a)):

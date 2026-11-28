@@ -155,7 +155,8 @@ def parse_pin(text):
 def level_entries(rd, tpl, off_levels, off_level, cap=LEVELS_CAP):
     """[(level, PetLevelInfo address)] of a PetItemBehaviorTemplate's m_Levels (at tpl + off_levels): a std::list
     {head, size} holding each PetLevelInfo BY VALUE in its node (+0x10), m_level (u8) at off_level - every entry
-    checked by its type name; None when it can't be read (the head bad, more than cap, an entry not a PetLevelInfo).
+    checked by its type name; None when it can't be read (the head bad, more than cap, an entry not a PetLevelInfo,
+    the walk cut short of the list's own size - a level then not reached would read as no cards, never a guess).
     rd: a reader with _rd, u64, u8, tname and pace (deckmem.DeckMem's or PetMem's)"""
     if not ptr_ok(tpl):
         return None
@@ -173,6 +174,8 @@ def level_entries(rd, tpl, off_levels, off_level, cap=LEVELS_CAP):
             return None
         out.append((rd.u8(li + off_level), li))
         n = rd.u64(n)
+    if len(out) != size:                                  # (a next pointer bad mid-walk: not all of it read)
+        return None
     return out
 
 
@@ -253,7 +256,7 @@ class PetMem:
         if props is None:
             import handmem as H
             import questmem as Q
-            img = H.Image(st)
+            img = H.shared_image(st)
             props = {c: {k: v[0] for k, v in Q.class_props(img, c)[0].items()} for c in classes}
             del img
         self.P = {c: dict(props.get(c) or {}) for c in classes}

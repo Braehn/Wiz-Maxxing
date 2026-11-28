@@ -64,8 +64,16 @@ class Lint(unittest.TestCase):
     def test_errors(self):
         r = D.parse_run("walk|A|1|2|3\n")
         self.assertEqual(kinds(D.lint(r)), [("error", 0)])
+        # (fix2: a step with a coordinate that isn't a number is left out, as DgLoad leaves it out - not numbered among
+        # the steps walked: one step left, and that line said - it gave [("error", 2)])
         r = D.parse_run("walk|A|1|2|3\nwalk|A|x|2|3\n")
-        self.assertEqual(kinds(D.lint(r)), [("error", 2)])
+        self.assertEqual(len(r["steps"]), 1)
+        iss = D.lint(r)
+        self.assertEqual(kinds(iss), [("error", 0), ("error", 0)])
+        self.assertIn("line 2: a coordinate isn't a number (walk step in A) - Dungeons.ahk leaves the step out", iss[1][2])
+        r = D.parse_run("walk|A|1|2|3\nwalk|A|x|2|3\nwalk|A|5|2|3\n")
+        self.assertEqual([s["line"] for s in r["steps"]], [1, 3])
+        self.assertEqual(kinds(D.lint(r)), [("error", 0)])
 
     def test_end_elsewhere_and_far(self):
         r = D.parse_run("walk|A|0|0|0\nx|A|10|0|0\nwalk|B|0|0|0\n")

@@ -220,7 +220,8 @@ QsBattleEnd()
 	}
 
 ;Each pass of the spellbook block (after PotionCheck): a battle's windows left open closed; three looks after the bot's
-;battle, 0, 3 and 8 s after it (the loot can come a moment after the spellbook shows). Nothing at all with quicksell off
+;battle, 0, 3 and 8 s after it (the loot can come a moment after the spellbook shows). With quicksell off no look - only
+;the windows a run from the tray left open (QsMenuNow works with it off) still closed, as its log line says they will be
 QsTick()
 	{
 	static qDue := [0, 3000, 8000]
@@ -235,7 +236,9 @@ QsTick()
 		}
 	if (!qMode)
 		{
-		QsStill := 0, QsLeftover := 0
+		QsStill := 0
+		if (QsLeftover && !QsBusy)
+			QsLeftoverTick()
 		return
 		}
 	if (QsBusy)
@@ -497,7 +500,7 @@ QsMayRun(&why, manual := false)
 
 ;The quick sell (a look, the tray): d - QsDecide's (why); bag - the /bag read before; manual - from the tray (sold
 ;whether the game says full or not; the bot may be off); rehearse - up to the confirmation, read, logged, closed. The
-;result ({res: sold, notfull, rehearsed, nothing, stopped, failed, crowns; why...})
+;result ({res: sold, notfull, rehearsed, nothing, changed, stopped, failed, crowns; why...})
 QsRun(d, bag, manual := false, rehearse := false)
 	{
 	global QsBusy, QsSince, QsManual, QsLeftover, QsStep, QsBefore ; (v1 globals it sets)
@@ -584,6 +587,10 @@ QsSteps(bag, manual, rehearse)
 		QsLog("nothing Quick Sell can sell in " (qCats.list.Length ? "the groups" : "any group left") " - closing")
 		return V1Obj({res: "nothing", why: "nothing Quick Sell can sell in the gear" (QsPets() ? " and pet" : "") " groups", back: 1})
 		}
+	;(the groups picked, before SELL: the backpack still as the look read it - QsBagSame)
+	qr := QsBagSame(bag)
+	if (IsObject(qr))
+		return qr
 	;(6. SELL: the confirmation)
 	qr := QsClickWait("buyWindow/sellAction", "SELL", "QuickSellConfirmationWindow", 3000, "the confirmation window")
 	if (IsObject(qr))
@@ -604,6 +611,21 @@ QsSteps(bag, manual, rehearse)
 		return qr
 	;(9. the sale checked in the game's memory)
 	return QsVerify(qNums)
+	}
+
+;The backpack still as the look read it (bag): the groups (QsCategories - sets, Crown-shop items), the gear pass, the pet
+;guard and the confirmation's gearMax / petMax all went by that read, taken before the gear pass's /gear and the windows
+;opening. Its list's count read again: more items - a drop come in since (the loot can come a moment after the
+;spellbook shows), never judged by any of them - nothing sold: {res: "changed"}, its windows closed (back), looked at
+;afresh at the next look (or the tray). "" no more (fewer: nothing new to judge) - or not read now (as before: the
+;confirmation's own checks stand)
+QsBagSame(bag)
+	{
+	qNow := NavBag()
+	if (!IsObject(qNow) || !V1IsNum(qNow.items) || !V1IsNum(bag.items) || qNow.items <= bag.items)
+		return ""
+	QsLog("the backpack holds " qNow.items " items now, " bag.items " when it was looked at - it changed during the run (a drop?): nothing sold, closing - looked at again next time")
+	return V1Obj({res: "changed", why: "the backpack changed during the run (" bag.items " -> " qNow.items " items)", back: 1})
 	}
 
 ;A step's end: a failure backed out of (window by window); windows a battle left open closed at the next look
@@ -684,6 +706,14 @@ QsAfter(r, manual)
 		}
 	else if (r.res = "stopped")
 		QsTryAt := now + 600000, QsStill := 1
+	;(the backpack changed during the run - QsBagSame: not a failure, no wait - the next look after a battle reads it
+	;afresh; from the tray: said, to ask again)
+	else if (r.res = "changed")
+		{
+		QsStill := 0
+		if (manual)
+			QsTray("Quick sell: " r.why " - nothing sold. Ask again.", 2)
+		}
 	else if (r.res = "crowns")
 		QsTryAt := now + 3600000, QsStill := 1
 	else
@@ -824,17 +854,28 @@ QsCategories(bag, &why)
 	;(a Crown-shop item the game doesn't flag as a Crowns item - "Crown-S05-Robe-093": the game's Quick Sell may take it for
 	;plain gear, and locked items - the bot can't read locks - keep the confirmation's gear count from showing it: its
 	;group left out. One of a kind the bot can't tell: nothing sold)
-	qShop := V1Obj()
+	qShop := V1Obj(), qShopNames := "", qUnread := ""
 	if (IsObject(bag.crownShop))
 		for qi, qx in bag.crownShop
 			{
+			;(its name not read from the game's memory - unread, Vision.ahk NavBag: maybe no Crown-shop item at all, said as that -
+			;"template N" can't be found or banked, and a Crown-shop reason sent you looking for one)
 			if (!qKnown.Has(qx.kind))
 				{
-				why := "a Crown-shop item in the backpack (" qx.name ") is of a kind the bot can't tell - nothing sold (never a Crowns item)"
+				why := qx.unread ? "an item in the backpack couldn't be read from the game's memory (" qx.name ") - nothing sold; the helper may need an update after a game patch"
+					: "a Crown-shop item in the backpack (" qx.name ") is of a kind the bot can't tell - nothing sold (never a Crowns item)"
 				return ""
 				}
-			qGuard[qx.kind] := (qGuard.Has(qx.kind) ? qGuard[qx.kind] ", " : "") qx.name " (Crown shop)"
-			qShop[qx.kind] := (qShop.Has(qx.kind) ? qShop[qx.kind] ", " : "") qx.name
+			qGuard[qx.kind] := (qGuard.Has(qx.kind) ? qGuard[qx.kind] ", " : "") qx.name (qx.unread ? " (name not read)" : " (Crown shop)")
+			;(the items left to bank, said in the alerts and messages as Crown-shop gear: not one whose name wasn't read)
+			if (!qx.unread)
+				qShop[qx.kind] := (qShop.Has(qx.kind) ? qShop[qx.kind] ", " : "") qx.name
+			;(for the log below - one whose name wasn't read listed apart, not called Crown-shop gear: its group's left out above,
+			;so never in the loop over the groups sold)
+			if (qx.unread && StrLen(qUnread) < 400)
+				qUnread .= (qUnread = "" ? "" : ", ") qx.name
+			else if (!qx.unread && StrLen(qShopNames) < 400)
+				qShopNames .= (qShopNames = "" ? "" : ", ") qx.name
 			}
 	;(pets to keep - goal 6, perfect pets: pets.txt's wanted talents, QsPetGuard. A pet to keep in the backpack - or the
 	;pets not read whole, or fewer read in the backpack than its Pet count here - leaves the Pet group out whole: the bot
@@ -851,7 +892,7 @@ QsCategories(bag, &why)
 		for qi, qk in ["deck", "pet"]
 			qGuard[qk] := (qGuard.Has(qk) ? qGuard[qk] ", " : "") bag.dgKeep
 	;(shopLeft: the groups left out for a Crown-shop item - for the alerts)
-	qOut := V1Obj({list: [], skipped: "", shopLeft: "", gearMax: 0, petMax: 0, crownShop: ""})
+	qOut := V1Obj({list: [], skipped: "", shopLeft: "", gearMax: 0, petMax: 0, crownShop: qShopNames, unread: qUnread})
 	for qi, qc in qAll
 		{
 		if (qGuard.Has(qc[2]))
@@ -870,10 +911,6 @@ QsCategories(bag, &why)
 			qOut.petMax := V1Add(qOut.petMax, qn)  ; (v1: an expression - a blank qn made it blank)
 		else
 			qOut.gearMax := V1Add(qOut.gearMax, qn)
-		if (IsObject(bag.crownShop))
-			for qj, qx in bag.crownShop
-				if (qx.kind = qc[2] && StrLen(qOut.crownShop) < 400)
-					qOut.crownShop .= (qOut.crownShop = "" ? "" : ", ") qx.name
 		}
 	;(items whose kind wasn't read may be in any group)
 	if (bag.cats.Has("?"))
@@ -881,7 +918,9 @@ QsCategories(bag, &why)
 	if (qOut.skipped != "")
 		QsLog("left out - an Equipment Set's or a Crown-shop item is in the group, or a pet to keep (bank Crown-shop items to have their group sold): " qOut.skipped)
 	if (qOut.crownShop != "")
-		QsLog("Crown-shop gear in the groups without the game's Crowns flag (not counted as plain gear - kept out if the game takes them for Crowns items or they're locked; if the confirmation's equipment goes over the plain gear, nothing's sold): " qOut.crownShop)
+		QsLog("Crown-shop gear without the game's Crowns flag in the backpack (the game may take it for plain gear: its groups left out): " qOut.crownShop)
+	if (qOut.unread != "")
+		QsLog("items whose names weren't read from the game's memory (maybe Crown-shop gear - their groups left out; the helper may need an update after a game patch): " qOut.unread)
 	return qOut
 	}
 

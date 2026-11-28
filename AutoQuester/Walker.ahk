@@ -45,6 +45,9 @@ global SpeedNow, SpeedSentAt, WkSpeedHold, SpeedSlowDist, SpeedSlowUnits, SpeedE
 ;Why the speedhack's off for this run ("" on - the game was seen not sped up: Cheat Engine not attached, the key not
 ;taking), and how many turns in a row looked wrong (NavTurn)
 global SpeedOff, SpeedMiss
+;The 1x key pressed again for a wizard still turning sped up, how many times in a row (NavTurn - after 3, it's Cheat
+;Engine restarted with the game still fast: its 1x key does nothing - the walking key left alone for the run, you told)
+global SpeedOneTries
 ;A quest offer's Accept: when a dialogue was last Spaced through (its offer may follow), the looks since, the clicks
 ;on this offer and when the first was
 global WkDlgEndAt, WkAcceptLooks, WkAcceptClicks, WkAcceptAt
@@ -75,7 +78,7 @@ global WkBestDist, WkBestTime, WkLastRead, WkSide, WkTries, WkNear, WkFar, WkArr
 global WkSeenAt, WkHidden, WkHiddenAt, WkBias, WkBiasUntil, WkPrevMovedH, WkLastBoxOff, WkLastMode, WkBackups, WkBackupsFrom
 global WkDialog, WkPushes, WkPushStart, WkStraight, WkStraightAt
 global WkTalkDist, WkArrDist, WkLoadAt, WkSpaceAt, WkGoneSpaces
-global WkGateAt, WkGateClicks, WkGateX, WkGateLook, WkSigilUntil, WkFarAt, WkSigilSeen
+global WkGateAt, WkGateClicks, WkGateX, WkGateLook, WkSigilUntil, WkFarAt
 ;Sigils: the zones entered through one ({zone: 1} - coming out of those puts you on their sigil), when X was last
 ;pressed at one, its prompt's key and the zone it was in, the tries at each ({key: [ticks]}; "zone:" and a dungeon's zone: the times
 ;back into it just out of it - WalkSigilGo)
@@ -201,6 +204,9 @@ global WkNavNoPlace, WkNpN, WkNpGoal, WkNpAt, WkNavLast, WkNpTarget
 ;Waiting at a goal (WkArrived = 1): its id and count by the game's memory when the wait began ("" not yet looked), the last
 ;look; the prompt panel's text as InteractPrompt last read it (Crowns on it: never an X)
 global WkArr1Key, WkArr1Look, WkPromptText
+;(v2-only: when the walker last saw you at the keyboard or mouse in a step - WalkYouSince: nothing more pressed in it; the sigil X
+;whose wait you played over - WalkResume: not counted as not starting, WalkSigilCheck)
+global WkYouAt, WkSigilYou
 
 ;Settings and starting state. Returns false if the arrow shapes (resources\arrow_refs.txt) are missing
 WalkerInit(prefix := "AutoQuester")
@@ -215,6 +221,7 @@ WalkerInit(prefix := "AutoQuester")
 	global ChaseTime, CollectMax, CollectStall, NoArrowNotify, WaitNotify, ResetTeleport, ResetEvery, StuckForever, OnTopDist ; (v1 globals it sets)
 	global NavAgreeNeed, NavTurnTol, NavTurnCap, NavRoute, Walking, HeldW, KeysDown, Refocus, WkFarAt, WkTurnAt, WkWalkFrom ; (v1 globals it sets)
 	global SpeedNow, SpeedSentAt, WkSpeedHold, SpeedSlowDist, SpeedSlowUnits, SpeedOff, SpeedMiss, SpeedExitUnits, WkTalkXs ; (v1 globals it sets)
+	global SpeedOneTries ; (v2-only: the port tools don't know it)
 	global WkTalkGoal, WkArrGoal, WkGoalIdWas, WkTalkNoted, WkGoalType, WkGoalNpc, WkGoalId, WkGoalItem, WkGoalCount ; (v1 globals it sets)
 	global WkGoalTotal, WkGoalItemKey, WkGoalMobKey, WkGoalNpcFirst, WkGoalNpcLast, WkNavNoPlace, WkNpN, WkNpGoal, WkNpAt ; (v1 globals it sets)
 	global WkNavLast, WkNpTarget, WkArr1Key, WkArr1Look, WkPromptText, WkGoalZones, WkTransUsed, WkTransSeen, WkTransStep ; (v1 globals it sets)
@@ -233,6 +240,7 @@ WalkerInit(prefix := "AutoQuester")
 	global WkSigilSpots, WkSigilXAt, SigilFails, SigilFailsRelog, SigilRelogMs, SigilResetEvery, WkLostOn, WkLostMs, WkLostAt ; (v2-only: the port tools don't know them)
 	global WkLostKind, WkLostWhy, WkLostTries, WkLostBad, WkLostDist, WkLostLeft, WkLostZone, WkLostGoal, WkLostTryMs, WkBadN, LostGap ; (v2-only: the port tools don't know them)
 	global WkLostEndAt, WkSigilGoal ; (v2-only: the port tools don't know them)
+	global WkYouAt, WkSigilYou ; (v2-only: the port tools don't know them)
 	;---- Settings ----
 	ArriveDist := 15     ;stop when the distance on the arrow is this or less (walks again when a new goal appears)
 	ArriveUnits := 150   ;...by the game's memory (when it can be used): this many game units from the goal - the
@@ -326,7 +334,7 @@ WalkerInit(prefix := "AutoQuester")
 
 	Walking := 0, HeldW := 0, KeysDown := 0, Refocus := 0, WkFarAt := 0, WkTurnAt := 0, WkWalkFrom := 0
 	;(1x within SpeedSlowUnits of the goal - 1.4 s at 2x; 600 was a third of a second, less than a step: 2026-10-25 2x at 23 by Edith)
-	SpeedNow := 1, SpeedSentAt := 0, WkSpeedHold := 0, SpeedSlowDist := 40, SpeedSlowUnits := 2500, SpeedOff := "", SpeedMiss := 0
+	SpeedNow := 1, SpeedSentAt := 0, WkSpeedHold := 0, SpeedSlowDist := 40, SpeedSlowUnits := 2500, SpeedOff := "", SpeedMiss := 0, SpeedOneTries := 0
 	;(...the goal zones away - the way out of this one: nothing to overshoot pushing into it, as before)
 	SpeedExitUnits := 600
 	WkTalkXs := [], WkTalkGoal := "", WkArrGoal := "", WkGoalIdWas := "", WkTalkNoted := "", WkGoalType := "", WkGoalNpc := "", WkGoalId := ""
@@ -336,7 +344,7 @@ WalkerInit(prefix := "AutoQuester")
 	WkGoalZones := [], WkTransUsed := V1Obj(), WkTransSeen := "", WkTransStep := 0, WkTransStepAt := 0, WkWaitWhat := "sigil"
 	WkPromptUsed := V1Obj(), WkZoneFrom := "", WkZoneAt := 0, WkPressAt := 0, WkQuietUntil := 0, WkQuietLogged := 0
 	WkSigilZones := V1Obj(), WkSigilAt := 0, WkSigilKey := "", WkSigilFromZone := "", WkSigilTries := V1Obj()
-	WkSigilSpots := [], WkSigilXAt := 0, WkSigilGoal := 0
+	WkSigilSpots := [], WkSigilXAt := 0, WkSigilGoal := 0, WkSigilYou := 0, WkYouAt := 0
 	WkLostOn := 0, WkLostMs := 0, WkLostAt := 0, WkLostKind := "", WkLostWhy := "", WkLostTries := 0, WkLostBad := 0
 	WkLostDist := "", WkLostLeft := "", WkLostZone := "", WkLostGoal := "", WkLostTryMs := 0, WkLostEndAt := 0, WkBadN := 0
 	WkWalkSpeed := "", WkWalkSamples := [], WkWUpAt := 0, WkFrontLook := 0, WkMetAt := A_TickCount
@@ -372,7 +380,7 @@ WalkReset()
 	{
 	global WkBestDist, WkBestTime, WkLastRead, WkSide, WkTries, WkNear, WkFar, WkArrived, WkTalk, WkPushUntil, WkDialog ; (v1 globals it sets)
 	global WkPushes, WkPushStart, WkStraight, WkStraightAt, WkSpins, WkTalkDist, WkArrDist, WkLoadAt, WkSpaceAt, WkGoneSpaces ; (v1 globals it sets)
-	global WkGateAt, WkGateClicks, WkGateX, WkGateLook, WkSigilUntil, WkSigilSeen, WkBackups, WkBackupsFrom, WkSeenAt, WkHidden ; (v1 globals it sets)
+	global WkGateAt, WkGateClicks, WkGateX, WkGateLook, WkSigilUntil, WkBackups, WkBackupsFrom, WkSeenAt, WkHidden ; (v1 globals it sets)
 	global WkHiddenAt, WkBias, WkBiasUntil, WkPrevMovedH, WkLastBoxOff, WkLastMode, WkSnapPrev, WkSnapAt, WkStill, WkMotion ; (v1 globals it sets)
 	global WkEsc, WkArr1At, WkFoesAt, WkChaseFrom, WkChaseSkipUntil, WkRoamLeg, WkRoamLegAt, WkRoamSide, WkNoArrowFrom ; (v1 globals it sets)
 	global WkNoGuideFrom, WkEscTried, WkLastDist, WkLastDistAt, WkOnTop, WkOnTopAt, WkOnTopBacked, WkOnTopDone, WkStuckNearDone ; (v1 globals it sets)
@@ -382,7 +390,7 @@ WalkReset()
 	WkSide := 1, WkTries := 0, WkNear := 0, WkFar := 0, WkArrived := 0, WkTalk := 0, WkPushUntil := 0
 	WkDialog := 0, WkPushes := 0, WkPushStart := 0, WkStraight := 0, WkStraightAt := 0, WkSpins := 0
 	WkTalkDist := "", WkArrDist := "", WkLoadAt := 0, WkSpaceAt := 0, WkGoneSpaces := 0
-	WkGateAt := 0, WkGateClicks := 0, WkGateX := 0, WkGateLook := 0, WkSigilUntil := 0, WkSigilSeen := 0
+	WkGateAt := 0, WkGateClicks := 0, WkGateX := 0, WkGateLook := 0, WkSigilUntil := 0
 	WkBackups := 0, WkBackupsFrom := 0
 	WkSeenAt := 0, WkHidden := 0, WkHiddenAt := 0, WkBias := 0, WkBiasUntil := 0, WkPrevMovedH := "", WkLastBoxOff := 0, WkLastMode := 0
 	WkSnapPrev := "", WkSnapAt := 0, WkStill := 0, WkMotion := "", WkEsc := ""
@@ -419,13 +427,16 @@ WalkStep()
 	global WkPressAt, WkTalk, WkDialog, WkSpaceAt, WkLoadAt, WkSeenAt, WkHidden, WkLastBoxOff, WkLastMode, WkQuietUntil ; (v1 globals it sets)
 	global WkGoalIdWas, WkJumpStuck, Walking, WkNavByArrow, WkNavRest, WkNavRestKey, WkRealSeenAt, WkStandIn, WkDlgLook ; (v1 globals it sets)
 	global WkXResumed ; (sets)
-	global WkLastDist, WkLastDistAt, WkEscTried, WkArr1Key, WkArr1Look, WkAcceptLooks, WkAcceptLook, WkFarAt, WkSigilSeen ; (v1 globals it sets)
+	global WkLastDist, WkLastDistAt, WkEscTried, WkArr1Key, WkArr1Look, WkAcceptLooks, WkAcceptLook, WkFarAt ; (v1 globals it sets)
 	global WkQuietLogged, WkAfterXLooked, WkFar, WkOnTopBacked, WkOnTop, WkHiddenAt, WkGateAt, WkGateClicks, WkGateX ; (v1 globals it sets)
 	global WkStuckTalk, WkStraight, WkStraightAt, WkPushes, WkGoneSpaces, WkOnTopDone, WkOnTopAt, WkBackups, WkBackupsFrom ; (v1 globals it sets)
 	global WkBestDist, WkRouteBest, WkTries, WkNavDoor, WkArrDist, WkJumpKey, WkMobLogged, WkNavMobAt, WkJumpPushUntil ; (v1 globals it sets)
 	global WkArrGoal, WkNear, WkRouteProg, WkProgAt, WkProgStep, WkProgBest, WkEsc, WkBias, WkBiasUntil, WkPrevMovedH, WkSpins ; (v1 globals it sets)
 	global WkBackOutStill, WkBackOutX, WkBackOutY, WkSpotTurn, WkBlindAt, WkBlindMob, WkFroStuck, WkStill, WkSnapPrev ; (v1 globals it sets)
 	global WkStuckNearDone, WkSide ; (v1 globals it sets)
+	global WkYouAt ; (sets)
+	;(you seen at the keys or mouse in the last step: a new step's its own - the main loop, AutoQuester's WalkLoop, waited for you)
+	WkYouAt := 0
 	;(stood still 1.5 s - the walker's own short stops keep the speed: back to 1x; the minute's line)
 	if (!HeldW && SpeedNow > 1 && WkWUpAt && A_TickCount - WkWUpAt > 1500)
 		SpeedSet(0, "standing")
@@ -752,7 +763,7 @@ WalkStep()
 			{
 			wkWaitLook := A_TickCount + 5000
 			if (InteractPrompt() = "press" && WalkPromptFree(WkPromptDest, 60000) && !WalkTalkSpent(WkPromptDest)
-				&& !RegExMatch(WkPromptDest " " WkPromptText, "i)teleport|cr[o0]wn") && WalkPromptWanted(WkPromptDest, dist))
+				&& !RegExMatch(WkPromptDest " " WkPromptText, "i)teleport") && !WalkPromptCrowns() && WalkPromptWanted(WkPromptDest, dist))
 				{
 				wkWaitXN += 1
 				WalkLog("waiting at the goal: the quest's prompt is up ('" SubStr(WkPromptDest, 1, 30) "') - X at it (" wkWaitXN " of 2 for this goal)")
@@ -775,8 +786,16 @@ WalkStep()
 	if ((!seen || moved || standIn) && !inbattle && A_TickCount > WkDlgLook)
 		{
 		WkDlgLook := A_TickCount + 400
+		;(not a box Space didn't close twice in 2 minutes: Spaced on and on, each time putting the stuck watch off, nobody told -
+		;left to the stuck steps then, as WalkStuckDialog leaves it - WalkDialogWontClose; said once a minute)
+		static dlgKeptSaid := 0
 		if (WalkDialogOpen())
-			return WalkSkipDialog()
+			{
+			if (WalkDialogWontClose() < 2)
+				return WalkSkipDialog()
+			if (A_TickCount - dlgKeptSaid > 60000)
+				dlgKeptSaid := A_TickCount, WalkLog("a dialogue box is up that 80 Space presses didn't close twice in 2 minutes - no more Space at it now: stuck as before")
+			}
 		}
 	;A quest offer still up after a dialogue (it covers the arrow): its ACCEPT
 	;(v1: WkAcceptLook blank before the first look - a number > blank compared as text, true; WkAcceptLooks blank += 1: 1)
@@ -795,12 +814,9 @@ WalkStep()
 	if ((seen || WkNavD != "") && dist != "" && dist > GateDist)
 		WkFarAt := A_TickCount
 	near := (WkBestDist != "" && WkBestDist <= GateDist) || ((seen || WkNavD != "") && dist != "" && dist <= GateDist)
-	;Standing on a sigil (or started there) its prompt covers the arrow and no distance reads at all.
-	;If the arrow hasn't shown a far-off goal lately, the sigil is where it led - checked a few times
-	;over a second or two first, so a passing frame without the arrow doesn't count
-	hiddenHere := !seen && A_TickCount - WkFarAt > 10000
-	if (!hiddenHere)
-		WkSigilSeen := 0
+	;(standing on a sigil its prompt covers the arrow and no distance reads: its prompt's looked for below while the arrow's
+	;hidden, as any prompt's - WalkSigilGo decides the X. Review: a "checked a few times first" count, WkSigilSeen, was only
+	;ever 0 since v1 - gone, and the hidden-arrow look never waited on it)
 	;(using, going to or talking to by the game's memory's kind - AutoFarmer's own steps for it read the prompts themselves: X only
 	;at the thing's own, never a sigil's, a boat's or a teleporter's walked past - WalkOwnPrompts)
 	if ((WkArrived <= 1 || WkArrived = 3 || WkArrived = 7) && !inbattle && (!seen || moved || standIn || apNear) && A_TickCount > WkGateLook
@@ -808,18 +824,14 @@ WalkStep()
 		{
 		WkGateLook := A_TickCount + ((seen && !near && !standIn && !apNear) ? 1500 : 700)
 		prompt := InteractPrompt()
-		if (prompt = "gate" && near)
-			{
-			StartGate("World Gate prompt showing, the arrow led here (distance " (WkBestDist = "" ? dist : WkBestDist) ")")
+		;(Crowns on its prompt: no X - StartGate false - walked on as from any prompt)
+		if (prompt = "gate" && near && StartGate("World Gate prompt showing, the arrow led here (distance " (WkBestDist = "" ? dist : WkBestDist) ")"))
 			return true
-			}
 		;(or the game's memory: the goal zones away and its way on - this gate - within TalkReach, as WalkPromptWanted takes a
 		;door's prompt; v1: hops blank - an older helper's - > 0 compared as text, false)
-		if (prompt = "gate" && WkNavOk && V1Gt(WkNavHops, 0) && IsObject(WkNavObj) && WkNavObj.dist != "" && WkNavObj.dist <= TalkReach)
-			{
-			StartGate("World Gate prompt showing, the game's memory's way on " Round(WkNavObj.dist) " away (the goal " WkNavHops " zone changes on)")
+		if (prompt = "gate" && WkNavOk && V1Gt(WkNavHops, 0) && IsObject(WkNavObj) && WkNavObj.dist != "" && WkNavObj.dist <= TalkReach
+			&& StartGate("World Gate prompt showing, the game's memory's way on " Round(WkNavObj.dist) " away (the goal " WkNavHops " zone changes on)"))
 			return true
-			}
 		;(the quest's own NPC by the game's memory - its name on the prompt, within TalkReach: X, even just out of a dialogue -
 		;3 s after the last X, 3 tries in 2 minutes. 2026-10-25 11:30:07-22: a dialogue left Thornton Lewis' goal as it was,
 		;and his prompt was kept from X for 15 s while the wizard went round him)
@@ -841,18 +853,15 @@ WalkStep()
 			}
 		;A sigil: always in (once per 10 minutes for the same one) - but not straight back into the
 		;dungeon just left: coming out puts you right at its sigil (unless the quest's goal is in it - WalkSigilGo)
-		WkSigilSeen := 0
 		if (prompt = "sigil")
 			{
 			WalkZone()
 			;(the quest's way - the arrow led here, or back into the goal's dungeon - or one only walked past: StartSigil notes which)
 			sgGoal := 0
 			sgWhy := WalkSigilGo(near, &sgGoal)
-			if (sgWhy != "")
-				{
-				StartSigil(sgWhy, sgGoal)
+			;(Crowns on its prompt: no X - StartSigil false - walked on)
+			if (sgWhy != "" && StartSigil(sgWhy, sgGoal))
 				return true
-				}
 			}
 		;Any other "Press X ..." prompt (talk, collect, open...) the quest wants (WalkPromptWanted: its name in the
 		;goal line, close to the goal, or collecting): press X - once a minute for the same one - then Space
@@ -1097,7 +1106,7 @@ WalkStep()
 		;the Icy Wall's, then a push into the wall, 15 s and a false "Way blocked"): a prompt the quest wants up now - X at it, not a
 		;push. Not a teleport's, a shop's or a talk's, nor one with Crowns on it)
 		if (!WkDialog && !(WkNavOk && V1Gt(WkNavHops, 0)) && InteractPrompt() = "press" && WalkPromptFree(WkPromptDest, 60000)
-			&& !RegExMatch(WkPromptDest " " WkPromptText, "i)teleport|cr[o0]wn")
+			&& !RegExMatch(WkPromptDest " " WkPromptText, "i)teleport") && !WalkPromptCrowns()
 			&& !RegExMatch(WkPromptVerb, "i)^(talk|speak|chat|shop|trade|buy|sell|browse|craft|learn|train)") && WalkPromptWanted(WkPromptDest, dist))
 			{
 			WalkLog("talk: X opened nothing, but a prompt the quest wants is up now ('" SubStr(WkPromptDest, 1, 30) "') - X at it, not a push")
@@ -1183,7 +1192,7 @@ WalkStep()
 		;loading screen - nor on top of the goal by it. 2026-10-25 11:28:15-19: two back-ups by the Star Portal, the memory's
 		;distance dropped over a distrusted scale)
 		;(nor a goal the game shows no way to - WkNavNoPlace: there's no arrow to find)
-		else if (WkArrived = 0 && !inbattle && !WkSigilSeen && !WkNavNoPlace && WkHidden < 6 && A_TickCount - WkHiddenAt > 1500 && WalkHiddenBackUpOk(onTopMem)
+		else if (WkArrived = 0 && !inbattle && !WkNavNoPlace && WkHidden < 6 && A_TickCount - WkHiddenAt > 1500 && WalkHiddenBackUpOk(onTopMem)
 			&& (WkSeenAt ? A_TickCount - WkSeenAt > 1000 && A_TickCount - WkSeenAt < 30000 : !WkLoadAt)
 			&& !WalkLoadingScreen() && (inbattle = "" || WalkSureNoBattle(WkSeenAt)))
 			{
@@ -1855,6 +1864,7 @@ StartTalk(d, door := true)
 	{
 	global WkArrived, WkBestTime, WkLastRead, WkNavDoor, WkTalk, WkFar, WkNear, WkDialog, WkTalkDist, WkTalkAt, WkTalkGoal ; (v1 globals it sets)
 	global WkPreXText, WkAfterXLooked, WkLastX, WkArrDist, WkArrGoal ; (v1 globals it sets)
+	global WkPromptDest ; (sets - InteractPrompt's)
 	;(a goal the game shows no way to - WkNavNoPlace - has no "at it": no X at nothing (2026-10-25 "Use Inactive Protector": X, then a
 	;push, then waiting there for good) - its kind's own way instead (CollectNoPlace); a talk goal's NPC found by name standing in
 	;for its place - TalkStep - is X'd as any talk goal's)
@@ -1869,15 +1879,26 @@ StartTalk(d, door := true)
 	;A World Gate's prompt: Go To World instead. A sigil's: enter it and wait (read walking on - each of those stops
 	;itself; a way out of the zone is walked straight on into)
 	prompt := InteractPrompt()
-	if (prompt = "gate")
+	;(the screen's text not read - OcrRect's ErrorLevel: InteractPrompt's "" then isn't "no prompt up", and an X now would go
+	;into whatever's there unlooked at for Crowns (UseTalkX hands over to this read): no X this step - standing, the arrival
+	;looked at afresh next step, as Collect.ahk CollectPromptRead has it. Said once in 30 s)
+	static stUnreadLog := 0
+	if (prompt = "" && ErrorLevel)
 		{
-		StartGate("at the goal (distance " d ") and it's a World Gate")
+		if (A_TickCount - stUnreadLog > 30000)
+			stUnreadLog := A_TickCount, WalkLog("talk: at the goal (distance " d "), the prompt panel couldn't be read - no X this time, looked at again")
+		if (KeysDown || HeldW)
+			ReleaseKeys(true)
+		WkArrived := 0, WkBestTime := A_TickCount, WkLastRead := A_TickCount
 		return
 		}
+	;(Crowns on its prompt: no X - StartGate false - waited by below, as a "Press X" prompt with Crowns)
+	if (prompt = "gate" && StartGate("at the goal (distance " d ") and it's a World Gate"))
+		return
 	;(through the one gate for every X at a sigil - WalkSigilMayX: StartTalk's X - on top of the goal, by it, pushing, the distance
 	;unread - went round WalkSigilGo's 10 minutes before, a dead sigil X'd every ~30 s: the 21:44 case's likely way. Not now: standing
 	;by it, the watches put off - asked again each step, so X comes once the gate lets it)
-	if (prompt = "sigil")
+	if (prompt = "sigil" && !WalkPromptCrowns())
 		{
 		stNo := WalkSigilMayX()
 		if (stNo != "")
@@ -1914,13 +1935,25 @@ StartTalk(d, door := true)
 	if (prompt = "press" && StrLen(WkPromptDest) >= 4 && IsObject(stGoal) && stGoal.r <= TalkReach && (stGoal.dz = "" || Abs(stGoal.dz) <= 150)
 		&& !WalkIsGoalNpc(WkPromptDest, stGoal))
 		{
-		if (stGoal.r > 150)
-			WalkApproach(120)
+		stAp := stGoal.r > 150 ? WalkApproach(120) : "there"
 		if (!Walking)
 			return
+		;(the approach stopped for you at the keyboard or mouse, a new goal, the game not in front: no turn and no X after it -
+		;walking on, the arrival looked at afresh, as WalkApproachStep has it)
+		if (stAp = "you" || stAp = "new goal" || stAp = "")
+			{
+			WkArrived := 0, WkBestTime := A_TickCount, WkLastRead := A_TickCount
+			return
+			}
 		stGoal := WalkTalkGoal()
 		if (IsObject(stGoal) && Abs(stGoal.h) > 20 && GameActive())
 			NavTurn(stGoal.h)
+		;(that turn let go for you - WalkYouHeld: no try used and no X, walking on as above)
+		if (WalkYouHeld())
+			{
+			WkArrived := 0, WkBestTime := A_TickCount, WkLastRead := A_TickCount
+			return
+			}
 		if (Walking && IsObject(stGoal) && InteractPrompt() = "press" && StrLen(WkPromptDest) >= 4 && !WalkIsGoalNpc(WkPromptDest, stGoal))
 			{
 			WalkTalkCount()
@@ -1934,6 +1967,10 @@ StartTalk(d, door := true)
 	;own look X's the quest's prompt once it reads without Crowns, WalkTalkRetry asks again a minute after this (WkPromptUsed
 	;"crownsno", each time), and a notice once for this goal. Said once in 30 s)
 	static stCrownsLog := 0, stCrownsNoted := ""
+	;(a World Gate's, a sigil's or a boat's prompt at the goal with Crowns on it the same - StartGate, the sigil's look above and
+	;the X below never press it)
+	if (prompt != "" && prompt != "press" && WalkPromptCrowns())
+		WkPromptDest := WkPromptDest != "" ? WkPromptDest : prompt = "gate" ? "WORLD GATE" : "the prompt", prompt := "press"
 	if (prompt = "press" && WalkPromptCrowns())
 		{
 		WkPromptUsed["crownsno"] := A_TickCount
@@ -1949,6 +1986,15 @@ StartTalk(d, door := true)
 			WalkNotify("wait", "Crowns on the quest goal's prompt", "The prompt at the quest goal ('" SubStr(WkPromptDest, 1, 30) "') shows Crowns, so the bot won't press X there - it never spends Crowns. It waits by it: press X yourself if it's free, or sort it out - it walks on by itself once there's a new goal.")
 			}
 		Sleep(400)
+		return
+		}
+	;(you at the keyboard or mouse in this step - WalkYouHeld: PressKey would drop the X, so no talk try used and no "pressed X"
+	;for nothing; the arrival looked at afresh once the main loop's done waiting for you)
+	if (WalkYouHeld())
+		{
+		if (KeysDown || HeldW)
+			ReleaseKeys()
+		WkArrived := 0, WkBestTime := A_TickCount, WkLastRead := A_TickCount
 		return
 		}
 	if (KeysDown || HeldW || SpeedNow > 1)
@@ -1998,10 +2044,12 @@ StartPush(why, d)
 	}
 
 ;The arrow led to a World Gate (its prompt is showing): stop and press X to open the Spiral Map,
-;then GateStep clicks Go To World
+;then GateStep clicks Go To World. Not with Crowns on its prompt (WalkCrownsNoX): false, no X
 StartGate(why)
 	{
 	global WkArrived, WkGateAt, WkGateClicks, WkGateX ; (v1 globals it sets)
+	if (WalkCrownsNoX("gate: " why " - its"))
+		return false
 	if (KeysDown || HeldW || SpeedNow > 1)
 		ReleaseKeys()
 	WkArrived := 4, WkGateAt := A_TickCount, WkGateClicks := 0, WkGateX := 1
@@ -2009,6 +2057,20 @@ StartGate(why)
 	WalkLog("gate: " why " - pressed X")
 	SetStatus("World Gate - pressed X, waiting for the Spiral Map")
 	Sleep(800)
+	return true
+	}
+
+;Crowns on the World Gate's, sigil's or boat's prompt InteractPrompt just read (WalkPromptCrowns - its whole text): never an X
+;there, as at every "Press X" prompt (StartPressX, StartTalk) - the X helpers ask first (StartGate, StartSigil, StartTransport,
+;GateStep's X again). Said once a minute (what: the log line's start). True: no X
+WalkCrownsNoX(what)
+	{
+	static cnSaid := 0
+	if (!WalkPromptCrowns())
+		return false
+	if (A_TickCount - cnSaid > 60000)
+		cnSaid := A_TickCount, WalkLog(what " prompt" (WkPromptDest != "" ? " ('" SubStr(WkPromptDest, 1, 30) "')" : "") " has Crowns on it - no X")
+	return true
 	}
 
 ;A "Press X ..." prompt on the way: stop, press X, then WalkStep (WkArrived = 6) presses Space
@@ -2066,20 +2128,35 @@ WalkSkipDialog()
 	global WkLastRead ; (v1 globals it sets)
 	if (KeysDown || HeldW || SpeedNow > 1)
 		ReleaseKeys()
-	presses := 0, acc := ""
+	presses := 0, acc := "", sdFrom := A_TickCount, sdClosed := 0, sdSent := 0
 	Loop 80
 		{
+		;(sdSent: the presses that reached the game - PressKey sends nothing while !WalkMayPress: F6 meanwhile, the game not in front)
+		sdSent += WalkMayPress() ? 1 : 0
 		PressKey("Space"), presses += 1
 		Sleep(SkipGap)
 		if (!Walking)
 			return false
+		;(you at the keyboard or mouse - typing in chat, a button of the box clicked: no more Space under your hands; the step
+		;over, the box yours - the main loop waits for you, and the next look Spaces what's still up)
+		if (WalkYouHeld() || WalkYouSince(sdFrom))
+			{
+			WalkLog("dialogue: you're at the keyboard or mouse - stopped after " presses " Space presses")
+			WkBestTime := A_TickCount, WkLastRead := A_TickCount
+			return true
+			}
 		;(no NEXT / DONE any more: closed - or its last page is a quest offer, its button ACCEPT)
 		if (Mod(A_Index, 4) = 0 && !WalkDialogOpen())
 			{
-			acc := WalkDialogAccept()
+			acc := WalkDialogAccept(), sdClosed := 1
 			break
 			}
 		}
+	;(all 80 and the box still up: noted - twice in 2 minutes and WalkStep's dialogue look leaves it to the stuck steps, as
+	;WalkStuckDialog does: not Spaced on and on with the stuck watch put off each time - WalkDialogWontClose. Only all 80 sent: a box
+	;the game never got them for isn't one Space won't close)
+	if (!sdClosed && sdSent >= 80)
+		WalkDialogWontClose(true), WalkLog("dialogue: the box is still up after " presses " Space presses")
 	WalkLog("dialogue: skipped with " presses " Space presses" (IsObject(acc) ? " - its last page a quest offer" : ""))
 	SetStatus("dialogue skipped (" presses " Space presses)")
 	if (IsObject(acc) && Walking && GameActive())
@@ -2242,6 +2319,21 @@ WalkStuckDialog()
 		return true
 	WkBestTime := A_TickCount, WkLastRead := A_TickCount, WkStill := 0, WkSnapPrev := ""
 	return true
+	}
+
+;Dialogue boxes WalkSkipDialog's 80 Space presses didn't close in the last 2 minutes (add: one more just now) - WalkStep's
+;dialogue look Spaces no more at 2: the stuck steps and their notices have it, as WalkStuckDialog's own cap leaves it
+WalkDialogWontClose(add := false)
+	{
+	static wcAt := []
+	wcKeep := []
+	for each, wcT in wcAt
+		if (A_TickCount - wcT < 120000)
+			wcKeep.Push(wcT)
+	if (add)
+		wcKeep.Push(A_TickCount)
+	wcAt := wcKeep
+	return wcKeep.Length
 	}
 
 ;A dialogue box by the game's memory (AutoFarmer's NavGui - read-only): 1 its box (wndDialogMain, a DialogWindow) shown with a
@@ -2435,10 +2527,19 @@ WalkSigilTriesLeft(key)
 WalkResume()
 	{
 	global WkArrived, WkSigilUntil, WkWaitWhat, WkTalk, WkDialog, WkSpaceAt, WkAfterXLooked, WkXResumed ; (v1 globals it sets)
+	global WkSigilYou, WkYouAt ; (sets)
 	keepUntil := (WkArrived = 5 && A_TickCount < WkSigilUntil) ? WkSigilUntil : 0, keepWhat := WkWaitWhat
 	keepX := WkArrived = 6 && WkPressAt && A_TickCount - WkPressAt < 60000
 	xTalk := WkTalk, xDialog := WkDialog, xSpaceAt := WkSpaceAt
 	WalkReset()
+	;(you've been waited for: the hold-off for you (WalkYouHeld) over with it - not 2 s of X's and clicks dropped by WalkMayPress
+	;in the next step, a collect's, a dungeon's, counted as tried; WalkStep's own start clears it too)
+	WkYouAt := 0
+	;(a sigil's wait you played over: the wizard you moved off it isn't the sigil not starting - not counted at its spot when the
+	;wait's over, WalkSigilCheck: X again when its prompt shows, as after any wait there. Only your own input since its X - UserIdle,
+	;the bot's own left out: QuickSell's run calls this too, and that's the bot's work, not you)
+	if (keepUntil && keepWhat = "sigil" && WkSigilXAt && UserIdle() < A_TickCount - WkSigilXAt)
+		WkSigilYou := WkSigilXAt
 	if (keepUntil)
 		WkArrived := 5, WkSigilUntil := keepUntil, WkWaitWhat := keepWhat
 	;(held at a blocked way - AutoFarmer's Puzzle.ahk: still waiting there, not walked back into the gate)
@@ -2496,6 +2597,9 @@ StartSigil(why, goal := 0)
 	{
 	global WkArrived, WkSigilUntil, WkWaitWhat, WkSigilKey, WkSigilAt, WkSigilFromZone, WkSigilTries ; (v1 globals it sets)
 	global WkSigilXAt, WkSigilGoal ; (v2-only: the port tools don't know them)
+	;(Crowns on its prompt - a locked or paid area's: no X, nothing counted - false)
+	if (WalkCrownsNoX("sigil: " why " - its"))
+		return false
 	if (KeysDown || HeldW || SpeedNow > 1)
 		ReleaseKeys()
 	WkArrived := 5, WkSigilUntil := A_TickCount + SigilWait, WkWaitWhat := "sigil"
@@ -2515,6 +2619,7 @@ StartSigil(why, goal := 0)
 	PressKey("x")
 	WalkLog("sigil: " why " - pressed X, waiting " Round(SigilWait / 1000) " s")
 	SetStatus("entering the sigil - pressed X")
+	return true
 	}
 
 ;A boat or the like ("<SOMETHING> TO <PLACE>", "Press X ... to Use") covers the arrow. Use it if
@@ -2533,11 +2638,10 @@ WalkTransport(dest, arrowSeen := false)
 	;(and the arrow showed again in between: it really was walked on from, and came back here)
 	again := IsObject(WkTransSeen) && WkTransSeen.dest = dest && A_TickCount - WkTransSeen.at < 180000
 		&& WkTransSeen.seenAfter && (WkBestDist = "" || WkTransSeen.dist = "" || WkBestDist > WkTransSeen.dist - 20)
-	if (!recent && (leads = 1 || (leads = "" && again && !arrowSeen)))
-		{
-		StartTransport(dest, leads = 1 ? "it goes to the quest's zone" : "can't tell where it goes, and walking on didn't get any closer")
+	;(Crowns on its prompt: no X - StartTransport false - stepped out of as one that doesn't lead there)
+	if (!recent && (leads = 1 || (leads = "" && again && !arrowSeen))
+		&& StartTransport(dest, leads = 1 ? "it goes to the quest's zone" : "can't tell where it goes, and walking on didn't get any closer"))
 		return true
-		}
 	;Its prompt only pushes the arrow up: nothing in the way, walk on
 	if (arrowSeen)
 		return false
@@ -2626,10 +2730,13 @@ WalkZoneKey(zoneName)
 	return RegExMatch(zoneName, "i)([A-Z]+_Z\d+)", &key) ? key[1] : zoneName
 	}
 
-;Uses a boat or the like: X, then stand still while it moves us and the new zone loads
+;Uses a boat or the like: X, then stand still while it moves us and the new zone loads. Not with Crowns on its prompt
+;(WalkCrownsNoX): false, no X
 StartTransport(dest, why)
 	{
 	global WkTransSeen, WkArrived, WkSigilUntil, WkWaitWhat ; (v1 globals it sets)
+	if (WalkCrownsNoX("transport: '" dest "' covers the arrow and " why " - its"))
+		return false
 	if (KeysDown || HeldW || SpeedNow > 1)
 		ReleaseKeys()
 	WkTransUsed[dest] := A_TickCount, WkTransSeen := ""
@@ -2637,6 +2744,7 @@ StartTransport(dest, why)
 	PressKey("x")
 	WalkLog("transport: '" dest "' covers the arrow and " why " - pressed X, waiting " Round(TransportWait / 1000) " s")
 	SetStatus("using the " dest " - pressed X")
+	return true
 	}
 
 ;One step at a World Gate (after X). The Spiral Map opens with the quest's world picked, so click its
@@ -2656,6 +2764,9 @@ GateStep()
 			Walking := 0
 			ReleaseKeys()
 			SetStatus("stopped - World Gate: pick the world and click Go To World, then press " WalkKeyText())
+			;(walking off for good: a notice, as every other give-up's - the window, a tray tip, Discord - not the map left up for hours
+			;with nobody told till the game logs out for inactivity)
+			WalkNotify("stuck", "World Gate: Go To World didn't take", "The Spiral Map stayed open after clicking Go To World 3 times (a locked world picked, or the click missed), so walking is off. Pick the world and click Go To World yourself (or close the map), then press " WalkKeyText() " to walk again.")
 			return false
 			}
 		WkGateClicks += 1
@@ -2676,7 +2787,9 @@ GateStep()
 		}
 	if (A_TickCount - WkGateAt > GateWait)
 		{
-		if (WkGateX < 2)
+		;(X again: not at a prompt up now with Crowns on it - WalkPromptCrowns, read afresh: never an X there, as at every prompt)
+		gsCrowns := WkGateX < 2 && InteractPrompt() != "" && WalkPromptCrowns()
+		if (WkGateX < 2 && !gsCrowns)
 			{
 			WalkLog("gate: no Spiral Map " Round(GateWait / 1000) " s after X - pressing X again")
 			WkGateX += 1, WkGateAt := A_TickCount
@@ -2685,7 +2798,7 @@ GateStep()
 			return Walking ? true : false
 			}
 		;Not a World Gate after all (or out of reach): walk on, and don't look for one again for a while
-		WalkLog("gate: no Spiral Map after pressing X twice - walking on")
+		WalkLog(gsCrowns ? "gate: no Spiral Map " Round(GateWait / 1000) " s after X, and the prompt up now has Crowns on it - no X again, walking on" : "gate: no Spiral Map after pressing X twice - walking on")
 		WkArrived := 0, WkGateLook := A_TickCount + 15000
 		WkBestTime := A_TickCount, WkLastRead := A_TickCount
 		return true
@@ -2737,8 +2850,10 @@ InteractPrompt()
 		;'ENGDCERMONTGWRY' and 'MONTGOQYPRESSXTOTALK' for Engineer Montgomery's own prompt - no X, NEEDS YOU; the quest marker's
 		;name over him, read at 2, came out right. Only a "Press X" prompt's: the others are told apart well enough at 1)
 		t2 := OcrRect(Round(GameLeft + GameW / 2 - 330 * s), Round(GameTop + GameH - 300 * s), Round(660 * s), Round(240 * s), "en", 2)
+		;(Crowns in the read at 1 but not at 2 - its price line garbled there: that line kept on the 2's text, for the look for
+		;Crowns before an X - WalkPromptCrowns - a read that disagrees never drops it)
 		if (!ErrorLevel && RegExMatch(t2, "i)\bpress\b") && RegExMatch(t2, "i)\bto\s+[a-z]{3,}"))
-			t := t2, WkPromptText := t2
+			t := t2, WkPromptText := t2 WalkCrownLines(WkPromptText, t2)
 		;(a World Gate's title only read right at 2: its prompt all the same - its title line, as above)
 		if (RegExMatch(t, "m`n)^\s*W[O0]RLD\s*GATE\s*$"))
 			return "gate"
@@ -2747,6 +2862,19 @@ InteractPrompt()
 		return "press"
 		}
 	return ""
+	}
+
+;The lines of a prompt's first read (t1) with "cr[o0]wn" on them, each on a line of its own ("`n..."), when the read again (t2)
+;has none - InteractPrompt keeps them on t2's text; "" otherwise (t2's own Crowns stand, or there were none)
+WalkCrownLines(t1, t2)
+	{
+	if (RegExMatch(t2, "i)cr[o0]wn") || !RegExMatch(t1, "i)cr[o0]wn"))
+		return ""
+	clOut := ""
+	Loop Parse, t1, "`n", "`r"
+		if (RegExMatch(A_LoopField, "i)cr[o0]wn"))
+			clOut .= "`n" A_LoopField
+	return clOut
 	}
 
 ;Within the arrow's arrowMax of the goal - or, when the game's memory can be used this step, within units game
@@ -2927,6 +3055,9 @@ WalkApproach(stopR)
 		NavTurn(gn.h)
 		if (!Walking || !GameActive())
 			return ""
+		;(the turn let go for you - WalkYouHeld: no W after it, the approach stopped for you as the walk loop's own below)
+		if (WalkYouHeld())
+			return "you"
 		gn := WalkApproachLook()
 		if (!IsObject(gn))
 			return gn = "new" ? "new goal" : "lost"
@@ -2947,7 +3078,9 @@ WalkApproach(stopR)
 			apWhy := ""
 			break
 			}
-		if (UserIdle() < A_TickCount - apDown)
+		;(WalkYouSince: "Wait while I play" as the main loop has it - and nothing more pressed in this step after it; WalkYouHeld:
+		;seen already before W went down, W refused - HoldFor's and NavTurn's own test)
+		if (WalkYouHeld() || WalkYouSince(apDown))
 			{
 			apWhy := "you"
 			break
@@ -3272,7 +3405,7 @@ WalkIsGoalNpc(key, tg)
 	;Wildwind's prompt by her 6, Mrs. Dowager's 8): another NPC's name read well isn't taken for hers)
 	if (tg.npc = "" || key != WkPromptDest || tg.r = "" || tg.r > 200 || (tg.dz != "" && Abs(tg.dz) > 150))
 		return false
-	if (!(WkPromptVerb = "talk" || InStr(WkPromptDest, "TOTALK")) || RegExMatch(WkPromptDest " " WkPromptText, "i)cr[o0]wn|teleport"))
+	if (!(WkPromptVerb = "talk" || InStr(WkPromptDest, "TOTALK")) || RegExMatch(WkPromptDest " " WkPromptText, "i)teleport") || WalkPromptCrowns())
 		return false
 	inSur := ""
 	for each, inW in StrSplit(RegExReplace(tg.npc, "[^A-Za-z]+", " "), " ")
@@ -3427,6 +3560,13 @@ WalkTalkAgain(what, dist)
 		taWhy := WalkApproach(TalkStop)
 		if (!Walking)
 			return false
+		;(stopped for you at the keyboard or mouse, a new goal, the game not in front: no turn and no X after it - walking on, the
+		;arrival looked at afresh next step, as WalkApproachStep has it)
+		if (taWhy = "you" || taWhy = "new goal" || taWhy = "")
+			{
+			WkArrived := 0, WkBestTime := A_TickCount, WkLastRead := A_TickCount
+			return true
+			}
 		taGoal := WalkTalkGoal()
 		;(stopped on the way further off than TalkUnits and no closer - a fence or a wall, not the NPC: X doesn't reach from there;
 		;round it by the route for 8 s, as after the approach's 3 tries - a fence's end near the straight way leaves the route not
@@ -3442,6 +3582,13 @@ WalkTalkAgain(what, dist)
 		NavTurn(taGoal.h)
 	if (!Walking)
 		return false
+	;(that turn let go for you - WalkYouHeld: StartTalk presses no X then, so no "X again" logged for it - walking on, the
+	;arrival looked at afresh, as above)
+	if (WalkYouHeld())
+		{
+		WkArrived := 0, WkBestTime := A_TickCount, WkLastRead := A_TickCount
+		return true
+		}
 	WalkLog("talk: " why " - X at " (IsObject(taGoal) && taGoal.npc != "" ? taGoal.npc : "the goal's NPC") " again" (IsObject(taGoal) ? ", " Round(taGoal.r) " off" : "") " - not walking on through it")
 	StartTalk(dist = "" ? "?" : dist, false)
 	return true
@@ -3689,11 +3836,16 @@ WalkGoalLine()
 ;Escape that opened the game's menu instead closes it again. True if it closed something
 WalkCloseAfterX()
 	{
+	;(the look's an OCR that lets other threads in: a key or mouse of yours since it began - WalkYouSince - and nothing's
+	;pressed or clicked after it, as WalkCloseGameMenu's WalkMenuMayAct(from))
+	caFrom := A_TickCount
 	t := WalkAfterXText(&lines)
 	if (t = "" || !IsObject(lines))
 		return false
 	if (RegExMatch(t, "i)\b(buy|sell|shop|cr[o0]wns?|purchase|recipes|reagents|treasure cards)\b", &m) && !RegExMatch(WkPreXText, "i)\b\Q" m[0] "\E\b"))
 		{
+		if (WalkYouSince(caFrom))
+			return false
 		WalkLog("pressed X: a window opened (`"" m[0] "`" in it - a shop?) - Escape, nothing in it clicked")
 		PressKey("Escape")
 		Sleep(800)
@@ -3711,7 +3863,7 @@ WalkCloseAfterX()
 			&& !RegExMatch(WkPreXText, "i)\b(ok|okay)\b"))
 			{
 			w := line.words[1]
-			if (!WalkMayPress())
+			if (!WalkMayPress() || WalkYouSince(caFrom))
 				return false
 			WalkLog("pressed X: an OK box opened - OK")
 			ReleaseKeys()
@@ -3745,7 +3897,7 @@ WalkCloseWindow(why, now := false)
 	global WkCloseLook, WkBestTime, WkLastRead ; (v1 globals it sets)
 	if (!V1IsFunc("PicOpt") || !WalkMayPress() || (!now && A_TickCount - WkCloseLook < 5000))
 		return false
-	WkCloseLook := A_TickCount
+	WkCloseLook := A_TickCount, cwFrom := A_TickCount
 	V1ImageSearch(&cwX, &cwY, Round(GameLeft + GameW * 0.3), Round(GameTop + GameH * 0.3), Round(GameLeft + GameW * 0.92), Round(GameTop + GameH * 0.95), %"PicOpt"%.Call("resources\closewin.png", 50))
 	if (ErrorLevel)
 		return false
@@ -3762,8 +3914,9 @@ WalkCloseWindow(why, now := false)
 		WalkNotify("window", "A window is open", "A window is open over the game (" why ") and Crowns are in sight, so the bot doesn't click its close button. Close it yourself.")
 		return false
 		}
-	;(the read lets other threads in: F6, F8, focus - looked at again before the click)
-	if (!WalkMayPress())
+	;(the read lets other threads in: F6, F8, focus - looked at again before the click; and a key or mouse of yours since the
+	;look began - WalkYouSince: your mouse isn't taken over to click it, as WalkCloseGameMenu's WalkMenuMayAct(from))
+	if (!WalkMayPress() || WalkYouSince(cwFrom))
 		return false
 	ReleaseKeys()
 	;(the picture's middle - it's 60 px at UI 1.144; the mouse back where it was afterwards, in AutoFarmer: mousereturn)
@@ -3894,10 +4047,47 @@ WalkBotOn()
 	return hostOn ? hostOn.Call() : true
 	}
 
-;May the walker press a key or click now: walking on (F8), Wizard101 in front and the bot on (F6 - WalkBotOn)
+;May the walker press a key or click now: walking on (F8), Wizard101 in front, the bot on (F6 - WalkBotOn) and you not
+;seen at the keyboard or mouse in this step (WalkYouHeld - a hold let go for you: no turn, walk on or X after it)
 WalkMayPress()
 	{
-	return Walking && GameActive() && WalkBotOn()
+	return Walking && GameActive() && WalkBotOn() && !WalkYouHeld()
+	}
+
+;You touched the keyboard or mouse since from (A_TickCount): the walker's holds, turns and Space presses let go there and
+;then, not only once the step's back in the main loop (AutoFarmer's PlayerActing, "You're playing - the bot waits"). As
+;PlayerActing has it: only with "Wait while I play" on and its handsoff seconds above 0 (AutoFarmer's HandsOffOn - AutoQuester:
+;always), the bot's own input and what the mouse lock swallowed not you, "Play for me" never you (UserIdle). Seen: when
+;(WkYouAt) - nothing more pressed in this step after it (WalkYouHeld). Said once a step
+WalkYouSince(from)
+	{
+	static handsOn := "-"
+	global WkYouAt ; (sets)
+	ysIdle := UserIdle()
+	if (!from || ysIdle >= A_TickCount - from)
+		return false
+	;(the bot's own hotkey - F8 or F6 that turned walking on, and its letting go - isn't you: your last input within 0.6 s of it,
+	;as PlayerActing leaves it out; the X key's pass-through - Puzzle.ahk's, the dungeon recorder's - is your own X)
+	if (A_ThisHotkey != "" && A_ThisHotkey != "~*x" && A_TimeSinceThisHotkey >= 0 && ysIdle <= A_TimeSinceThisHotkey + 50
+		&& ysIdle >= A_TimeSinceThisHotkey - 600)
+		return false
+	if (handsOn = "-")
+		handsOn := V1IsFunc("HandsOffOn") ? %"HandsOffOn"% : 0
+	;(v1: Stats blank in AutoQuester - no Map; a handsoff of 0 is never wait for you, as PlayerActing's secs > 0)
+	if (handsOn && (!handsOn.Call() || (IsObject(Stats) && Stats.Has("handsoff") && !(Stats["handsoff"] > 0))))
+		return false
+	if (!WalkYouHeld())
+		WalkLog("you're at the keyboard or mouse - the walker let go of its keys at once (nothing more pressed in this step)")
+	WkYouAt := A_TickCount
+	return true
+	}
+
+;WalkYouSince saw you a moment ago (2 s - the main loop's PlayerActing, or AutoQuester's WalkLoop, sees you by then and waits):
+;the rest of the step presses nothing - Unstick's turn and walk along after a back-up let go for you, a talk's turn and X after an
+;approach you stopped. Each walker step starts afresh (WalkStep)
+WalkYouHeld()
+	{
+	return WkYouAt && A_TickCount - WkYouAt < 2000
 	}
 
 ;Moves the mouse there and clicks (screen coordinates), only while walking is on, the bot on and Wizard101 has focus
@@ -4000,7 +4190,9 @@ WalkerRefocusWatch()
 	local v1KeepGui := V1Thread()  ; (v1: a timer ran as its own thread - the ErrorLevel its WalkLog leaves stayed in it)
 	global Refocus ; (v1 globals it sets)
 	local v1Keep := V1Thread() ; (v1: each thread had its own ErrorLevel)
-	if (Walking || !Refocus)
+	;(walking on - F8's - with the bot off (F6: AutoFarmer's BotToggle starts this watch) isn't walking: the walker's own
+	;release never comes then, so the watch carries on till the game's back in front - WalkBotOn, true in the quester alone)
+	if ((Walking && WalkBotOn()) || !Refocus)
 		{
 		SetTimer(WalkerRefocusWatch,0)
 		return
@@ -4060,14 +4252,18 @@ Turn(h)
 	KeysDown := 1
 	Send("{Blind}{" key " down}")
 	Critical("Off")
-	HoldFor(ms)
+	tnDown := A_TickCount
+	tnHeld := HoldFor(ms)
 	Send("{Blind}{" key " up}")
 	WkTurnAt := A_TickCount
-	if (yaw0 != "" && Walking)
+	;(only the key held alone, its whole time, checks the sign: not one let go early - F6, the game behind, you - nor one you
+	;touched the keys or mouse over: your turn isn't the key's, and a sign turned round on it is saved. Your input as it is
+	;(MouseSteerYours), "Wait while I play" on or off - WalkYouSince's is for letting go only: off, it never sees you)
+	if (yaw0 != "" && Walking && tnHeld)
 		{
 		Sleep(120)
 		nav := %"NavRead"%.Call(120)
-		if (IsObject(nav) && nav.yaw != "")
+		if (IsObject(nav) && nav.yaw != "" && !MouseSteerYours(tnDown))
 			{
 			turned := WkNavSign * ArrowWrap((nav.yaw - yaw0) * 57.29578)
 			;(a fair way round: which way round its heading is, is settled - the keys turn the wizard. Its sign
@@ -4133,6 +4329,9 @@ BackUp(ms)
 			;(the bot off meanwhile - F6: no turn back, nothing more pressed - HoldFor let go of W)
 			if (!WalkBotOn())
 				return false
+			;(...or you at the keys or mouse: yours from here)
+			if (WalkYouHeld())
+				return false
 			;(running: turned back by the mouse - not running long enough for that yet: standing, MouseStandTurn, then A/D)
 			back := MouseTurnAny(-round1)
 			;(the turn back by the mouse missed: standing, by the mouse again - else A/D - he mustn't walk on the wrong way)
@@ -4164,6 +4363,9 @@ BackUp(ms)
 	WkTurnAt := A_TickCount
 	;(the bot off meanwhile - F6: false, so what was to come after it (a turn, a walk along) doesn't)
 	if (!WalkBotOn())
+		return false
+	;(...nor with you at the keys or mouse - HoldFor let go for you)
+	if (WalkYouHeld())
 		return false
 	return true
 	}
@@ -4202,10 +4404,12 @@ NavTurnOrKeys(h)
 	}
 
 ;Waits ms, but returns early (false) once walking is stopped, the bot's off (F6 - WalkBotOn: what's held let go at
-;once, and the caller - Unstick, a turn - goes no further) or Wizard101 loses focus
+;once, and the caller - Unstick, a turn - goes no further), Wizard101 loses focus or you touch the keyboard or mouse
+;(WalkYouSince - let go at once too: not W/A/S/D held for seconds under your own keys)
 HoldFor(ms)
 	{
 	global Refocus ; (v1 globals it sets)
+	hfFrom := A_TickCount
 	stopAt := A_TickCount + ms
 	while (A_TickCount < stopAt)
 		{
@@ -4221,6 +4425,13 @@ HoldFor(ms)
 			{
 			if (KeysDown || HeldW)
 				ReleaseKeys(), Refocus := 1
+			return false
+			}
+		;(you since the hold began - or seen already this step: the caller goes no further either)
+		if (WalkYouHeld() || WalkYouSince(hfFrom))
+			{
+			if (KeysDown || HeldW)
+				ReleaseKeys()
 			return false
 			}
 		left := stopAt - A_TickCount
@@ -4372,30 +4583,55 @@ SpeedKey(fast)
 ;force: the 1x key pressed even when it should be at 1x already (a battle round, F6 off, the bot stopping) - a press
 ;Cheat Engine missed, a speed set by hand - only with the speedhack set up (never a key you didn't give it). The key is
 ;held 250 ms - Cheat Engine looks at its hotkeys every 100 ms - and two presses are 400 ms apart at least (it takes no
-;second press within 350 ms). The speed counts as changed before the key goes, so F6 / F8 / exit meanwhile set it back.
-;why: for debug.log
+;second press within 350 ms). Critical from the start - before SpeedNow's looked at: F6 / F8 / exit can't come between the
+;look and the key (review: F6 there sent 1x, then this the fast key after it - the game left sped up with the bot off).
+;Win, Alt, Ctrl or Shift held (yours, or a quit or restart hotkey's - Windows+Esc): up to a second for them to come up first -
+;{Blind} would send Win+F13, which Cheat Engine (it matches the whole combination) may not take. No input desktop (the PC
+;locked, Remote Desktop disconnected, a UAC prompt up): Windows drops the key - SpeedNow left as it was, so the next look
+;sends it again once input works (a stop's 1x is: any ReleaseKeys). why: for debug.log
 SpeedSet(fast, why := "", force := false)
 	{
+	;(a caller's own Critical kept - AutoFarmer's GameTrayHide, Critical till the game's in the tray, switches the bot
+	;off on the way: its 1x press)
+	spCrit := A_IsCritical
+	Critical()
+	SpeedSetIn(fast, why, force)
+	if (!spCrit)
+		Critical("Off")
+	}
+
+;SpeedSet's look and press, all of it Critical (SpeedSet's)
+SpeedSetIn(fast, why, force)
+	{
+	static spLostSaid := 0
 	global SpeedNow, SpeedSentAt ; (v1 globals it sets)
 	want := (fast && SpeedOn()) ? SpeedFactor() : 1
 	SpeedNow := SpeedNow ? SpeedNow : 1
 	if (want = SpeedNow && !(force && want = 1 && (SpeedSentAt || SpeedSetting())))
 		return
 	key := SpeedKey(want > 1)
+	;(no input desktop first - before the 400 ms gap and the wait for Win/Alt/Ctrl/Shift: a key Windows drops isn't waited for,
+	;Critical, again every look while the PC's locked - a Win+L's Win up on the secure desktop the hook never sees. SpeedNow and
+	;SpeedSentAt untouched)
+	spDesk := DllCall("OpenInputDesktop", "UInt", 0, "Int", 0, "UInt", 0x0100, "Ptr")
+	if (!spDesk)
+		{
+		if (A_TickCount - spLostSaid > 60000)
+			spLostSaid := A_TickCount, WalkLog("speed: " want "x not sent - " key (why != "" ? " (" why ")" : "") ": no input desktop (the PC locked, Remote Desktop disconnected, a UAC prompt?) - sent once input works")
+		return
+		}
+	DllCall("CloseDesktop", "Ptr", spDesk)
 	gap := SpeedSentAt ? 400 - (A_TickCount - SpeedSentAt) : 0
 	SpeedNow := want, SpeedSentAt := A_TickCount
-	;(a caller's own Critical kept - AutoFarmer's GameTrayHide, Critical till the game's in the tray, switches the bot
-	;off on the way: its 1x press)
-	spCrit := A_IsCritical
-	Critical()
 	if (gap > 0)
 		Sleep(gap)
+	spWait := A_TickCount
+	while (A_TickCount - spWait < 1000 && (GetKeyState("LWin", "P") || GetKeyState("RWin", "P") || GetKeyState("Alt", "P") || GetKeyState("Ctrl", "P") || GetKeyState("Shift", "P")))
+		Sleep(30)
 	Send("{Blind}{" key " down}")
 	Sleep(250)
 	Send("{Blind}{" key " up}")
 	SpeedSentAt := A_TickCount
-	if (!spCrit)
-		Critical("Off")
 	if (IsObject(WkMet))
 		WkMet.keys += 1
 	WalkLog("speed: " want "x - " key (why != "" ? " (" why ")" : ""))
@@ -4884,7 +5120,7 @@ WalkUseSpotX(goal := "")
 	usxLook := A_TickCount
 	;(a teleporter by its name, its verb or anywhere on the panel - "Press X to Teleport" under a place's name)
 	if (InteractPrompt() != "press" || StrLen(WkPromptDest) < 3 || RegExMatch(WkPromptDest " " WkPromptText, "i)teleport")
-		|| RegExMatch(WkPromptVerb, "i)^(shop|trade|buy|sell|browse|craft|learn|train)") || RegExMatch(WkPromptText, "i)cr[o0]wn")
+		|| RegExMatch(WkPromptVerb, "i)^(shop|trade|buy|sell|browse|craft|learn|train)") || WalkPromptCrowns()
 		|| WalkUseNames(WkPromptDest, goal))
 		return false
 	usxDone := usxKey
@@ -5154,7 +5390,9 @@ WalkCommonsReset(why, at := "")
 			WalkNotify("stuck", "Stuck at the same place again", "The wizard got badly stuck where it was at " s.time " too (" zone ", " at " from the goal). Teleporting to the Commons only brings it back here, so walking is off - the way on may be a door or something the bot can't open. Walk it past, then press " WalkKeyText() ".")
 			return false
 			}
-	spots.Push(V1Obj({zone: zone, dist: at, goal: goal, tick: A_TickCount, time: A_Hour ":" A_Min}))
+	;(the spot kept only once the teleport's happened - below: an End that brought no loading screen (a dungeon, the key not
+	;taken) never "only brings it back here" - stuck there again, End's tried again)
+	spAt := V1Obj({zone: zone, dist: at, goal: goal, tick: A_TickCount, time: A_Hour ":" A_Min})
 	WkResetAt := A_TickCount
 	ReleaseKeys()
 	WalkBadlyStuck("commons", why)
@@ -5172,6 +5410,7 @@ WalkCommonsReset(why, at := "")
 			started := true
 		if (!WkLoading && WkLoadedAt > t0 + 500)
 			{
+			spots.Push(spAt)
 			WalkLog("at the Commons (" WalkZone(true) ") - walking on from here")
 			TrayTip("The wizard was badly stuck (" why ") - it went to the Commons and walks on from there.", "Wizard101 bot", 1)
 			;(the stuck episode over - the teleport's wait counted too)
@@ -5406,6 +5645,12 @@ WalkSigilCheck()
 	scZone := WalkZone(true)
 	if (scZone = "" || !WalkSameZone(scZone, WkSigilFromZone) || WkLoading || WkLoadedAt > WkSigilXAt || inbattle)
 		return false
+	;(you played during its wait - WalkResume: maybe moved the wizard off it, which stops its countdown - not provably the sigil)
+	if (WkSigilYou && WkSigilYou = WkSigilXAt)
+		{
+		WalkLog("sigil: no loading screen after its wait - you played meanwhile, so not counted as not starting")
+		return false
+		}
 	scSpot := WalkSigilSpot(true)
 	if (!IsObject(scSpot))
 		return false
@@ -6188,10 +6433,16 @@ WalkLoadingScreen()
 
 ;Which zone the wizard is in, from the game's own log ("ConnectComplete destination Zone=..." - or, for a zone change on the
 ;same server, "Finished loading zone '...'"), e.g. "Karamelle/KM_Z03_GumdropForest". Looked at every few seconds, only when
-;the log has grown
+;the log has grown: what's new since the last look; a log not read yet - the first look, the game started again - its last
+;ZoneTail bytes only (never the whole of it: the game's log grows to 2 GB - 70 MB an hour of texture errors on 2026-11-22/23 -
+;all of it read and searched each look while the zone wasn't known). The same game's full log started afresh (its first line
+;new, the same process - 2026-11-24 00:18 "maximum size--will create new log file"): the zone kept, the new file read from its
+;top as what's new - the next zone change seen as one, and its loading screen
 WalkZone(fresh := false)
 	{
-	static logPath := "", lastSize := -1, zone := "", checkedAt := 0, lastHead := ""
+	static logPath := "", lastSize := -1, zone := "", checkedAt := 0, lastHead := "", lastPid := "", scanned := 0, tailSaid := 0
+	static backPos := 0
+	static ZoneTail := 8388608
 	global ErrorLevel, WkGoalZones, WkLoading, WkLoadedAt, WkZoneFrom, WkZoneAt, WkSigilAt ; (v1 globals it sets)
 	global WkLoadingAt ; (v2-only: the port tools don't know it)
 	if (A_TickCount - checkedAt < (fresh ? 250 : 3000))
@@ -6214,13 +6465,11 @@ WalkZone(fresh := false)
 		logSize := FileGetSize(logPath), ErrorLevel := 0
 	catch
 		logSize := "", ErrorLevel := 1
-	if (ErrorLevel || logSize = lastSize)
+	;(the same size: nothing new - unless the zone's still being looked for further back in it, below)
+	if (ErrorLevel || (logSize = lastSize && !(zone = "" && backPos > 0)))
 		return zone
-	;The last part of the log normally has the latest zone change; the whole log if not known yet
-	readFrom := (zone != "" && logSize > lastSize && lastSize > 300) ? lastSize - 300 : (zone != "" && logSize > 262144 ? logSize - 262144 : 0)
-	if (logSize < lastSize)
-		readFrom := 0
-	lastSize := logSize
+	;(the game's process - its log's own: the same one after its first line changed is a log started afresh, not a new game)
+	gamePid := V1Try(WinGetPID, WkGameWT())  ; (v1: blank with no game window)
 	;(v1: FileOpen gave 0 when the file couldn't be opened - v2 throws)
 	try
 		logFile := FileOpen(logPath, "r", "CP0")
@@ -6228,15 +6477,29 @@ WalkZone(fresh := false)
 		logFile := ""
 	if (!IsObject(logFile))
 		return zone
-	;The game starts a new log each time it starts, with a new time stamp on its first line: read
-	;that one from the top, however long it has got
+	;The game starts a new log each time it starts, with a new time stamp on its first line - and a running game when its log's
+	;full: a new game's zone isn't known yet (its log's tail read below); the same game's is as it was, its new log all new lines
 	logHead := logFile.Read(17)
+	rotated := false
 	if (logHead != lastHead)
 		{
-		if (lastHead != "")
-			readFrom := 0, zone := ""
-		lastHead := logHead
+		if (lastHead != "" && gamePid != "" && gamePid = lastPid)
+			rotated := true, WalkLog("the game's log started afresh (its first line new, the same game) - its zone kept: " (zone = "" ? "not known yet" : zone))
+		else if (lastHead != "")
+			zone := ""
+		scanned := 0, lastHead := logHead, backPos := 0
 		}
+	if (gamePid != "")
+		lastPid := gamePid
+	;(what's new since the last look - incremental: its loading screens and zone changes are now's; a log not read yet: its tail -
+	;history. Either at most ZoneTail bytes from the end)
+	incremental := rotated || (scanned && logSize > lastSize && lastSize > 300)
+	readFrom := rotated ? 0 : incremental ? lastSize - 300 : 0
+	readFrom := Max(readFrom, logSize - ZoneTail, 0)
+	;(the same size - here only for the look further back: nothing new to read, not its tail again as a log not read yet)
+	if (!rotated && scanned && logSize = lastSize)
+		incremental := true, readFrom := logSize
+	lastSize := logSize, scanned := 1
 	logFile.Pos := readFrom
 	chunk := logFile.Read(logSize - readFrom)
 	logFile.Close()
@@ -6271,9 +6534,48 @@ WalkZone(fresh := false)
 		}
 	if (IsObject(goals) && goals.Length)
 		WkGoalZones := goals
+	;(a log's tail read with no zone change in it: the log further back looked through for its last one, below - said once a log)
+	if (!incremental && zone = "" && readFrom > 0)
+		{
+		backPos := readFrom
+		if (tailSaid != logHead)
+			tailSaid := logHead, WalkLog("the game's log: no zone change in its last " Round(ZoneTail / 1048576) " MB - looking further back")
+		}
+	;(further back, ZoneTail at a time from the end - at most 4 a look (32 MB: memory and time bounded, the rest the next looks):
+	;the last zone line before that tail is the zone now - history, no zone change made of it. Before this a tail without one
+	;left the zone unknown till the next change - and that change, from "", not one: no sigil started, no dungeon marked)
+	if (zone = "" && backPos > 0)
+		{
+		try
+			backFile := FileOpen(logPath, "r", "CP0")
+		catch
+			backFile := ""
+		Loop 4
+			{
+			if (!IsObject(backFile) || backPos <= 0 || zone != "")
+				break
+			backFrom := Max(backPos - ZoneTail, 0)
+			backFile.Pos := backFrom
+			;(300 bytes over into what's read already: a line across the seam whole)
+			backChunk := backFile.Read(Min(backPos + 300, logSize) - backFrom)
+			backPos := backFrom
+			backAt := Max(InStr(backChunk, "ConnectComplete destination Zone=", true, -1), InStr(backChunk, "Finished loading zone '", true, -1))
+			if (backAt && RegExMatch(backChunk, "ConnectComplete destination Zone=(\S+)\r?\n|Finished loading zone '([^'\r\n]+)'", &backMatch, backAt))
+				{
+				zone := backMatch[2] != "" ? backMatch[2] : backMatch[1], backPos := 0
+				WalkZoneSeen(zone)
+				WalkLog("the game's log: the zone further back in it - " zone)
+				}
+			else if (backPos <= 0)
+				WalkLog("the game's log: no zone change in all of it - the zone's known at the next one")
+			}
+		if (IsObject(backFile))
+			backFile.Close()
+		backChunk := ""
+		}
 	;A zone transfer (a loading screen) started and not finished yet, or finished just now - only from
 	;what was written since the last look (the first read of a log is history)
-	if (zoneBefore != "" && readFrom > 0)
+	if (incremental)
 		{
 		startAt := InStr(chunk, "MSG_ZoneTransferRequest", false, -1)
 		doneAt := Max(InStr(chunk, "ConnectComplete destination", false, -1), InStr(chunk, "Finished loading zone", false, -1))
@@ -7054,6 +7356,7 @@ NavTurn(h)
 	static stillTurns := 0, wrongTurns := 0
 	global KeysDown, Refocus, WkTurnAt, SpeedMiss, SpeedOff, WkNavSign, WkNavTrusted, WkNavAgree, WkNavMirror, WkNavOdd ; (v1 globals it sets)
 	global WkNavTurnLog, WkNavTurns, WkBestTime, WkLastRead ; (v1 globals it sets)
+	global SpeedOneTries ; (v2-only: the port tools don't know it)
 	if (!V1IsFunc("NavRead") || Abs(h) < 1)
 		return false
 	first := %"NavRead"%.Call(120)
@@ -7089,6 +7392,13 @@ NavTurn(h)
 		if (!GameActive())
 			{
 			ReleaseKeys(), Refocus := 1, ending := "focus lost"
+			break
+			}
+		;(you at the keyboard or mouse since the key went down - or seen already this step: let go at once, nothing judged by
+		;this turn - a turn of yours isn't the key's)
+		if (WalkYouHeld() || WalkYouSince(downAt))
+			{
+			ReleaseKeys(), ending := "you"
 			break
 			}
 		lookMs := A_TickCount - lookAt, lookAt := A_TickCount
@@ -7131,7 +7441,12 @@ NavTurn(h)
 	Send("{Blind}{" key " up}")
 	WkTurnAt := A_TickCount
 	took := A_TickCount - downAt
-	stillTurns := ending = "not turning" ? stillTurns + 1 : 0
+	;(a wrong way, no turn or a turn the way it said with you at the keys or mouse since the key went down - between the last
+	;look for you and the reading, or "Wait while I play" off: yours, not the sign's, the game's menu's or the speed's - no sign
+	;turned round or confirmed on it. Your input as it is - MouseSteerYours, "Wait while I play" on or off)
+	if ((ending = "wrong way" || ending = "not turning" || ending = "") && MouseSteerYours(downAt))
+		ending := "you"
+	stillTurns := ending = "not turning" ? stillTurns + 1 : ending = "you" ? stillTurns : 0
 	;(not turning: Wizard101's own menu may be up - keys don't reach the wizard then; closed, and tried again)
 	if (ending = "not turning")
 		HoldW(0), SpeedSet(0, "the game's menu up?")
@@ -7152,10 +7467,38 @@ NavTurn(h)
 				SpeedSet(0, "not sped up", true)
 				}
 			}
-		else if (SpeedNow = 1 && ratio > 1.6 && SpeedSentAt && A_TickCount - SpeedSentAt > 10000)
-			SpeedSet(0, "the wizard turned at " Round(ratio, 1) "x - the 1x key again", true)
-		else
+		;(at most 3 times in a row: Cheat Engine crashed or killed at its walking speed and started again reads 1x, so its
+		;1x key does nothing and the game stays fast - its old hook in the game, which a new Cheat Engine can't undo. Then
+		;the walking key's left alone for the run (SpeedOff) and you're told once - no 1x key every 10 s for good)
+		;(a turn sped up within 10 s of the last key: not one more try, and the count kept - only a turn at about 1x starts
+		;it again)
+		else if (SpeedNow = 1 && ratio > 1.6)
+			{
 			SpeedMiss := 0
+			if (SpeedSentAt && A_TickCount - SpeedSentAt > 10000 && SpeedOneTries < 3)
+				{
+				SpeedOneTries += 1
+				SpeedSet(0, "the wizard turned at " Round(ratio, 1) "x - the 1x key again (" SpeedOneTries " of 3)", true)
+				}
+			else if (SpeedSentAt && A_TickCount - SpeedSentAt > 10000 && SpeedOneTries = 3)
+				{
+				SpeedOneTries += 1
+				SpeedOff := "the game stays sped up after Cheat Engine restarted - restart Wizard101 (and Cheat Engine)"
+				WalkLog("speed: off for this run - " SpeedOff " (turned at " Round(ratio, 1) "x after the 1x key 3 times)")
+				wkSpTitle := "Wizard101 stays sped up", wkSpText := "The wizard still turns at about " Round(ratio, 1) "x after Cheat Engine's 1x key was pressed 3 times - Cheat Engine was probably restarted while the game was fast, and its 1x key can't undo that. The bot no longer uses the walking key this run. Restart Wizard101 (and Cheat Engine) to get it back to normal speed."
+				WalkNotify("speed", wkSpTitle, wkSpText)
+				;(another notice up kept this one off - WalkNotify, one at a time - and it's never tried again: the log's line and
+				;the Discord alert sent anyway)
+				if (WkNoteKind != "speed")
+					{
+					WalkLog("NEEDS YOU - " wkSpTitle ": " wkSpText)
+					if (V1IsFunc("AlertSend"))
+						%"AlertSend"%.Call("walk-speed", wkSpTitle, wkSpText, "")
+					}
+				}
+			}
+		else
+			SpeedMiss := 0, SpeedOneTries := 0
 		}
 	;(its sign checked once - the arrow agreed, or turns went the way it said: a turn the other way is the game turning the
 	;wizard - pulled into a battle's circle, a mob's charge (the logs: all of them came 4-6 s before a battle) - not a wrong
@@ -7171,7 +7514,7 @@ NavTurn(h)
 		else
 			wrongTurns := 0
 		}
-	else if (turned * h > 0 && Abs(turned) >= 15)
+	else if (ending != "you" && turned * h > 0 && Abs(turned) >= 15)
 		wrongTurns := 0
 	if (ending = "wrong way")
 		{
@@ -7200,8 +7543,10 @@ NavTurn(h)
 			WkNavTurnLog := A_TickCount
 		WalkLog("memory turn" (WkNavTurns ? "" : " (the first)") ": " Round(h) " degrees asked, " Round(turned) " turned in " took " ms, " looks " looks at the game's memory" (ending = "" ? "" : " - stopped: " ending))
 		}
-	;(turned a fair way, the way its heading said: which way round that is, is right)
-	if (ending != "wrong way" && ending != "not turning" && turned * h > 0 && Abs(turned) >= 15 && (!WkNavChecked || !WkNavTrusted))
+	;(turned a fair way, the way its heading said: which way round that is, is right - not with you at the keys or mouse
+	;since the key went down, whatever stopped it (a time limit, the memory lost): your turn isn't the key's - MouseSteerYours)
+	if (ending != "wrong way" && ending != "not turning" && ending != "you" && turned * h > 0 && Abs(turned) >= 15 && (!WkNavChecked || !WkNavTrusted)
+		&& !MouseSteerYours(downAt))
 		WalkNavConfirm("holding " key " turned the wizard " Round(Abs(turned)) " degrees the way its heading said")
 	WkNavTurns := V1N(WkNavTurns) + 1  ; (v1: += on a blank counted it as 0)
 	;(a long one - a window closed, the game's menu looked at: its time isn't walking without getting closer. 2026-10-25
@@ -7396,7 +7741,7 @@ WalkerBlank()
 	global HiddenWalkTime := "", PushHiddenTime := "", LoadSpaceWait := "", LoadSpaceMax := "", GateDist := "", GateWait := "", SigilWait := ""
 	global FastStuckTime := "", StillFrac := "", MemNear := "", MemAhead := "", TurnSettle := "", TransportWait := "", WkAcceptLook := ""
 	global SpeedNow := "", SpeedSentAt := "", WkSpeedHold := "", SpeedSlowDist := "", SpeedSlowUnits := "", SpeedExitUnits := "", SpeedOff := ""
-	global SpeedMiss := "", WkDlgEndAt := "", WkAcceptLooks := "", WkAcceptClicks := "", WkAcceptAt := "", WkGoalZones := "", WkKnownZones := ""
+	global SpeedOneTries := "", SpeedMiss := "", WkDlgEndAt := "", WkAcceptLooks := "", WkAcceptClicks := "", WkAcceptAt := "", WkGoalZones := "", WkKnownZones := ""
 	global WkZonesFile := "", WkPromptDest := "", WkTransUsed := "", WkTransSeen := "", WkTransStep := "", WkTransStepAt := "", WkWaitWhat := ""
 	global WkPromptUsed := "", WkZoneFrom := "", WkZoneAt := "", WkPressAt := "", DialogQuiet := "", WkQuietUntil := "", WkQuietLogged := ""
 	global WkLoadingAt := ""
@@ -7415,7 +7760,7 @@ WalkerBlank()
 	global WkArrDist := "", WkLoadAt := "", WkSpaceAt := "", WkGoneSpaces := "", WkGateAt := "", WkGateClicks := "", WkGateX := "", WkGateLook := ""
 	global WkMapLook := ""
 	global WkStuckDlg := "", WkXResumed := 0
-	global WkSigilUntil := "", WkFarAt := "", WkSigilSeen := "", WkSigilZones := "", WkSigilAt := "", WkSigilKey := "", WkSigilFromZone := ""
+	global WkSigilUntil := "", WkFarAt := "", WkSigilZones := "", WkSigilAt := "", WkSigilKey := "", WkSigilFromZone := ""
 	global WkSigilTries := "", WkSnapPrev := "", WkSnapAt := "", WkTurnAt := "", WkWalkFrom := "", WkStill := "", WkMotion := "", WkMem := ""
 	global WkMemFile := "", WkEsc := "", MovingStuckTime := "", MoveFrac := "", WkMoveLog := "", WkMoveZone := "", WkMovedAt := "", WkMoveNow := ""
 	global WkMoveSeen := "", WkSpins := "", WkSpotTurn := "", inbattle := "", NavTurnTol := "", NavTurnCap := "", NavAgreeNeed := "", WkNavOk := ""
@@ -7436,6 +7781,7 @@ WalkerBlank()
 	global WkPromptText := "", TalkStop := "", TalkXReach := "", WkNpcNearAt := "", WkNpcNear := ""
 	;(v2-only - the stuck episodes counted and timed, a sigil that doesn't start)
 	global WkSigilSpots := "", WkSigilXAt := "", WkSigilGoal := "", SigilFails := "", SigilFailsRelog := "", SigilRelogMs := "", SigilResetEvery := ""
+	global WkYouAt := 0, WkSigilYou := 0
 	global WkLostOn := "", WkLostMs := "", WkLostAt := "", WkLostKind := "", WkLostWhy := "", WkLostTries := "", WkLostBad := ""
 	global WkLostDist := "", WkLostLeft := "", WkLostZone := "", WkLostGoal := "", WkLostTryMs := "", WkLostEndAt := "", WkBadN := "", LostGap := ""
 	}

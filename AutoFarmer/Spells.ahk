@@ -129,6 +129,13 @@ SpListFill()
 	global SpDirty ; (v1 globals it sets)
 	if (!DashHwnd)
 		return
+	;(a cell's box open over a row - SpCellOpen: filled again once it's closed, the next look (DashRefresh) - filled now,
+	;the box would sit over another spell)
+	if (SpCellHwnd)
+		{
+		SpDirty := 1
+		return
+		}
 	wasCrit := A_IsCritical
 	Critical()
 	if (!IsObject(LearnedCards))
@@ -141,6 +148,13 @@ SpListFill()
 		id := lv.GetText(row, 12)
 		keep[id] := 1
 		}
+	;(where the list was scrolled to and the row with the focus, by id: kept - every catalog save filled it again from the
+	;top, the list jumping back to row 1 while you looked further down)
+	slTop := DllCall("SendMessage", "Ptr", lv.Hwnd, "UInt", 0x1027, "Ptr", 0, "Ptr", 0, "Ptr")       ; LVM_GETTOPINDEX
+	slPage := DllCall("SendMessage", "Ptr", lv.Hwnd, "UInt", 0x1028, "Ptr", 0, "Ptr", 0, "Ptr")      ; LVM_GETCOUNTPERPAGE
+	slTopId := (slTop >= 0 && slTop < lv.GetCount()) ? lv.GetText(slTop + 1, 12) : ""
+	slFocus := lv.GetNext(0, "F"), slFocusId := slFocus ? lv.GetText(slFocus, 12) : ""
+	slTopRow := 0, slFocusRow := 0
 	lv.Opt("-Redraw")
 	lv.Delete()
 	if (IsObject(LearnedCards))
@@ -150,8 +164,17 @@ SpListFill()
 				, SpFlag(c, "tc") ? "yes" : "", SpWhen(c.when), c.dir = "" ? "main" : c.dir, c.id)
 			if (keep.Has(c.id))
 				lv.Modify(row, "Select")
+			if (slTopId != "" && c.id = slTopId)
+				slTopRow := row
+			if (slFocusId != "" && c.id = slFocusId)
+				slFocusRow := row
 			}
 	lv.Opt("+Redraw")
+	if (slFocusRow)
+		lv.Modify(slFocusRow, "Focus")
+	;(the top row as it was: the row a page below it scrolled into view - the list goes down till that's its last)
+	if (slTopRow > 1 && slPage > 0)
+		lv.Modify(Min(slTopRow + slPage - 1, lv.GetCount()), "Vis")
 	SpListBack(lv)
 	SpDirty := 0
 	SpStatusShow()
@@ -472,8 +495,14 @@ SpApplyPending()
 		{
 		if (job.op = "reload")
 			{
-			SpL("LearnLoad")
-			said.Push("the list read again from learned\cards.txt")
+			;(what happened said - LearnLoad's 0: the file not read, the catalog read before kept, or none was: no learned
+			;card used till it is - never "read again" for a read that failed)
+			spGot := SpL("LearnLoad")
+			if (spGot = 0)
+				said.Push(LearnLoadFailed ? "learned\cards.txt couldn't be read - no learned card is used till it is (tried again each round)"
+					: "learned\cards.txt couldn't be read - the list kept as it was read before")
+			else
+				said.Push("the list read again from learned\cards.txt")
 			continue
 			}
 		for j, id in job.ids
@@ -631,7 +660,10 @@ SpEdSaveNow()
 		return SpEdSay("It's used as " c.slot ": a hit there needs its pips.")
 	value := value = "" ? "" : value + 0, pips := pips = "" ? "" : RegExMatch(pips, "^[xX]$") ? "x" : pips + 0
 	b := SpPendingEdit(SpEdId), b := IsObject(b) ? b : c
-	if (name == b.name && value = b.value && pips = b.pips && !(pips != "" && c.guess) && !(pips = "x" && !SpFlag(c, "xpip")) && !(pips != "x" && SpFlag(c, "xpip")))
+	;(the pips against what the window showed - SpPipsEditText: an X-pip spell's are 0 in the catalog, shown X - Save with
+	;nothing typed queued an edit, the spell marked yours and no longer read from the game)
+	bPips := SpPipsEditText(c, b), bPips := (bPips = "x" || bPips = "X") ? "x" : bPips
+	if (name == b.name && value = b.value && pips = bPips && !(pips != "" && c.guess))
 		return SpEdSay("Nothing changed.")
 	SpQueue("edit", V1Obj({name: name, value: value, pips: pips}), [SpEdId])
 	Try SpEd.Destroy()
@@ -928,7 +960,10 @@ SpCellCommit(byEnter := false)
 	;card's pip digit)
 	cols := !IsObject(pend) ? col : pend.cols = "" ? "" : InStr(pend.cols, col) ? pend.cols : pend.cols " " col
 	guessOpen := c.guess && (!IsObject(pend) || (pend.cols != "" && !InStr(pend.cols, "pips")))
-	if (name == b.name && value = b.value && pips = b.pips && !(col = "pips" && pips != "" && guessOpen)
+	;(the Pips cell against what it showed - an X-pip spell's are 0 in the catalog, shown X: Enter on it untouched queued
+	;an edit, as the Edit window's Save did)
+	bPips := SpPipsEditText(c, b), bPips := (bPips = "x" || bPips = "X") ? "x" : bPips
+	if (name == b.name && value = b.value && (col = "pips" ? pips = bPips : pips = b.pips) && !(col = "pips" && pips != "" && guessOpen)
 		&& !(col = "pips" && (pips = "x") != SpFlag(c, "xpip")))
 		return
 	SpQueue("edit", V1Obj({name: name, value: value, pips: pips, cols: cols}), [SpCellId])

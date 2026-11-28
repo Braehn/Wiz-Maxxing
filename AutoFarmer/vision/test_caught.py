@@ -27,10 +27,18 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 if HERE not in sys.path:
     sys.path.insert(0, HERE)
 
+from test_tray import ahk_code  # noqa: E402  (AutoHotkey lines without their comments)
+
 
 def read(*parts):
     with open(os.path.join(HERE, *parts), encoding="utf-8-sig") as f:
         return f.read().replace("\r\n", "\n")
+
+
+def code(src):
+    """src's AutoHotkey code (test_tray's ahk_code): comment lines and /* */ blocks gone, each line cut at its ' ;' - a
+    pinned line commented out is gone, not still there for assertIn and index"""
+    return "".join(ln.rstrip() + "\n" for ln in ahk_code(src.split("\n")) if ln.strip())
 
 
 def func(src, name):
@@ -289,9 +297,10 @@ class Helper(unittest.TestCase):
 class BotSide(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.es = read("..", "EnemySpells.ahk")
-        cls.vis = read("..", "Vision.ahk")
-        cls.af = read("..", "Autofarmer.ahk")
+        # (comments gone: a pinned line commented out - the /caught request, the MobGrow call - fails its pin)
+        cls.es = code(read("..", "EnemySpells.ahk"))
+        cls.vis = code(read("..", "Vision.ahk"))
+        cls.af = code(read("..", "Autofarmer.ahk"))
 
     def test_log_lines_reach_it(self):
         bl = func(self.es, "BattleLogLine")
@@ -345,7 +354,7 @@ class BotSide(unittest.TestCase):
                              r"\tif \(V1At\(f, 5\) != 1\)\n\t\tmgTo := Min\(1500, mgWas \+ 20\)\n")
         pa = func(self.af, "PlayerActing")
         self.assertIn("global PlayerActive, PlayerActedAt", pa)
-        self.assertRegex(pa, r"PlayerActive := acting\n(?:\t;[^\n]*\n)*\tif \(acting\)\n\t\tPlayerActedAt := A_TickCount\n")
+        self.assertRegex(pa, r"PlayerActive := acting\n\tif \(acting\)\n\t\tPlayerActedAt := A_TickCount\n")
         self.assertIn('global PlayerActive := 0, PlayerActedAt := "",', self.af)
 
 

@@ -1002,6 +1002,11 @@ PartyFollowStep()
 		{
 		if (KeysDown || HeldW)
 			ReleaseKeys()
+		;(a dialogue or a quest offer up - this wizard's own, entering a zone or after a boss: the spellbook's hidden meanwhile -
+		;Spaced through, its ACCEPT clicked, as a dungeon run's (Dungeons.ahk DgDialogs - every 1.5 s at most). It stood there
+		;till you closed it before, the leader walking on without it - review 2026-11-27)
+		if (Walking && GameActive() && inbattle != 1)
+			DgDialogs()
 		;(Wizard101 behind another window, you away 5 minutes - or Play for me: brought to the front, as the walker does)
 		;(v1: WkFrontLook never set - blank - compared as text: not > 1500)
 		if (Walking && !GameActive() && inbattle != 1 && V1IsFunc("GameToFront") && UserIdle() > 300000 && V1Gt(V1Ago(WkFrontLook), 1500))
@@ -1149,6 +1154,12 @@ PartyFollowStep()
 		{
 		if (A_TickCount - PartyStillAt > 3000)
 			{
+			;(a dialogue or a quest offer holding the wizard with the spellbook still up: through it - not a stuck try)
+			if (DgDialogs())
+				{
+				PartyStillAt := 0
+				return
+				}
 			;(v1: += chained with a comma kept a blank PartyTries blank - set to 0 only once it's stood by the leader;
 			;blank isn't > 4, and blank & 1 is blank: -90. v1.0.0: a new zone sets it to 0 too - PartyZoneCheck, the first
 			;zone read among them - so it counts from the start)
@@ -1638,7 +1649,10 @@ PartyRideCheck(L)
 		return
 	prWho := L.wiz != "" ? L.wiz : L.name != "" ? L.name : "the leader"
 	prText := SubStr(RegExReplace(WkPromptText, "\s+", " "), 1, 100)
-	if (PartyRidePrompt(WkPromptText, WkPromptVerb, L.wiz))
+	;(Crowns on the prompt - the walker's WalkPromptCrowns: never an X there, a ride's words or not; said once a prompt. The
+	;quest's goal line read now first - WalkGoalLine, at most every 3 s: the walker may not keep it while following)
+	WalkGoalLine()
+	if (PartyRidePrompt(WkPromptText, WkPromptVerb, L.wiz) && !WalkPromptCrowns())
 		{
 		if (PartyRideAt && A_TickCount - PartyRideAt < 5000)
 			return
@@ -1652,20 +1666,40 @@ PartyRideCheck(L)
 	if (!PartyRideSaid.Has(WkPromptDest))
 		{
 		PartyRideSaid[WkPromptDest] := 1
-		DebugLog("Party: a prompt by " prWho ": `"" prText "`" (Press X to " WkPromptVerb ") - not one to ride its mount: no X")
+		DebugLog("Party: a prompt by " prWho ": `"" prText "`" (Press X to " WkPromptVerb ") - " (WalkPromptCrowns() ? "Crowns on it" : "not one to ride its mount") ": no X")
 		}
 	}
 
 ;A prompt's words one to ride the leader's mount (pure): its verb ride, mount, board, join or hop ("Press X to Ride"); the
-;words mount, ride, riding or passenger; or the leader's wizard's name in it (its letters, 4 or more)
+;words mount, ride, riding or passenger, or the leader's wizard's name (its letters, 4 or more), on the prompt's own lines -
+;its title (in capitals) or its "Press X ..." line. Not the quest's goal line the read takes in under it: "Talk to Zeus in
+;Mount Olympus" sits over every prompt in Aquila, and had a vendor's "Press X to Shop" X'd every 5 s, its shop left open
+;over the follower (review 2026-11-27). Never an NPC's or a vendor's (to talk, shop, buy, sell, trade...), nor a
+;teleport's (on its own lines too)
 PartyRidePrompt(text, verb, wiz)
 	{
+	if (RegExMatch(verb, "i)^(talk|speak|chat|shop|trade|buy|sell|browse|craft|learn|train)"))
+		return false
+	;(the prompt's own lines: its "Press X" / "click" line, or its title - a line in capitals; the goal line under it is
+	;neither - its "Use the Teleporter in ..." refused the leader's "Press X to Ride" before: a teleport's looked for there too)
+	prOwn := []
+	Loop Parse, text, "`n", "`r"
+		if (RegExMatch(A_LoopField, "i)\bpress\b|\bclick\b") || RegExMatch(A_LoopField, "^\s*[A-Z][A-Z'.\- ]{3,}\s*$"))
+			prOwn.Push(A_LoopField)
+	for i, prL in prOwn
+		if (RegExMatch(prL, "i)teleport"))
+			return false
 	if (RegExMatch(verb, "i)^(ride|mount|board|join|hop)"))
 		return true
-	if (RegExMatch(text, "i)\b(mount|ride|riding|passenger)\b"))
-		return true
 	prK := PartyKey(wiz)
-	return StrLen(prK) >= 4 && InStr(PartyKey(text), prK) > 0
+	for i, prL in prOwn
+		{
+		if (RegExMatch(prL, "i)\b(mount|ride|riding|passenger)\b"))
+			return true
+		if (StrLen(prK) >= 4 && InStr(PartyKey(prL), prK) > 0)
+			return true
+		}
+	return false
 	}
 
 ;The way to p ({x, y, z}) by the helper's route (/navto: round walls - and mobs, avoid); {x, y, z, yaw, ax, ay, left, why,

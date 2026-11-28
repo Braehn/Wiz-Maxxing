@@ -10,7 +10,8 @@ vision\\battlerec.py, and /deck), navmem / handmem / bagmem's way.
     r = dm.read(kinds=False, only_equipped=True, pace=f)   # the recorder's: the worn deck only, no effects, f() called
                                       # between decks, between cards and every 500 names (navmem releases its lock there)
     sig = dm.signature()              # (worn items, the worn deck's gid, its card list's size, the set on, a checksum
-                                      # of its cards) - ~2 ms
+                                      # of its cards, of the worn items, of its exclusion list, the pet's level, the
+                                      # template map found) - ms
     print("\n".join(deck_lines(r)))   # one line a deck, one a card
     r = dm.read(books=True)           # the spellbook and the treasure book too (each spell's name, school, type, pips;
     print("\n".join(book_lines(r)))   # kinds=True: its kind and value as well) - one line a spell (/book)
@@ -179,7 +180,7 @@ class DeckMem:
         if props is None:
             import handmem as H
             import questmem as Q
-            img = H.Image(st)
+            img = H.shared_image(st)
             props = {c: {k: v[0] for k, v in Q.class_props(img, c)[0].items()} for c in CLASSES}
             del img
         self.P = {c: dict(props.get(c, {})) for c in CLASSES}
@@ -396,11 +397,13 @@ class DeckMem:
         if g("m_spellRank") is not None and all(k in SR for k in OPTIONAL["SpellRank"]):
             rank = self.u64(t + ST["m_spellRank"])
             if N.ptr_ok(rank) and self.tname(rank) == "SpellRank":
-                lo = SR["m_spellRank"]
+                # (from the first of the fields used to the last, whichever they are in this build - an index below
+                # m_spellRank's would wrap to the buffer's end and read a wrong pip count as a good one)
+                lo = min(SR[k] for k in OPTIONAL["SpellRank"])
                 hi = max(SR[k] for k in OPTIONAL["SpellRank"]) + 1
                 rr = self._rd(rank + lo, hi - lo)
                 if rr:
-                    r["pips"] = rr[0]
+                    r["pips"] = rr[SR["m_spellRank"] - lo]
                     r["x_pips"] = bool(rr[SR["m_xPipSpell"] - lo])
                     r["shadow_pips"] = rr[SR["m_shadowPips"] - lo]
                     r["school_pips"] = {s: rr[SR["m_%sPips" % s] - lo] for s in SCHOOL_PIPS if rr[SR["m_%sPips" % s] - lo]}
@@ -453,10 +456,12 @@ class DeckMem:
     def _walk_names(self):
         w = self._walk
         if w is None:
-            head = self.hm.tm
-            if not head or self.P["SpellTemplate"].get("m_name") is None:
+            if self.P["SpellTemplate"].get("m_name") is None:
                 self.by_name = {}
                 return
+            head = self.hm.template_head()
+            if not head:
+                return                       # (the template map not found yet: looked for again next time - by_name None)
             # (in-order walk of the std::map: node +0 left, +8 parent, +0x10 right, +0x19 isnil, +0x20 key, +0x28 the
             # template - each step kept whole or not at all, so a pace that raises leaves the walk where it was)
             root = self.u64(head + 8)
@@ -660,7 +665,8 @@ class DeckMem:
           equipped_set  the Equipment Set (1...) whose m_isEquipped is on, None
           why       '' or what couldn't be read (and how the equipped deck is known)
           names_cut True when an item card's template id is None because the spell names aren't all read yet (that
-                    deck's why says so; read again later - the walk goes on)"""
+                    deck's why says so; read again later - the walk goes on). Not set while the template map isn't
+                    found (no walk to finish: the reading kept - the signature changes once it's found)"""
         t0 = time.perf_counter()
         out = {"decks": [], "equipped": None, "equipped_set": None, "why": "", "ms": 0.0, "sets": [],
                "spellbook_n": None, "treasure_book_n": None, "player_gid": None}
@@ -684,9 +690,13 @@ class DeckMem:
 
     def signature(self, pace=None):
         """(worn items, the worn deck's global id, its card list's size, the Equipment Set on, a checksum of its card
-        list) - the worn list only (16 items at most, about 2 ms): it changes when another deck is put on, the deck's
-        cards are changed (a copy more of a card too - the checksum: each SpellData's template id, enchantment and
-        copies, one read each) or another set is worn. None when it can't be read. pace: as read's"""
+        list, a checksum of the worn items' global ids, one of the deck's exclusion list, the worn pet's level) - the
+        worn list only (16 items at most, a few ms): it changes when another deck is put on, the deck's cards are changed
+        (a copy more of a card too - the checksum: each SpellData's template id, enchantment and copies, one read each),
+        another set is worn, a piece is swapped for another by hand, an item card is turned off or on in the deck window
+        or the pet grows a level - each of which changes the reading's item cards - and 1 once the template map is found
+        (0 before: a reading without it read again then). Flat (ints and None: the battle
+        recorder's checkpoint keeps it as a JSON list). None when it can't be read. pace: as read's"""
         old = self._pace
         if pace is not None:
             self._pace = pace
@@ -706,14 +716,19 @@ class DeckMem:
         esize, worn = self.items(eq, "ClientEquipmentBehavior", 16)
         if esize is None:
             return None
-        CO = self.P["CoreObject"]
-        gid = size = crc = None
+        CO, DB, BP = self.P["CoreObject"], self.P["DeckBehavior"], self.P.get("BasePetItemBehavior", {})
+        gid = size = crc = excl = pet_lv = None
+        worn_h = 0
         for it in worn:
-            beh = next((b for n, b in self.behaviors(it).items() if n.endswith("DeckBehavior")), 0)
-            if beh:
+            # (which items are worn - a wand swapped for another by hand leaves the count, the deck and the set as they
+            # were, and its item cards would be served from the reading before)
+            worn_h = zlib.crc32(struct.pack("<Q", self.u64(it + CO["m_globalID.m_full"])), worn_h)
+            bs_it = self.behaviors(it)
+            beh = next((b for n, b in bs_it.items() if n.endswith("DeckBehavior")), 0)
+            if beh and gid is None:
                 gid = self.u64(it + CO["m_globalID.m_full"])
                 SD = self.P["SpellData"]
-                size, sds = self.slist(beh + self.P["DeckBehavior"]["m_spellList"], CARDS_CAP)
+                size, sds = self.slist(beh + DB["m_spellList"], CARDS_CAP)
                 if size is not None and len(sds) == size:
                     lo, hi = min(SD.values()), max(SD.values()) + 4
                     h = 0
@@ -721,7 +736,12 @@ class DeckMem:
                         raw = self._rd(sd, hi) if N.ptr_ok(sd) else None
                         h = zlib.crc32(raw[lo:hi] if raw else b"?", h)
                     crc = h
-                break
+                # (an item card turned off or on in the deck window: its exclusion list alone changes)
+                if "m_serializedExclusionList" in DB:
+                    excl = zlib.crc32(self.raw_string(beh + DB["m_serializedExclusionList"]) or b"?")
+            pbeh = next((b for n, b in bs_it.items() if n.endswith("PetItemBehavior")), 0)
+            if pbeh and pet_lv is None and "m_level" in BP:
+                pet_lv = self.u8(pbeh + BP["m_level"])    # (the pet grown a level: other power cards)
         set_n = None
         so, ES = self.off("ClientWizEquipmentBehavior", "m_equipmentSets"), self.P["EquipmentSet"]
         if so is not None and "m_isEquipped" in ES:
@@ -729,7 +749,11 @@ class DeckMem:
             on = [i for i, es in enumerate(ess, 1) if self.tname(es) == "EquipmentSet" and
                   self.flag(es + ES["m_isEquipped"])]
             set_n = on[0] if len(on) == 1 else None
-        return (esize, gid, size, set_n, crc)
+        # (the template map found yet: a reading made without it - no item card's template, nothing to walk the names
+        # in - kept till it's found, then read again once)
+        th = getattr(self.hm, "template_head", None)
+        tm_n = 1 if th and th() else 0
+        return (esize, gid, size, set_n, crc, worn_h, excl, pet_lv, tm_n)
 
     def _read(self, out, books, kinds, only_equipped=False):
         co, why = self.player()
@@ -827,9 +851,15 @@ class DeckMem:
                 d["why"] = "; ".join(x for x in (d.get("why"), "the pet's cards couldn't be read (its level or template "
                                                  "- BasePetItemBehavior / PetLevelInfo) - the gear's are there") if x)
             if self.by_name is None and any(c.get("template_id") is None for c in d["item_cards"] or []):
-                out["names_cut"] = True
-                d["why"] = "; ".join(x for x in (d.get("why"), "an item card's template isn't known yet (the spell "
-                                                 "names not all read - read again later)") if x)
+                # (names_cut only while the walk goes on - it ends; the template map not found yet, it may never be in
+                # this game process: the reading kept, the signature's last field read again once the map is found)
+                if self._walk is not None:
+                    out["names_cut"] = True
+                    d["why"] = "; ".join(x for x in (d.get("why"), "an item card's template isn't known yet (the spell "
+                                                     "names not all read - read again later)") if x)
+                else:
+                    d["why"] = "; ".join(x for x in (d.get("why"), "an item card's template isn't known (the template "
+                                                     "map not found yet - handmem's template_map)") if x)
             out["decks"].append(d)
         eqd = [d for d in out["decks"] if d["equipped"]]
         if len(eqd) == 1:

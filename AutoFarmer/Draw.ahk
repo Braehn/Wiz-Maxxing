@@ -182,8 +182,12 @@ DrawMakeRoom(ans)
 			continue
 		if (keepX != "" && keepX >= f[2] - 5 && keepX <= f[2] + f[4])
 			continue
-		lc := (InStr(k, "learned/") = 1) ? LearnCardOf(SubStr(k, 9)) : ""
-		if (InStr(k, "learned/") = 1 && (!IsObject(lc) || lc.type = "enchant" || LearnHasFlag(lc, "tc") || LearnHasFlag(lc, "hold")))
+		;(a learned card in a slot is named by that slot - "fire/blade", the helper's learned_pic: its catalog entry is the
+		;slot's learned card, LearnCardInSlot, as KillCalc.ahk's discards look it up - its Never discard and tc kept too)
+		lc := (InStr(k, "learned/") = 1) ? LearnCardOf(SubStr(k, 9)) : LearnCardInSlot(StrReplace(k, "/", "\"))
+		if (InStr(k, "learned/") = 1 && !IsObject(lc))
+			continue
+		if (IsObject(lc) && (lc.type = "enchant" || LearnHasFlag(lc, "tc") || LearnHasFlag(lc, "hold")))
 			continue
 		rank := (RegExMatch(k, "i)/(hit\d|wand)$") || LearnIsHit(lc)) ? 2 : 1
 		if (rank < bestRank)
@@ -194,6 +198,9 @@ DrawMakeRoom(ans)
 	x := Round(best[2] + best[4] / 2), y := Round(best[3] + best[5] * 0.6)
 	MoveToCard(x, y)
 	s(Stats.Has("clickwait") ? Stats["clickwait"] : 40)
+	;(another program's window over Wizard101 there - GameUnderMouse, Autofarmer.ahk: not clicked - as ClickAt)
+	if (!GameInTray && !GameUnderMouse("a discard"))
+		return ""
 	;(Wizard101 gone to the tray - Settings: traygame: not clicked - it would land on the window behind it)
 	if (GameInTray)
 		return ""
@@ -216,7 +223,8 @@ DiscardIsTc(x)
 			continue
 		if (f[16] = 1)
 			return true
-		lc := (InStr(f[6], "learned/") = 1) ? LearnCardOf(SubStr(f[6], 9)) : ""
+		;(one in a slot named by its slot - "balance/hit2": the slot's learned card, as DrawMakeRoom)
+		lc := (InStr(f[6], "learned/") = 1) ? LearnCardOf(SubStr(f[6], 9)) : (f[6] != "") ? LearnCardInSlot(StrReplace(f[6], "/", "\")) : ""
 		return IsObject(lc) && LearnHasFlag(lc, "tc")
 		}
 	return false

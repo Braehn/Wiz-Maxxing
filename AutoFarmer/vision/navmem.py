@@ -231,6 +231,15 @@ class _GaveWay(RuntimeError):
     """NavMem.deck's paced read gave way (its lock let go and not taken again) - read again later"""
 
 
+class _HandMissing(RuntimeError):
+    """a reader built on the hand's (decks, gear, pets) can't be made: no hand's reader - again, when to try it again
+    (NavMem._hand_for)"""
+
+    def __init__(self, why, again):
+        super().__init__(why)
+        self.again = again
+
+
 def ptr_ok(v):
     """a user-mode address (heap objects, and the exe's own sections at 0x7FF6...)"""
     return 0x10000 <= v < 0x7FFFFFFF0000
@@ -524,6 +533,7 @@ DATA = {"window_name": 0x50, "thread_name": 0xB0, "navnode_pos": 0x30, "list_val
 SCAN_CHUNK = 0x400000
 OBJ_QUICK, OBJ_FULL, OBJ_IDLE, OBJ_SETTLE, OBJ_SETTLE_EVERY = 3.0, 15.0, 120.0, 20.0, 5.0
 OBJ_SPAN = 0x138                     # an object read from +0 to past its zone pointer (+0x130)
+OBJ_LAYOUT_HITS = 20                 # places holding the zone's pointer, none a live object: the layout moved (said)
 MOB_KEY = re.compile(r"^(\w*Mobs)_(\d+)$")
 MOB_TABLES = ("WizardMobs", "Mobs")
 # a thing lying about the zone that a quest has you collect (Piece Of Coral: CL-Coral-Object, WizItems_00001638) -
@@ -709,10 +719,15 @@ class _Attached:
             how["gameclient"] = "sig GAMECLIENT"
         # the wizard's location
         loc = self._first("GETLOCATION", lambda c: c[3] == c[5] + 4 and c[4] == c[5] + 8)   # y, z, x
-        if not loc:
-            raise LookupError("the location signature isn't in this game build (%s)" % self.m.build)
-        o["co_anim"], o["anim_body"], o["body_pos"], o["co_location"] = loc[0], loc[1], loc[2], loc[5]
-        how["location"] = "sig GETLOCATION"
+        if loc:
+            o["co_anim"], o["anim_body"], o["body_pos"], o["co_location"] = loc[0], loc[1], loc[2], loc[5]
+            how["location"] = "sig GETLOCATION"
+        else:
+            # (not in this build - one register changed in the location getter: the position alone unread, player()
+            # says so; the backpack, GUI, decks, gear, pets, quests and mobs need only the camera's object, found by type
+            # - before, the whole attach failed and every reader with it until the game restarted)
+            o["co_anim"] = o["anim_body"] = o["body_pos"] = o["co_location"] = None
+            how["location"] = "MISSING: the location signature isn't in this game build - the position unread"
         o["gc_elastic_cam"] = o["cam_attached_object"] = None     # checked by type name on read
         # the quest helper (each one may be missing: those fields are then left empty)
         o["gm_candidates"] = [(c[0], c[1]) for c in self.sig.get("GUIMGR_HUD", []) if c[2] == c[1] + 8][:16]
@@ -885,6 +900,8 @@ class _Attached:
         co = self._member("cam_attached_object", cam, self._scan_objects, 0x400, self._object_at)
         if not co:
             return None, "the camera follows no object"
+        if o.get("co_anim") is None or o.get("co_location") is None:
+            return None, "the position can't be read in this build (the location signature isn't in it)"
         anim = p.u64(co + o["co_anim"])
         body = p.u64(anim + o["anim_body"]) if ptr_ok(anim) else 0
         if ptr_ok(body) and p.try_read(body + DATA["body_parent"], 8) == struct.pack("<Q", co):
@@ -1146,6 +1163,7 @@ class NavMem:
         # last asked for - only then are objects looked at for them: the duelavoid setting)
         self._duels, self._duel_seen, self._duel_asked = {}, {}, 0.0
         self._obj_thread, self._mob_names, self._names_retry, self.obj_stats = None, None, 0.0, {}
+        self._names_stamp = None         # (Root.wad's path, size and time the mob names were read from: _names)
         self._names_said = 0.0           # (when a failure to ask for the things' name tables may be logged again)
         self._obj_state = (None, 0.0, None, 0.0, {})   # the objects thread's: regions, last full scan, zone, since, cache
         # (a new zone's mobs: the walker asks for a look at the whole heap once its loading screen is over (want_full_scan -
@@ -1155,6 +1173,10 @@ class NavMem:
         # its loading screen, the mobs not read yet - "none" to the route - and an Impi Raider caught him 3 times of 4)
         self._obj_wake = threading.Event()
         self._obj_zone_name, self._obj_full_began, self._obj_full_want = None, 0.0, False
+        # (a full look that found the zone's pointer in many places but not one live object - not even the wizard's own:
+        # DATA's CoreObject offsets moved in this build, every list reading empty as if the zone had none - why, said
+        # once a zone in vision.log and by broken(), after two such looks in a row (a zone being torn down: one); "" fine)
+        self._obj_layout_why, self._obj_layout_said, self._obj_layout_n = "", None, 0
         # the hand (handmem.py): its reader of the attached game, the thread making it (its classes looked up once, about
         # half a second), why it couldn't be made (the game it was for, when to try again); the game opened for the
         # cards alone when one of the walker's signatures isn't in this build (handmem.LightAttach)
@@ -1330,6 +1352,37 @@ class NavMem:
     def describe(self):
         with self.lock:
             return self.st.describe() if self.st else "not attached"
+
+    def broken(self):
+        """(the game's build or "", [(reader, why)]): the game's memory readers that can't be made for this build - a
+        class, property or signature not in it (their LookupError's, kept RETRY_SIG s and said "in this build"), the
+        attach itself, the cards of a hand's reader made without them (cards_why), the position (no location signature)
+        - for a notice after a game patch (vision.py's /readers): until 2026-11-26 these were said in vision.log alone
+        and two patches went unseen for days. Nothing read; never raises"""
+        try:
+            with self.lock:
+                st, out = self.st, []
+                if st is None:
+                    pid, again, why = self._failed
+                    if pid and self._failed_sig and time.monotonic() < again:
+                        out.append(("attach", why))
+                    return "", out
+                if str(st.how.get("location", "")).startswith("MISSING"):
+                    out.append(("position", st.how["location"]))
+                for name, fail in (("cards", self._hand_fail), ("quests", self._quest_fail), ("mobs", self._boss_fail),
+                                   ("doors", self._state_fail), ("backpack", self._bagm_fail),
+                                   ("decks", self._deckm_fail), ("gear", self._gearm_fail), ("pets", self._petm_fail)):
+                    fst, _again, why = fail
+                    if fst is st and "in this build" in (why or ""):
+                        out.append((name, why))
+                hm = self._hand
+                if hm is not None and hm.st is st and getattr(hm, "cards_why", ""):
+                    out.append(("cards", hm.cards_why))
+                if self._obj_layout_why:
+                    out.append(("objects", self._obj_layout_why))
+                return st.m.build, out
+        except Exception as e:  # noqa: BLE001 - never into the server
+            return "", [("helper", "the readers' state couldn't be read (%r)" % (e,))]
 
     # ------------------------------------------------------------ the hand (handmem.py)
     def cards(self, want_effects=True, wait=0.5):
@@ -1695,6 +1748,21 @@ class NavMem:
                 return None, fwhy
         return None, "reading the game's card classes (once, about a second)"
 
+    def _hand_for(self, st):
+        """the hand's reader for a reader built on it (_deck_make, _gear_make, _pet_make - their own thread), waited for
+        up to 2 s; else raises _HandMissing: tried again when the hand's reader is (it failed - a class not in this build:
+        RETRY_SIG s, not every 5 s with a line each time, said as "can't be made", not "isn't made yet"), else in 5 s
+        (still being made)"""
+        hm, why = self._hand_reader(st, 2.0)
+        if hm is not None:
+            return hm
+        now = time.monotonic()
+        with self.lock:
+            fst, again, _fwhy = self._hand_fail
+        if fst is st and again > now:
+            raise _HandMissing("the hand's reader can't be made (%s)" % why, again)
+        raise _HandMissing("the hand's reader isn't made yet (%s)" % why, now + 5.0)
+
     def ui_root(self, wait=0.5):
         """((w, h), why): the game's GUI root's size in GUI units - handmem's root (WorldView: the whole client), its
         m_Window - read now; the client's pixels over it are the GUI's scale (1827 x 1027 at 2560x1440 borderless, UI
@@ -1926,17 +1994,16 @@ class NavMem:
         hand's reader gives it the template map and the names"""
         try:
             import deckmem
-            hm, why = self._hand_reader(st, 2.0)
-            if hm is None:
-                raise RuntimeError("the hand's reader isn't made yet (%s)" % why)
+            hm = self._hand_for(st)
             dm = deckmem.DeckMem(st, hm, log=self.log)
         except Exception as e:  # noqa: BLE001
             sig = isinstance(e, LookupError)
-            why = ("the decks can't be read in this build: %s" % e) if sig else "the deck classes couldn't be read (%r)" % (e,)
+            why = ("the decks can't be read in this build: %s" % e) if sig else ("the decks wait for the hand: %s" % e) \
+                if isinstance(e, _HandMissing) else "the deck classes couldn't be read (%r)" % (e,)
             self.log("deckmem: " + why)
             with self.lock:
-                self._deckm_fail = (st, time.monotonic() + (self.RETRY_SIG if sig else
-                                                            5.0 if isinstance(e, RuntimeError) else 30.0), why)
+                self._deckm_fail = (st, e.again if isinstance(e, _HandMissing) else time.monotonic() + (
+                    self.RETRY_SIG if sig else 5.0 if isinstance(e, RuntimeError) else 30.0), why)
             return
         with self.lock:
             self._deckm = dm
@@ -2161,17 +2228,16 @@ class NavMem:
         reader gives it the template map and the names (_deck_make's way)"""
         try:
             import gearmem
-            hm, why = self._hand_reader(st, 2.0)
-            if hm is None:
-                raise RuntimeError("the hand's reader isn't made yet (%s)" % why)
+            hm = self._hand_for(st)
             gm = gearmem.GearMem(st, hm, log=self.log)
         except Exception as e:  # noqa: BLE001
             sig = isinstance(e, LookupError)
-            why = ("the gear can't be read in this build: %s" % e) if sig else "the gear classes couldn't be read (%r)" % (e,)
+            why = ("the gear can't be read in this build: %s" % e) if sig else ("the gear waits for the hand: %s" % e) \
+                if isinstance(e, _HandMissing) else "the gear classes couldn't be read (%r)" % (e,)
             self.log("gearmem: " + why)
             with self.lock:
-                self._gearm_fail = (st, time.monotonic() + (self.RETRY_SIG if sig else
-                                                            5.0 if isinstance(e, RuntimeError) else 30.0), why)
+                self._gearm_fail = (st, e.again if isinstance(e, _HandMissing) else time.monotonic() + (
+                    self.RETRY_SIG if sig else 5.0 if isinstance(e, RuntimeError) else 30.0), why)
             return
         with self.lock:
             self._gearm = gm
@@ -2233,17 +2299,16 @@ class NavMem:
         hand's reader gives it the template map and the names (deckmem's way)"""
         try:
             import petmem
-            hm, why = self._hand_reader(st, 2.0)
-            if hm is None:
-                raise RuntimeError("the hand's reader isn't made yet (%s)" % why)
+            hm = self._hand_for(st)
             pm = petmem.PetMem(st, hm, log=self.log)
         except Exception as e:  # noqa: BLE001
             sig = isinstance(e, LookupError)
-            why = ("the pets can't be read in this build: %s" % e) if sig else "the pet classes couldn't be read (%r)" % (e,)
+            why = ("the pets can't be read in this build: %s" % e) if sig else ("the pets wait for the hand: %s" % e) \
+                if isinstance(e, _HandMissing) else "the pet classes couldn't be read (%r)" % (e,)
             self.log("petmem: " + why)
             with self.lock:
-                self._petm_fail = (st, time.monotonic() + (self.RETRY_SIG if sig else
-                                                           5.0 if isinstance(e, RuntimeError) else 30.0), why)
+                self._petm_fail = (st, e.again if isinstance(e, _HandMissing) else time.monotonic() + (
+                    self.RETRY_SIG if sig else 5.0 if isinstance(e, RuntimeError) else 30.0), why)
             return
         with self.lock:
             self._petm = pm
@@ -2453,13 +2518,25 @@ class NavMem:
 
     def _names(self):
         """{display key: English name} of the game's *Mobs name tables (Root.wad); None while they can't be read
-        (tried again after a minute)"""
+        (tried again after a minute). Read again when Root.wad isn't the one they were read from - another game folder,
+        or the game patched (Reconnect patches it through the launcher while the helper runs on): a new mob's key not
+        in them, it would be dropped from /mobs, the walker's avoidance and the battle's names till the bot restarted"""
+        import os
+        try:
+            import navgeo
+            root = os.path.join(self.game_dir or navgeo.GAME_DIR, "Data", "GameData", "Root.wad")
+            fs = os.stat(root)
+            stamp = (os.path.normcase(root), fs.st_size, fs.st_mtime_ns)
+        except Exception:  # noqa: BLE001 - not known: the names as they are
+            root, stamp = None, self._names_stamp
+        if self._mob_names is not None and stamp != self._names_stamp:
+            self.log("navmem: Root.wad isn't the one the mob names were read from - read again")
+            self._mob_names, self._names_retry = None, 0.0
         if self._mob_names is None and time.monotonic() >= self._names_retry:
             names = {}
             try:
-                import os
-                import navgeo
-                root = os.path.join(self.game_dir or navgeo.GAME_DIR, "Data", "GameData", "Root.wad")
+                if root is None:
+                    raise OSError("Root.wad not found")
                 files = navgeo.read_wad_files(root, ["Locale/en-US/%s.lang" % t for t in MOB_TABLES + ITEM_TABLES])
                 for tbl in MOB_TABLES + ITEM_TABLES:
                     data = files.get("Locale/en-US/%s.lang" % tbl)
@@ -2474,7 +2551,7 @@ class NavMem:
             except Exception as e:  # noqa: BLE001
                 self.log("navmem: the mob names couldn't be read (%r)" % (e,))
             if names:
-                self._mob_names = names
+                self._mob_names, self._names_stamp = names, stamp
                 self.log("navmem: %d mob names read" % len(names))
             else:
                 self._names_retry = time.monotonic() + 60.0
@@ -2561,6 +2638,7 @@ class NavMem:
                     if full:
                         regions, last_full = where, t0
                     objs, items, doors, want, cands = {}, {}, {}, [], []
+                    live = 0
                     # (the templates the zone's triggers' use events may be fired by - puzzlefile's, as kept: none till
                     # built; no file read but a stat)
                     try:
@@ -2576,6 +2654,7 @@ class NavMem:
                         vname = st.tn.of_vtable(vt) if st.m.in_section(vt, ".rdata") else None
                         if not vname or not vname.endswith("ClientObject"):
                             continue                        # (not a live one: destroyed - its base class's vtable - or freed)
+                        live += 1
                         gid = struct.unpack_from("<Q", raw, DATA["co_gid"])[0]
                         tpl = struct.unpack_from("<Q", raw, DATA["co_template"])[0]
                         k = st.template_kind(tpl, names, cache)
@@ -2610,12 +2689,23 @@ class NavMem:
                     except Exception:  # noqa: BLE001 - none: as before
                         duels = {}
                     self._set_objs(cz, objs, "", items, doors, duels)
+                    if full and live:
+                        self._obj_layout_why, self._obj_layout_n = "", 0
+                    elif full and len(found) >= OBJ_LAYOUT_HITS:
+                        self._obj_layout_n += 1
+                    if full and not live and self._obj_layout_n >= 2:
+                        self._obj_layout_why = ("the zone's objects don't read in this build: %d places hold the zone's "
+                                                "pointer, not one a live object - not even the wizard's (DATA's CoreObject "
+                                                "offsets moved?) - mobs, things and doors read as none" % len(found))
+                        if self._obj_layout_said != zone:
+                            self._obj_layout_said = zone
+                            self.log("navmem: " + self._obj_layout_why)
                     if full:
                         with self.lock:
                             if self._obj_zone_name == zone[1]:
                                 self._obj_full_began = t0
-                    self.obj_stats = {"objects": len(found), "mobs": len(objs), "items": len(items), "doors": len(doors),
-                                      "duels": len(duels), "uses": sum(1 for v in items.values() if v[5] == "use"),
+                    self.obj_stats = {"objects": len(found), "live": live, "mobs": len(objs), "items": len(items),
+                                      "doors": len(doors), "duels": len(duels), "uses": sum(1 for v in items.values() if v[5] == "use"),
                                       "full": full,
                                       "ms": round((time.monotonic() - t0) * 1000), "regions": len(regions or ())}
             except Exception as e:  # noqa: BLE001 - tried again next time

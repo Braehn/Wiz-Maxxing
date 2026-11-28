@@ -471,6 +471,22 @@ HitHeads(hitName)
 	return HeadsMemo[hitName "|" hitschool]
 	}
 
+;Hit hitName hits one enemy (1) or every enemy (0): the game's kind for it (HitHeads' one: damage one, aoe all -
+;Autofarmer.ahk HitTarget clicks a target by that, and never writes the key), else the wand's card one, else
+;<school>.<hit>target:1. The kill check (IsLethal), PlanProject, TrapHitPick and KillHitsText all by this one rule - a
+;single-target hit with no target line (a picture you cut yourself) was taken for an all-enemies one, and called a kill
+;when it could kill any one enemy
+HitOne(hitName)
+	{
+	global hitschool
+	hoHh := HitHeads(hitName)
+	if (hoHh.one != "")
+		return hoHh.one ? 1 : 0
+	if (hitName = "wand")
+		return 1
+	return (Stat(hitschool "." hitName "target") = 1) ? 1 : 0
+	}
+
 ;HitHeads' look, in this order: the game's memory - the card on the slot's picture (SlotGame: its name in the game, from
 ;CardLearn.ahk LearnCards' look at the hand; else the slot's learned card's flag game=), the card itself in the game's hand
 ;(VisionCards: its heads field); the slot's learned card's heads as the game had them (flag heads=); PlayerStats.txt's
@@ -1115,6 +1131,9 @@ BoostMemDiscard(key, weakest := 0)
 			bmdLc := LearnCardOf.Call(SubStr(bmdB.known, 9))
 		else if (bmdB.known != "" && V1IsFunc("LearnCardInSlot"))
 			bmdLc := LearnCardInSlot.Call(StrReplace(bmdB.known, "/", "\"))
+		;(a box known by no picture - the memory's own, memclicks:1 (MemBoxes): the learned card by the game's name for it)
+		else if (bmdB.known = "" && V1IsFunc("LearnCardByGame"))
+			bmdLc := LearnCardByGame.Call(bmdB.m)
 		if (IsObject(bmdLc) && V1IsFunc("LearnHasFlag") && LearnHasFlag.Call(bmdLc, "hold"))
 			{
 			bmdHeld += 1
@@ -2302,7 +2321,7 @@ PlanProject(hitN)
 			}
 	AppliedBlades := ppB, BossTraps := ppT
 	ppHh := HitHeads(hitN), ppUe := (V1Ge(enchant, 1) && !ppHh.item)
-	ppOne := (ppHh.one != "") ? ppHh.one : (Stat(hitschool "." hitN "target") = 1)
+	ppOne := HitOne(hitN)
 	if (IsObject(EnemyHP) && EnemyHP.Length)
 		{
 		ppSum := 0, ppBest := 0, ppTs := (BossChoosen != 1 && TrapPick) ? TrapPick : TrapSlot
@@ -2604,7 +2623,7 @@ WandWastes()
 BoostMisfitDiscard()
 	{
 	global
-	local bmdAll, bmdWant, bmdI, bmdB, bmdP, bmdC, bmdLc, bmdDid, bmdMost, bmdS, bmdFits, bmdK, bmdO, bmdX, bmdY
+	local bmdAll, bmdWant, bmdI, bmdB, bmdP, bmdC, bmdLc, bmdDid, bmdMost, bmdS, bmdFits, bmdK, bmdO, bmdX, bmdY, bmdOff
 	if (BoostMisfitDone || !BoostMemOk || !Stat("discardunused") || LearnAll)
 		return 0
 	BoostMisfitDone := 1
@@ -2612,8 +2631,12 @@ BoostMisfitDiscard()
 	bmdWant := HammerPlan
 	if (bmdWant = "" || hitschool = "" || (V1IsFunc("PlayerActing") && PlayerActing.Call()))
 		return 0
-	bmdAll := BoostBoxes()
-	if (!IsObject(bmdAll))
+	;(the boxes laid on the game's cards only while they line up for sure - BoxesLineUp, as BoostOffSchoolDiscard and
+	;BoostMemDiscard have it: as many boxes as cards but paired one off, a box known as a hit carries the game's blade.
+	;The screen's boxes (BoostBoxes), not HandBoxes: the memory's (memclicks:1) know no picture - known "" - so neither
+	;the learned card in it, its Never discard (hold), nor BoxesLineUp's check would be there)
+	bmdAll := BoostBoxes(300)
+	if (!IsObject(bmdAll) || !BoxesLineUp(bmdAll, &bmdOff))
 		return 0
 	bmdDid := 0, bmdMost := StatOr("discardmax", 3) + 0, bmdI := 1
 	while (bmdI <= bmdAll.boxes.Length && bmdDid < bmdMost)
@@ -2628,7 +2651,9 @@ BoostMisfitDiscard()
 			Loop Parse, bmdP.sch, ","
 				if (A_LoopField = hitschool || InStr("," bmdWant ",", "," A_LoopField ","))
 					bmdFits := true
-		if (bmdC.kind != "blade" || bmdFits || bmdC.tc || (IsObject(bmdLc) && (LearnHasFlag.Call(bmdLc, "hold") || LearnHasFlag.Call(bmdLc, "tc"))))
+		if (bmdC.kind != "blade" || bmdFits || bmdC.tc || (IsObject(bmdLc) && (LearnHasFlag.Call(bmdLc, "hold") || LearnHasFlag.Call(bmdLc, "tc")))
+			;(nor one the screen shows as a treasure card - lavender: DiscardIsTc, as the other discards)
+			|| (V1IsFunc("DiscardIsTc") && DiscardIsTc(Round(bmdB.l + bmdB.w / 2))))
 			{
 			bmdI += 1
 			continue
@@ -2636,6 +2661,9 @@ BoostMisfitDiscard()
 		bmdX := Round(bmdB.l + bmdB.w / 2), bmdY := Round(bmdB.t + bmdB.h * 0.6)
 		MoveToCard(bmdX, bmdY)
 		s(Stats.Has("clickwait") ? Stats["clickwait"] : 40)
+		;(another program's window over Wizard101 there - GameUnderMouse, Autofarmer.ahk: not clicked - as ClickAt)
+		if (!GameInTray && !GameUnderMouse("a discard"))
+			break
 		;(Wizard101 gone to the tray - Settings: traygame: not clicked - it would land on the window behind it)
 		if (GameInTray)
 			break
@@ -2681,6 +2709,9 @@ BoostOffSchoolDiscard()
 			bosLc := LearnCardOf.Call(SubStr(bosB.known, 9))
 		else if (bosB.known != "" && V1IsFunc("LearnCardInSlot"))
 			bosLc := LearnCardInSlot.Call(StrReplace(bosB.known, "/", "\"))
+		;(a box known by no picture - the memory's own, memclicks:1 (MemBoxes): the learned card by the game's name for it)
+		else if (bosB.known = "" && V1IsFunc("LearnCardByGame"))
+			bosLc := LearnCardByGame.Call(bosC)
 		if (IsObject(bosLc) && V1IsFunc("LearnHasFlag") && (LearnHasFlag.Call(bosLc, "hold") || LearnHasFlag.Call(bosLc, "tc")))
 			continue
 		;(nor one the screen shows as a treasure card - lavender)
@@ -2689,6 +2720,9 @@ BoostOffSchoolDiscard()
 		bosX := Round(bosB.l + bosB.w / 2), bosY := Round(bosB.t + bosB.h * 0.6)
 		MoveToCard(bosX, bosY)
 		s(Stats.Has("clickwait") ? Stats["clickwait"] : 40)
+		;(another program's window over Wizard101 there - GameUnderMouse, Autofarmer.ahk: not clicked - as ClickAt)
+		if (!GameInTray && !GameUnderMouse("a discard"))
+			return 0
 		;(Wizard101 gone to the tray - Settings: traygame: not clicked - it would land on the window behind it)
 		if (GameInTray)
 			return 0
@@ -3446,7 +3480,7 @@ TrapHitPick(among)
 	global
 	local thpP, thpD, thpC
 	thpP := PlanChoose(), thpD := ""
-	if (RegExMatch(thpP, "^hit[1-4]$") && Stats[hitschool "." thpP "target"] = 1)
+	if (RegExMatch(thpP, "^hit[1-4]$") && HitOne(thpP))
 		thpD := HitDamage(thpP, false, false)
 	else if (InStr(thpP, "learned/") = 1 && V1IsFunc("LearnCardOf"))
 		{
@@ -3822,8 +3856,9 @@ IsLethal(hitName, useEnchant)
 	;Boss fight: the boss's plate must be among the ones read, or a missed plate could hide it
 	if (BossChoosen == 1) && (BossSlot < 1)
 		return false
-	;A hit on one enemy (<school>.<hit>target:1, e.g. Scarab) only ends the battle when one enemy is left
-	if (Stat(hitschool "." hitName "target") = 1 && EnemyHP.Length > 1)
+	;A hit on one enemy (HitOne: the wand's, the game's kind damage, <school>.<hit>target:1, e.g. Scarab) only ends the
+	;battle when one enemy is left
+	if (HitOne(hitName) && EnemyHP.Length > 1)
 		return false
 	margin := 1 + Stat("killmargin") / 100
 	;(the traps counted on the enemy they went on only - TrapSlot: the boss's slot, or the one with the most health they
@@ -4049,8 +4084,8 @@ KillHitsText()
 		if (khDmg <= 0)
 			continue
 		khName := V1IsFunc("DashShortName") && kh != "wand" ? DashShortName.Call(kh, hitschool) : ""
-		;(a wand's hit is always one enemy's)
-		khOne := kh = "wand" || Stat(hitschool "." kh "target") = 1
+		;(one enemy or all - HitOne: the game's kind, a wand's hit one enemy's, the target key)
+		khOne := HitOne(kh)
 		khBoost := (kh != "wand" && V1Ge(enchant, 1)) ? HitDamage(kh, true, false) : 0
 		;(its heads, when they're known - the game's: [fire 230 + ice 230 + storm 230 (the game)])
 		khHh := HitHeads(kh)

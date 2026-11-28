@@ -4,14 +4,27 @@ again that battle), and with no name learned her plate was the name pictures' fi
 checked: each fix where it must be"""
 import os
 import re
+import sys
 import unittest
+
+if os.path.dirname(os.path.abspath(__file__)) not in sys.path:
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from test_tray import ahk_code  # noqa: E402  (AutoHotkey lines without their comments)
 
 AF = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
 
 
+def code(src):
+    """src's AutoHotkey code (test_tray's ahk_code): comment lines and /* */ blocks gone, each line cut at its ' ;' - a
+    pinned line commented out is gone, not still there for assertIn and index (fix2, x-tests-2)"""
+    return "".join(ln.rstrip() + "\n" for ln in ahk_code(src.split("\n")) if ln.strip())
+
+
 def read(name):
+    """the AutoHotkey file's code (code: its comments gone)"""
     with open(os.path.join(AF, name), encoding="utf-8-sig") as f:
-        return f.read().replace("\r\n", "\n")
+        return code(f.read().replace("\r\n", "\n"))
 
 
 def func(src, name):

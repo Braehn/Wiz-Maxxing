@@ -26,7 +26,8 @@ equips nothing (gearswap is a rehearsal), and holds the quick sell while a backp
 
 THE SCORE (one number for the wizard's totals; a swap's delta = the new totals' score less the old - in log-points: x100
 is about the % it's better). The totals are the wizard's own (PlayerStats.txt's school stats - the worn gear in them) with
-the worn piece's stats taken off and the candidate's added. offence = the damage curve (battlesim.damage_multiplier) x
+the worn piece's stats taken off and the candidate's added (baseline: a total not sent at least the worn piece's own;
+health not sent - not counted). offence = the damage curve (battlesim.damage_multiplier) x
 the hit chance (the school's own accuracy + accuracy, at most 100 %) x a critical's worth on average (crit_chance /
 crit_mult against ENEMY_BLOCK) x what's left of ENEMY_RESIST after pierce; defence = health / (1 - resist) x incoming
 healing; pips = 1 + half the power-pip chance + 0.1 a starting pip; healing = 1 + outgoing healing %. Each by its log, the
@@ -378,6 +379,23 @@ def swapped(totals, worn_d, cand_d):
     return out
 
 
+def baseline(totals, worn_d, cand_d):
+    """(totals, worn_d, cand_d) a swap is scored on: a total not sent is 0 (Gear.ahk sends no pp, pips, heal, incheal,
+    cards - nor a stat PlayerStats hasn't), but the wizard wears the worn piece, so each total is at least what that piece
+    gives - taken off a 0 it'd go below 0 and be clamped there, a loss counted as nothing (a power-pip ring swapped for a
+    damage one for free); and health not known (hp 0): health isn't counted at all (both pieces' health left out) - on a
+    baseline of 1 a +20 health would outweigh every other stat, and the wizard's own health (thousands) is what makes a
+    piece's few hundred count little"""
+    t = {k: float((totals or {}).get(k) or 0) for k in TOTAL_KEYS}
+    wd, cd = dict(worn_d or {}), dict(cand_d or {})
+    if t["hp"] <= 0:
+        wd["hp"] = cd["hp"] = 0
+    for k in TOTAL_KEYS:
+        if wd.get(k, 0) > t[k]:
+            t[k] = float(wd[k])
+    return t, wd, cd
+
+
 def why_text(worn_d, cand_d):
     """"damage +4, health +120, resist -2" - what changes (the totals' keys that differ)"""
     names = {"damage": "damage", "pierce": "pierce", "crit": "critical", "block": "block", "acc": "accuracy",
@@ -413,14 +431,27 @@ def compare(worn, cand, totals, role, school, level, weights=None):
     if cand["stats"] is None or worn["stats"] is None:
         return None, None, "%s equip effects couldn't be read" % ("its" if cand["stats"] is None else "the worn piece's")
     if not cand["scored_unknown"] and not worn["scored_unknown"]:
-        s0 = score(totals, role, school, level, weights)
-        s1 = score(swapped(totals, worn["delta"], cand["delta"]), role, school, level, weights)
+        base, wd, cd = baseline(totals, worn["delta"], cand["delta"])
+        s0 = score(base, role, school, level, weights)
+        s1 = score(swapped(base, wd, cd), role, school, level, weights)
         return round((s1 - s0) * 100, 2), "stats", why_text(worn["delta"], cand["delta"])
     lw, lc = worn.get("level_req"), cand.get("level_req")
     unk = sorted(set(cand["scored_unknown"]) | set(worn["scored_unknown"]))
     if lw is not None and lc is not None:
         return float(lc - lw), "level", "level %d vs %d (the stats' sizes not known: %s)" % (lc, lw, ",".join(unk[:4]))
     return None, None, "the stats' sizes not known (%s) and no level requirement to go by" % ",".join(unk[:4])
+
+
+def empty_worth(cand, totals, role, school, level, weights=None):
+    """(sure, worth) of a piece for a slot with nothing worn - which of several to put on (compare's "empty" is the same
+    100 for all of them): sure 2 its score against nothing worn (every stat that counts known - log-points), 1 its level
+    requirement (a stat's size not known), 0 neither"""
+    if cand.get("stats") is not None and not cand.get("scored_unknown"):
+        base, wd, cd = baseline(totals, {}, cand["delta"])
+        return 2, score(swapped(base, wd, cd), role, school, level, weights) - score(base, role, school, level, weights)
+    if cand.get("level_req") is not None:
+        return 1, float(cand["level_req"])
+    return 0, 0.0
 
 
 def swap_plan(worn, bag, totals, school="", level=None, role="hitter", margin=MARGIN, allow_sets=False, weights=None,
@@ -476,12 +507,15 @@ def swap_plan(worn, bag, totals, school="", level=None, role="hitter", margin=MA
                 continue
             better = delta >= (margin if basis == "stats" else 1)
             j["verdict"] = "better" if better else "not better"
-            # (of several better ones: the surest basis first - the score's -, then the most better)
-            if better and (best is None or (_rank(basis), delta) > (_rank(best[2]), best[1])):
-                best = (c, delta, basis, cwhy)
+            # (of several better ones: the surest basis first - the score's -, then the most better; nothing worn there:
+            # each is "empty" 100 - the best of them by its own stats, else its level requirement - empty_worth)
+            key = (_rank(basis), delta) + (empty_worth(c, totals, role, school, level, weights) if basis == "empty"
+                                           else (0, 0.0))
+            if better and (best is None or key > best[4]):
+                best = (c, delta, basis, cwhy, key)
         if best is None:
             continue
-        c, delta, basis, cwhy = best
+        c, delta, basis, cwhy, _ = best
         plan.append({"slot": slot, "gid": c.get("gid"), "tid": c.get("tid"), "name": c.get("display") or c.get("name"),
                      "worn_gid": w.get("gid") if w else None, "worn_name": (w.get("display") or w.get("name")) if w else "",
                      "delta": delta, "basis": basis, "held": held,
@@ -545,6 +579,20 @@ def new_items(before_gids, items):
     """the items whose gid isn't among before_gids (the backpack at the run's start) - this run's drops"""
     before = set(before_gids or ())
     return [it for it in items or [] if it.get("gid") and it["gid"] not in before]
+
+
+def owned_gids(reading):
+    """[gid] a run's start is noted by: the backpack's (bag_gids - every item) and the worn pieces' - a piece worn at the
+    start and taken off during the run (you put on the plan's piece) is in the backpack at its end, and isn't a drop"""
+    r = reading or {}
+    out = list(r.get("bag_gids") or [])
+    have = set(out)
+    for w in r.get("worn") or []:
+        g = w.get("gid")
+        if g and g not in have:
+            have.add(g)
+            out.append(g)
+    return out
 
 
 def log_drops(drops, new, when):
@@ -658,9 +706,10 @@ class DropBook:
         os.replace(tmp, path)
 
     def mark(self, run, reading, when):
-        """a run started: the backpack's ids kept (the next run_end's drops are the items not among them)"""
+        """a run started: the backpack's and the worn pieces' ids kept (owned_gids - the next run_end's drops are the
+        items not among them)"""
         st = self.load_state(run)
-        st["before"] = list((reading or {}).get("bag_gids") or [])
+        st["before"] = owned_gids(reading)
         st["at"] = when
         self.save_state(run, st)
         return st
@@ -670,8 +719,8 @@ class DropBook:
         drops not counted this time), unread (its new items whose slot couldn't be read), upgrade} - this run's new gear
         logged, an upgrade (a new piece in the plan, or a slot now worn with a drop of this run's that wasn't before)
         resets dry, else +1 - not when its drops weren't all known (not marked, or a new item not read): dry kept then;
-        done_check; the backpack's ids kept for the next run. reading: gearmem's (bag - gear items and unread ones -,
-        bag_gids - every item -, worn). marked False (/gear's nomark=1 - Gear.ahk: this run's start wasn't noted, the
+        done_check; the backpack's and worn ids kept for the next run. reading: gearmem's (bag - gear items and unread
+        ones -, bag_gids - every item -, worn). marked False (/gear's nomark=1 - Gear.ahk: this run's start wasn't noted, the
         mark failed or gearswap was off then): the state's before= is an older run's - never taken for this one's start
         (it would count everything picked up since as this dungeon's drops): not counted, the backpack kept afresh"""
         reading = reading or {}
@@ -697,7 +746,7 @@ class DropBook:
         st["dry"] = 0 if upgrade else st.get("dry", 0) + (1 if marked and not unread else 0)
         worn_list = [{"slot": s, "tid": t} for s, t in worn_now.items()]
         done, why = done_check(slots, worn_list, drops, st["dry"], stopafter)
-        st.update(done=done, why=why, at=when, worn=worn_now, before=list(reading.get("bag_gids") or []))
+        st.update(done=done, why=why, at=when, worn=worn_now, before=owned_gids(reading))
         if new:
             self.save_drops(run, drops)
         self.save_state(run, st)
@@ -826,7 +875,7 @@ def answer(r, why, q, drops_dir=None, known_text="", when=None):
         if not school:
             plan["notes"].append("your school isn't known: a school's own stats and school-only pieces can't be judged")
         if not totals.get("hp"):
-            plan["notes"].append("your health isn't known (hp=): health and resist count for little")
+            plan["notes"].append("your health isn't known (hp=): a piece's health isn't counted (resist still is)")
         if any(h.startswith("index:") for it in (r.get("worn") or []) + (r.get("bag") or [])
                for h in item_stats(it.get("effects"))[2].values()):
             plan["notes"].append("some stats are lookup indexes (#N), not values: their sizes aren't read yet - those "
@@ -839,7 +888,7 @@ def answer(r, why, q, drops_dir=None, known_text="", when=None):
             if q.get("mark") == "1":
                 st = book.mark(name, r, when)
                 run = {"name": name, "runs": st.get("runs"), "dry": st.get("dry"), "stopafter": "", "done": st.get("done"),
-                       "why": "marked: the backpack's %d items kept" % len(st.get("before") or []), "new": []}
+                       "why": "marked: the %d items in the backpack and worn kept" % len(st.get("before") or []), "new": []}
             elif q.get("end") == "1":
                 slots = parse_slots(q.get("slots"))
                 if not slots:

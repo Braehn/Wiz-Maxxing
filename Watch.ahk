@@ -44,7 +44,8 @@ WatchIsOn()
 	}
 
 ;root: the bot's folder (where Wiz-Maxxing.exe is). wantOn: the Startup shortcut made, and the watcher started now
-;(not only at the next sign-in); off: the shortcut deleted and a running watcher closed. True if done
+;(not only at the next sign-in) - one running from another folder closed first: it would go on opening that folder's
+;bot till you next sign in (2026-11-27); off: the shortcut deleted and a running watcher closed. True if done
 WatchSet(root, wantOn)
 	{
 	global ErrorLevel ; (v1 globals it sets)
@@ -55,6 +56,9 @@ WatchSet(root, wantOn)
 		V1Do(FileCreateShortcut, p.target, link, root, p.args, "Opens the Wizard101 bot when Wizard101 starts (in standby - " WatchBotKey(root "\AutoFarmer") " starts it)")
 		if (ErrorLevel)
 			return false
+		DetectHiddenWindows(true)
+		for i, pid in WatchPids(root)
+			WatchClosePid(pid)
 		if (!WatchPids().Length)
 			BotRun(root "\Wiz-Maxxing", "/watch", root)
 		return true
@@ -62,22 +66,30 @@ WatchSet(root, wantOn)
 	V1Do(FileDelete, link)
 	DetectHiddenWindows(true)
 	for i, pid in WatchPids()
-		{
-		;(v1: WinClose of a window that's gone meanwhile did nothing - v2 throws)
-		try WinClose("ahk_pid " pid " ahk_class AutoHotkey")
-		ErrorLevel := ProcessWaitClose(pid, 3)
-		if (ErrorLevel)
-			ErrorLevel := ProcessClose(pid)
-		}
+		WatchClosePid(pid)
 	return !FileExist(link)
 	}
 
-;The running watchers' pids: Wiz-Maxxing.exe /watch, or AutoHotkey running Wiz-Maxxing.ahk /watch
-WatchPids()
+;A running watcher closed: politely, forced after 3 s
+WatchClosePid(pid)
+	{
+	global ErrorLevel ; (v1 globals it sets)
+	;(v1: WinClose of a window that's gone meanwhile did nothing - v2 throws)
+	try WinClose("ahk_pid " pid " ahk_class AutoHotkey")
+	ErrorLevel := ProcessWaitClose(pid, 3)
+	if (ErrorLevel)
+		ErrorLevel := ProcessClose(pid)
+	}
+
+;The running watchers' pids: Wiz-Maxxing.exe /watch, or AutoHotkey running Wiz-Maxxing.ahk /watch. notFrom: only the
+;ones that aren't that folder's (their Wiz-Maxxing.exe / .ahk elsewhere)
+WatchPids(notFrom := "")
 	{
 	pids := []
+	mine := notFrom = "" ? "" : RTrim(notFrom, "\") "\Wiz-Maxxing."
 	for p in ComObjGet("winmgmts:").ExecQuery("SELECT ProcessId, CommandLine FROM Win32_Process WHERE CommandLine LIKE '%Wiz-Maxxing%/watch%'")
-		if (p.ProcessId != DllCall("GetCurrentProcessId") && RegExMatch(p.CommandLine, "i)Wiz-Maxxing\.(exe|ahk)`"?\s+/watch\b"))
+		if (p.ProcessId != DllCall("GetCurrentProcessId") && RegExMatch(p.CommandLine, "i)Wiz-Maxxing\.(exe|ahk)`"?\s+/watch\b")
+			&& (mine = "" || !InStr(p.CommandLine, mine)))
 			pids.Push(p.ProcessId)
 	return pids
 	}

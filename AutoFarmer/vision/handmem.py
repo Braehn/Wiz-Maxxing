@@ -78,7 +78,9 @@ import os
 import re
 import struct
 import sys
+import threading
 import time
+import weakref
 from collections import Counter
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -116,6 +118,9 @@ VT_CLASSES = ("GraphicalSpell", "Spell", "SpellCheckBox", "CombatPlanningPhaseWi
               "ClientCombatParticipant")
 WINDOW_NAME = N.DATA["window_name"]   # (Window.m_sName: +0x50, as navmem reads the HUD's)
 RESCAN_EVERY = 2.0                    # s between looks for a place that failed (another build only)
+GET_TYPE_WIDE = 0x200                 # find_types' second limit for a GetType's name LEA (questmem.GET_TYPE_LIM)
+PROV_MISSES = 30                      # hand reads in a row not matching before a participant found by looking is dropped
+TM_CANDS = 64                         # places looked at again a look (in turn - all kept) for a template map not found
 
 
 # ============================================================================ the game's code (a copy, read-only)
@@ -196,6 +201,28 @@ class Image:
         return find_types(self, name)
 
 
+_SHARED, _SHARED_LOCK = {}, threading.Lock()     # id(game) -> a weak reference to its Image (shared_image)
+
+
+def shared_image(st):
+    """Image(st) - the one a reader being made at the same time already holds, when there is one: the readers are made
+    in threads of their own, several at once after an attach (hand, quests, mobs, doors, backpack...), and each copied
+    and indexed the whole game image itself (0.3 s, 50-175 MB each). Kept by a weak reference only: dropped with the
+    last reader done with it (each del's its own), so nothing stays in memory and a reader made later reads it anew"""
+    with _SHARED_LOCK:
+        for k in [k for k, r in _SHARED.items() if r() is None]:
+            del _SHARED[k]
+        r = _SHARED.get(id(st))
+        img = r() if r is not None else None
+        if img is None or getattr(img, "st", None) is not st:
+            img = Image(st)
+            try:
+                _SHARED[id(st)] = weakref.ref(img)
+            except TypeError:            # (one that can't be referred to weakly - a made-up one: not shared)
+                pass
+        return img
+
+
 def types_at(img, addrs, lim=0x80):
     """[(GetType function, static Type** or None, [vtables])] for the copies of a class name at addrs in .rdata: each
     function that LEAs one within lim bytes of its start (questmem's GetTypes: more), the Type* it caches there (the
@@ -228,11 +255,18 @@ def find_types(img, name, lim=0x80):
     and a vtable is found so, its copies right after other bytes too (img.strings loose). Build 6AFBB954-37B4000
     (2026-11-20): the only copy of "CombatPlanningPhaseWindow" its GetType loads came right after two bytes of a
     constant, "(@" - the NUL-led copy is another, loaded by nothing - and the hand, the backpack, the decks and the GUI
-    root went unread from the game's patch on"""
+    root went unread from the game's patch on. When neither finds one within lim, the same again within GET_TYPE_WIDE
+    (questmem's limit: WizGoalData's GetType loads its name at +0x13F) - a patch that grows a GetType's prologue (a lock,
+    a stack cookie) then costs nothing, and a build where lim does find it is read exactly as before"""
+    def whole(out):
+        return any(st is not None and vts for _fn, st, vts in out)
     out = types_at(img, img.strings(name), lim)
-    if any(st is not None and vts for _fn, st, vts in out):
+    if whole(out):
         return out
-    return out + types_at(img, img.strings(name, loose=True), lim)
+    out = out + types_at(img, img.strings(name, loose=True), lim)
+    if whole(out) or lim >= GET_TYPE_WIDE:
+        return out
+    return find_types(img, name, GET_TYPE_WIDE)
 
 
 # lea r8/r9(d), [base + disp8/disp32]: REX 0x44/0x45/0x4C/0x4D, 8D, modrm mod 1|2
@@ -265,17 +299,18 @@ def _off_before(code, end, want_reg):
     return best
 
 
-def class_props(img, name, max_len=0x6000):
+def class_props(img, name, max_len=0x6000, get_types=None):
     """({property name: (offset, adder rva)}, GetType function, [vtables]) for class name, read from its registration
     code: GetType's first-call path creates the Type and registers each property inline -
         lea r8|r9, [reg + OFFSET]     (the property's offset: reg is 0 there)
         lea rdx|r8, [rip + "m_name"]  (its name, a C string in .rdata)
         call AddProperty<T>
     in the first of the functions after GetType that LEAs an m_ name. Nothing is guessed: a name whose offset isn't
-    found isn't returned; ({}, None, []) when the class isn't in this build"""
+    found isn't returned; ({}, None, []) when the class isn't in this build. get_types: img.get_types's stand-in
+    (questmem's longer prologue) - img itself never changed, a shared_image being read by other threads too"""
     st = img.st
     out, gt, vts = {}, None, []
-    for fn, static, v in img.get_types(name):
+    for fn, static, v in (get_types or img.get_types)(name):
         if static is None or not v:
             continue
         gt, vts = fn, v
@@ -380,7 +415,7 @@ def read_enum(img, first, prop, cls, log=None):
                     tg = t0 + q + 4 + struct.unpack_from("<i", text, q)[0]
                     if img.m.in_section(tg, ".rdata"):
                         sname = rdata[tg - r0: tg - r0 + 64].split(b"\0")[0]
-                        if re.fullmatch(rb"k[A-Za-z0-9_]{2,}", sname) and rdata[tg - r0 - 1] == 0:
+                        if re.fullmatch(rb"k[A-Za-z0-9_]{2,}", sname) and name_starts(rdata, tg - r0):
                             out[v] = sname.decode()
                             break
         return out
@@ -390,17 +425,24 @@ def read_enum(img, first, prop, cls, log=None):
         return {}
 
 
+def name_starts(rdata, i):
+    """whether the name at rdata[i:] starts there: the byte before it no letter, digit or _ - a NUL, or the last byte of
+    a constant the linker put it right after (build 6AFBB954-37B4000: "(@CombatPlanningPhaseWindow") - so not the tail of
+    a longer name a load reaches into (movups xmm0, [rip+name+16]). A NUL before it isn't needed any more"""
+    return 0 < i <= len(rdata) and not (rdata[i - 1:i].isalnum() or rdata[i - 1] == 0x5F)
+
+
 def enum_by_prop(img, prop, lo, tgt):
     """{value: 'kName'} of a reflected enum property's options by the property's own name, which the registration code
     loads RIP-relative once for each option (build 6B05FDF0-37BB000, 2026-11-26: a copy of the name of its own for each,
     the option names no longer one run in .rdata, the short ones built in place - movups xmm0,[rip+name] - the long ones
     lea rdx,[rip+name]). From one load of it to the next: the value stored first (ENUM_STORE - a register: 0) and the
-    option's name, the last k-string loaded RIP-relative before that store (a whole one - a NUL before it - by an operand
+    option's name, the last k-string loaded RIP-relative before that store (a whole one - name_starts - by an operand
     with modrm mod 00 r/m 101). The last load's code isn't bounded by another - the property's own after its options, the
     next property's options after it (SpellEffect: m_disposition's kBoth): not read. lo: GetType's offset in .text, tgt:
     the RIP-relative target a disp32 at each byte from there on would have (read_enum's)"""
     import numpy as np
-    addrs = img.strings(prop)
+    addrs = img.strings(prop) + img.strings(prop, loose=True)     # (a copy right after other bytes too: find_types)
     if not addrs:
         return {}
     r0, rdata = img.secs[".rdata"]
@@ -416,7 +458,7 @@ def enum_by_prop(img, prop, lo, tgt):
             if (text[lo + q - 1] & 0xC7) != 0x05:
                 continue
             tg = int(tgt[q])
-            if tg <= r0 or not img.m.in_section(tg, ".rdata") or rdata[tg - r0 - 1] != 0:
+            if tg <= r0 or not img.m.in_section(tg, ".rdata") or not name_starts(rdata, tg - r0):
                 continue
             s = rdata[tg - r0: tg - r0 + 80].split(b"\0")[0]
             if ENUM_NAME.fullmatch(s):
@@ -489,7 +531,7 @@ class HandMem:
         t0 = time.perf_counter()
         self.st, self.p = st, st.p
         self.build = st.m.build
-        img = Image(st)
+        img = shared_image(st)
         P = {nm: class_props(img, nm)[0] for nm in CLASSES}
         missing = [c + "." + k for c, ks in NEED.items() for k in ks if k not in P[c]]
         if missing:
@@ -517,8 +559,13 @@ class HandMem:
         self.how = {}
         self._cand = {}              # a place found in one window, waiting for a second: key -> {offset: {windows}}
         self._prov = {}              # the place last found for key, not kept yet (used, checked by type, till it's kept)
+        self._prov_miss = {}         # (key, place) -> hand reads in a row its hand list didn't match (ss_participant)
+        self._prov_bad = {}          # key -> places dropped for that (passed over by the next look)
         self._next_scan = {}
         self.win = {}                # the planning, spell selection and hand windows (checked at every read)
+        self._tm_cands = []          # (the template map not found: the places that may hold it once it's filled)
+        self._tm_first = 1           # (how many of them each look reads: the known static, those named Template)
+        self._tm_at = 0              # (where the next look at the others goes on - TM_CANDS a look, in turn)
         self.tm = self._template_map(img)
         self.tpl = {}                # template id -> its info (templates don't change while the game runs)
         self.lang = {}               # name table -> {key: text}
@@ -587,7 +634,8 @@ class HandMem:
         import numpy as np
         d0, data = img.secs[".data"]
         q = np.frombuffer(data[:len(data) // 8 * 8], dtype=np.uint64)
-        for i in np.flatnonzero((q > 0x10000000) & (q < 0x7FF000000000) & ((q & 7) == 0)):
+        idx = np.flatnonzero((q > 0x10000000) & (q < 0x7FF000000000) & ((q & 7) == 0))
+        for i in idx:
             obj = int(q[i])
             if not self.p.try_read(obj, 0x80):
                 continue
@@ -597,8 +645,48 @@ class HandMem:
                     if self._lookup(head, None):
                         self.how["template_map"] = "static rva %#x +%#x (found)" % (d0 + int(i) * 8 - self.st.m.base, off)
                         return head
-        self.how["template_map"] = "not found"
+        # (not found - maybe not filled yet: a client just started, the reader made at the login box. The known static
+        # and every map too small yet kept - ALL of them, not the first few in .data's order: a singleton's empty map is
+        # common, and a moved static may come late - an object whose type name says Template first: template_head
+        # looks at them again (TM_CANDS a look, in turn), so the cards, the backpack's names and the decks aren't lost
+        # for the whole game process)
+        first, rest = [(self.st.m.base + KNOWN["tm_rva"], KNOWN["tm_map"])], []
+        for i in idx:
+            obj = int(q[i])
+            b = self.p.try_read(obj, 0x80) or b""
+            got = []
+            for off in range(8, min(0x78, len(b) - 8), 8):
+                head, size = struct.unpack_from("<QQ", b, off)
+                if (N.ptr_ok(head) and size < 1000 and self.u8(head + 0x19) == 1
+                        and self.u64(self.u64(head + 8) + 8) == head):
+                    got.append((d0 + int(i) * 8, off))
+            if got:
+                (first if "Template" in (self.tname(obj) or "") else rest).extend(got)
+        self._tm_cands, self._tm_first = first + rest, len(first)
+        self.how["template_map"] = "not found (%d places looked at again later, %d at a look)" % (
+            len(self._tm_cands), TM_CANDS)
         return 0
+
+    def template_head(self):
+        """the template map's head node (self.tm); when it wasn't found as the reader was made, the places _template_map
+        kept looked at again (each static's pointer read again - at most every RESCAN_EVERY s: the known static and
+        those whose object is named Template each look, the others TM_CANDS a look, in turn); 0 not found yet"""
+        if self.tm or not self._tm_cands or not self._due("template_map"):
+            return self.tm
+        n = self._tm_first
+        rest = self._tm_cands[n:]
+        k = self._tm_at if self._tm_at < len(rest) else 0
+        self._tm_at = k + TM_CANDS
+        for at, off in self._tm_cands[:n] + rest[k:k + TM_CANDS]:
+            obj = self.u64(at)
+            if N.ptr_ok(obj) and self._map_ok(obj, off):
+                head = self.u64(obj + off)
+                if self._lookup(head, None):
+                    self.tm, self._tm_cands = head, []
+                    self.how["template_map"] = "static rva %#x +%#x (found later)" % (at - self.st.m.base, off)
+                    self.log("handmem: template map found later - %s" % self.how["template_map"])
+                    break
+        return self.tm
 
     def _lookup(self, head, tid):
         """the template for tid in the map at head (tid None: any node's - the map holds templates), else 0"""
@@ -616,7 +704,7 @@ class HandMem:
 
     def template(self, tid):
         """(the template object for id tid, or 0)"""
-        if not tid or not self.tm:
+        if not tid or not self.template_head():
             return 0
         return self._lookup(self.tm, tid)
 
@@ -680,7 +768,8 @@ class HandMem:
 
     def _named(self, obj, off, name):
         v = self.u64(obj + off)
-        return v if N.ptr_ok(v) and self.p.try_string(v + WINDOW_NAME) == name else 0
+        # (the name where this build registers Window.m_sName - wname's -, not navmem's fixed +0x50)
+        return v if N.ptr_ok(v) and self.wname(v) == name else 0
 
     def root(self):
         """the GUI's root window (the one whose children hold the HUD), or 0"""
@@ -806,12 +895,29 @@ class HandMem:
         if not self._due(key + "%x" % obj):
             return 0, None
         raw = self.p.try_read(obj, size) or b""
+        bad = self._prov_bad.get(key, set())
         for i in range(0, len(raw) - 7, 8):
             v = struct.unpack_from("<Q", raw, i)[0]
-            if N.ptr_ok(v) and self._vt(v) in vts:
+            if i not in bad and N.ptr_ok(v) and self._vt(v) in vts:
                 self._prov[key] = i
                 return v, i
+        bad.clear()                  # (every one passed over: looked at all again next time)
         return 0, None
+
+    def _prov_missed(self, key, at):
+        """a read with key's place at (found by looking, not kept) whose check failed - for ss_participant, its hand list
+        not the cards shown: PROV_MISSES in a row and the place is dropped, the next look going on past it (the first
+        pointer of the type in the window may be another participant's - the target's - whose hand never matches: kept
+        to, the memory hand would read 'hand changing' for the whole game process)"""
+        n = self._prov_miss[(key, at)] = self._prov_miss.get((key, at), 0) + 1
+        if n < PROV_MISSES:
+            return
+        self._prov_miss.pop((key, at), None)
+        self._prov_bad.setdefault(key, set()).add(at)
+        if self._prov.get(key) == at:
+            self._prov.pop(key, None)
+        self.log("handmem: %s at +%#x dropped - %d reads in a row didn't check out; looked for again past it" % (
+            key, at, PROV_MISSES))
 
     def participant(self, ss):
         """(my ClientCombatParticipant: the pointer of that type in the spell selection window (+0x358 now) or 0, the
@@ -947,7 +1053,8 @@ class HandMem:
         if info:
             r.update(info)
         rank = f("m_pipCost", "<Q")
-        rr = self.p.try_read(rank, R["m_xPipSpell"][0] + 1) if N.ptr_ok(rank) else None
+        # (read to the last of the SpellRank fields used, whichever it is in this build - not m_xPipSpell taken as last)
+        rr = self.p.try_read(rank, max(R[k][0] for k in NEED["SpellRank"]) + 1) if N.ptr_ok(rank) else None
         if rr:
             r.update(pips=rr[R["m_spellRank"][0]], x_pips=bool(rr[R["m_xPipSpell"][0]]),
                      shadow_pips=rr[R["m_shadowPips"][0]],
@@ -1095,6 +1202,11 @@ class HandMem:
         gs = [cd.get("_g") for cd in own]
         if (items is None or size is None or len(own) != len(items) or len(items) != size or 0 in gs or None in gs
                 or set(gs) != set(items) or not all(cd.get("name") for cd in shown)):
+            # (a participant found by looking whose hand isn't these - counted only when the cards shown read whole:
+            # a card's spell or name not read says nothing of the participant, the right one kept)
+            if (c_at is not None and own and 0 not in gs and None not in gs
+                    and all(cd.get("name") for cd in shown)):
+                self._prov_missed("ss_participant", c_at)
             out.update(state="changing", why="hand changing")
             out["cards"] = shown
             return
@@ -1103,6 +1215,7 @@ class HandMem:
             cd.pop("_g", None)
         # (a participant found by looking - another build: its hand list is the cards shown, the second look - kept)
         if c_at is not None:
+            self._prov_miss.pop(("ss_participant", c_at), None)
             self._confirm("ss_participant", c_at, "its hand list is the cards shown")
             self._confirm("ss_participant", c_at, ss)
         out.update(state="hand", settled=True, why="", cards=shown)

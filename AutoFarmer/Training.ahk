@@ -131,7 +131,19 @@ TrainBookTick()
 		if (tbtWho != TrainBookWho)
 			TrainBookWho := tbtWho, TrainLastNew := "", TrainNewQueue := ""
 		tbtPath := A_ScriptDir "\learned\spellbook_" tbtWho ".txt"
-		tbtKnown := TrainBookLoad(tbtPath)
+		tbtFailed := false
+		tbtKnown := TrainBookLoad(tbtPath, &tbtFailed)
+		;(its file there but not read - in use by another program a moment: not a first look - that wrote the whole book
+		;again under a second note and took the newest spells as known; looked at again in TrainRetry's time, said once)
+		if (tbtFailed)
+			{
+			TrainBookWait := TrainRetry()
+			tbtSay := tbtN " known (learned\spellbook_" tbtWho ".txt couldn't be read - looked at again soon)"
+			if (TrainBookSaid != tbtSay)
+				DebugLog("Spells: " tbtN " known, but learned\spellbook_" tbtWho ".txt couldn't be read - nothing written, looked at again in " TrainRetry() // 60000 " minutes")
+			TrainBookSaid := tbtSay
+			return
+			}
 		if (!IsObject(tbtKnown))
 			{
 			;(the first look at this wizard: its file written, nothing new)
@@ -234,9 +246,11 @@ TrainBookRead(&why := "")
 	return tbr
 	}
 
-;The template ids a wizard's file holds ({tid: 1}), or "" when there's no file yet (its first look)
-TrainBookLoad(path)
+;The template ids a wizard's file holds ({tid: 1}), or "" when there's no file yet (its first look) - and "" with failed
+;set when the file is there but couldn't be read (v2's Loop Read throws: in use by another program): never a first look
+TrainBookLoad(path, &failed := false)
 	{
+	failed := false
 	if (!FileExist(path))
 		return ""
 	tblK := V1Obj()
@@ -249,7 +263,10 @@ TrainBookLoad(path)
 			}
 		}
 	catch
+		{
+		failed := true
 		return ""
+		}
 	return tblK
 	}
 

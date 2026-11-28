@@ -85,6 +85,9 @@ global DiscardedUnused ;(v1 never ran: DiscardedUnused := 0 - blank at start: Ca
 ;done (LearnOutOfBattle); cards' texts it may still read again this round (LearnSeenAgain). (This file is
 ;#Included at the bottom: an initializer here never runs - they start blank)
 global LearnArrangeQueue, LearnRunDone, LearnRereadsLeft
+;learned\slots_written.txt's changes not written yet - the file there but not read a moment ([{paths, add}]: LearnWritten;
+;blank at start: CardLearnBlank)
+global LearnWrittenWait
 
 ;---- Discarding what the bot never plays (normal battles) ----
 ;Once a round, after the hand's been read and learned (LastHandAnswer): every card in it the bot knows for sure
@@ -100,7 +103,7 @@ global LearnArrangeQueue, LearnRunDone, LearnRereadsLeft
 DiscardUnused()
 	{
 	global
-	local cards, f, c, i, k, o, did, most, pid, why, lc, own, ox
+	local cards, f, c, i, k, o, did, most, pid, why, lc, own, ox, queued
 	if (DiscardedUnused || LastHandAnswer = "" || !Stat("discardunused") || LearnAll)
 		return 0
 	DiscardedUnused := 1
@@ -145,6 +148,17 @@ DiscardUnused()
 		for k, o in own
 			if (o >= c.l - 5 && o <= c.l + c.w)
 				ox := o
+		;(nor a hit of the school waiting for room in hit1-3 after this battle - LearnArrange queued it, "p|<id>" - that
+		;room would really be made for: a free slot, or 15% stronger than the hit it would take the place of
+		;(LearnArrangePlan - asked only then, below). 2026-11-21: Ra thrown away "no free slot - room is made for it after
+		;this battle" with Scarab in hit1 to pay for, and put in hit2 a minute later. Kept, it's cast as a learned hit in no
+		;slot when none of hit1-3 can go - LearnHitCards. The queue alone isn't enough: every learned hit of the school
+		;with no slot is queued again each battle, the weak ones turned down after it - kept, they'd clog the hand)
+		queued := 0
+		if (IsObject(LearnArrangeQueue))
+			for k, o in LearnArrangeQueue
+				if (o = "p|" pid)
+					queued := 1
 		;(an enchant - a treasure card's Monstrous, say - is never thrown away: it goes on a hit, slot or no slot
 		;(CastLearnedHit); nor a card the hand's look says is a treasure card)
 		;(nor a Reshuffle: never thrown away - the way back to a full deck, 2026-10-25)
@@ -170,7 +184,8 @@ DiscardUnused()
 			|| (lc.type = "negaura" && LearnFlag(lc, "boost") != "")
 			|| ((lc.type = "sharpen" || lc.type = "potent" || lc.type = "prism") && LearnSlotFor(lc) != "")
 			;(a hit of the school while no hit1-3 in hand can go: cast this round instead - LearnHitCards)
-			|| (LearnIsHit(lc) && Stat("learnedhits") && !((hit1 == 1 && Affordable("hit1")) || (hit2 == 1 && Affordable("hit2")) || (hit3 == 1 && Affordable("hit3")))))
+			|| (LearnIsHit(lc) && Stat("learnedhits") && (!((hit1 == 1 && Affordable("hit1")) || (hit2 == 1 && Affordable("hit2")) || (hit3 == 1 && Affordable("hit3")))
+				|| (queued && LearnArrangeOk(lc) && IsObject(LearnArrangePlan(lc).place)))))
 			{
 			i += 1
 			continue
@@ -178,6 +193,9 @@ DiscardUnused()
 		why := LearnWhyUnused(pid)
 		MoveToCard(Round(c.x), Round(c.y))
 		s(Stats.Has("clickwait") ? Stats["clickwait"] : 40)
+		;(another program's window over Wizard101 there - GameUnderMouse, Autofarmer.ahk: not clicked - as ClickAt)
+		if (!GameInTray && !GameUnderMouse("a discard"))
+			break
 		;(Wizard101 gone to the tray - Settings: traygame: not clicked - it would land on the window behind it)
 		if (GameInTray)
 			break
@@ -509,7 +527,7 @@ LearnAllDone(why)
 LearnAllRound()
 	{
 	global
-	local cards, f, c, i, k, o, did, kept, before, lc
+	local cards, f, c, i, k, o, did, kept, before, lc, cut
 	LearnAllRounds += 1
 	if (LastHandAnswer = "")
 		{
@@ -532,12 +550,13 @@ LearnAllRound()
 			LearnAllDone("the deck is used up")
 		return
 		}
-	LearnAllEmpty := 0, did := 0, kept := 0, i := 1
+	LearnAllEmpty := 0, did := 0, kept := 0, i := 1, cut := false
 	while (i <= cards.Length)
 		{
 		c := cards[i]
-		;(nor a treasure card - discarding one uses it up - nor one you said never to discard)
-		lc := (InStr(c.known, "learned/") = 1) ? LearnCardOf(SubStr(c.known, 9)) : ""
+		;(nor a treasure card - discarding one uses it up - nor one you said never to discard; a learned card in a slot is
+		;named by its slot, "fire/blade": the slot's learned card, LearnCardInSlot)
+		lc := (InStr(c.known, "learned/") = 1) ? LearnCardOf(SubStr(c.known, 9)) : (c.known != "") ? LearnCardInSlot(StrReplace(c.known, "/", "\")) : ""
 		if ((c.grey && c.known = "") || c.tc || (IsObject(lc) && (LearnHasFlag(lc, "tc") || LearnHasFlag(lc, "hold"))))
 			{
 			kept += 1, i += 1
@@ -545,9 +564,18 @@ LearnAllRound()
 			}
 		MoveToCard(Round(c.x), Round(c.y))
 		s(Stats.Has("clickwait") ? Stats["clickwait"] : 40)
+		;(another program's window over Wizard101 there - GameUnderMouse, Autofarmer.ahk: not clicked - as ClickAt)
+		if (!GameInTray && !GameUnderMouse("a discard"))
+			{
+			cut := true
+			break
+			}
 		;(Wizard101 gone to the tray - Settings: traygame: not clicked - it would land on the window behind it)
 		if (GameInTray)
+			{
+			cut := true
 			break
+			}
 		Click("right")
 		did += 1
 		cards.RemoveAt(i)
@@ -556,10 +584,14 @@ LearnAllRound()
 		s(Stat("discardafter"))
 		}
 	CenterMouse()
-	;(nothing learned or discarded: the greyed-out ones it keeps aren't coming into colour)
+	;(nothing learned or discarded: the greyed-out ones it keeps aren't coming into colour - a round whose discards were cut
+	;short before any, a window over the hand or Wizard101 in the tray, not counted: the deck wasn't cycled)
 	before := LearnAllIdle
-	LearnAllIdle := (did = 0 && LearnedCards.Length = LearnAllSeen) ? LearnAllIdle + 1 : 0
-	LearnAllSeen := LearnedCards.Length
+	if (!cut || did > 0)
+		{
+		LearnAllIdle := (did = 0 && LearnedCards.Length = LearnAllSeen) ? LearnAllIdle + 1 : 0
+		LearnAllSeen := LearnedCards.Length
+		}
 	DebugLog("  learn every card: discarded " did ", kept " kept " greyed-out unknown" (kept = 1 ? "" : "s") " - " LearnedCards.Length - LearnAllFrom " new so far")
 	if (LearnAllIdle >= 3)
 		LearnAllDone("nothing new for 3 rounds")
@@ -1094,14 +1126,19 @@ LearnSeenAgain(card)
 		;and nothing below guessed or read off the card)
 		;(a card never paired with the game before whose own kind or read pips the game's disagree with: the same game card
 		;in that box a second time first - one wrong pairing would rewrite a good card. One you set is yours to differ: only
-		;its blanks are filled in)
+		;its blanks are filled in. Its number or its name - one it was learned with, by OCR - the game's disagree with too: a
+		;look-alike picture paired with another card would have rewritten it at once. Its kind not known at all - an OCR-
+		;learned record, kind '' - waits too: the picture is all that paired it, and one look-alike sighting made it Ra at
+		;once, the real Ra then never learned (LearnGameKnown) - a round later is all it costs)
 		memR := IsObject(card.mem) ? LearnMemRead(card.mem) : ""
 		;(an object first: LearnMemWait is #Included blank, and a key set on a blank variable makes no object in AHK v1.1 -
 		;the second sighting was never seen, 2026-10-24: Hex learned as a blade stayed one, never in resources\trap3)
 		if (!IsObject(LearnMemWait))
 			LearnMemWait := V1Obj()
 		if (IsObject(memR) && LearnFlag(c, "game") = "" && memR.sure && !LearnHasFlag(c, "user")
-			&& ((c.type != "" && c.type != memR.kind) || (!c.guess && c.pips != "" && memR.pips != "" && c.pips != memR.pips)))
+			&& ((c.type != "" && c.type != memR.kind) || (c.type = "" && memR.kind != "") || (!c.guess && c.pips != "" && memR.pips != "" && c.pips != memR.pips)
+			|| (c.value != "" && memR.value != "" && c.value != memR.value)
+			|| (Trim(c.name) != "" && memR.name != "" && Trim(c.name) != memR.name && Trim(c.name) != memR.game)))
 			{
 			if (LearnMemWait[c.id] != memR.game)
 				{
@@ -1216,6 +1253,22 @@ LearnGameKnown(name)
 		if ((c.sch = hitschool || InStr(c.slot, "resources\") = 1) && LearnFlag(c, "game") = name)
 			return true
 	return false
+	}
+
+;The learned card (of your school, or in a shared slot - as LearnGameKnown) the game's card m is, by the name the game
+;gives it (flag game=, LearnMemGame) - "" none. For a box known by no picture: the memory's own boxes (memclicks:1 -
+;KillCalc.ahk MemBoxes) have known "", so the discards look for its Never discard (hold) this way (2026-11-27 review)
+LearnCardByGame(m)
+	{
+	if (!IsObject(m) || !IsObject(LearnedCards))
+		return ""
+	lcbName := LearnMemGame(m)
+	if (lcbName = "")
+		return ""
+	for i, c in LearnedCards
+		if ((c.sch = hitschool || InStr(c.slot, "resources\") = 1) && LearnFlag(c, "game") = lcbName)
+			return c
+	return ""
 	}
 
 ;The cards as the game's memory has them (Vision.ahk VisionCards - read-only: names, kinds, numbers, pips; nothing
@@ -2268,6 +2321,7 @@ LearnStatsBack(sch, rel, id)
 LearnOutOfBattle()
 	{
 	global LearnRunDone ; (v1 globals it sets)
+	static writtenTry := 0
 	if (inbattle = 1)
 		return 0
 	if (!IsObject(LearnRunDone))
@@ -2290,6 +2344,11 @@ LearnOutOfBattle()
 		if (LearnCheckCatalog())
 			LearnRecheckTexts()
 		}
+	;(learned\slots_written.txt's changes that couldn't be written - the file not read a moment: LearnWritten - tried again,
+	;once a minute: this runs every pass of the main loop out of battle, and a file that stays unreadable cost it 300 ms
+	;each time - walking, potions and the afk checks slowed)
+	if (IsObject(LearnWrittenWait) && LearnWrittenWait.Length && (!writtenTry || A_TickCount - writtenTry >= 60000))
+		writtenTry := A_TickCount, LearnWritten("", true)
 	return LearnArrangePending()
 	}
 
@@ -2683,6 +2742,23 @@ LearnArrangePending()
 LearnArrangeNow(c)
 	{
 	static said := V1Obj()
+	p := LearnArrangePlan(c)
+	if (p.why != "")
+		{
+		if (!said.Has(c.id "|" p.why))
+			said[c.id "|" p.why] := 1, DebugLog("  learned card " c.id " (" LearnDescribe(c) "): no room made for it - " p.why)
+		return 0
+		}
+	if (!IsObject(p.place))
+		return 0
+	return LearnLayout(c, p.place, p.victim)
+	}
+
+;What LearnArrangeNow would do for learned hit c, nothing changed: {place, victim} as LearnLayout takes them, or why
+;no room is made (why; place ""). Also asked in battle - DiscardUnused keeps a hit waiting for after it only when
+;room would be made for it (2026-11-27: one queued but "not 15% stronger" was kept in hand battle after battle)
+LearnArrangePlan(c)
+	{
 	sch := c.sch, have := LearnFileStats(), slots := [], free := ""
 	Loop 3
 		{
@@ -2728,11 +2804,7 @@ LearnArrangeNow(c)
 				why := "not 15% stronger than " sch "\hit" victim.n " (" victim.value ")", victim := ""
 			}
 		if (why != "")
-			{
-			if (!said.Has(c.id "|" why))
-				said[c.id "|" why] := 1, DebugLog("  learned card " c.id " (" LearnDescribe(c) "): no room made for it - " why)
-			return 0
-			}
+			return V1Obj({why: why, place: "", victim: ""})
 		}
 	;(who's in those slots after: the others and c, weakest first - equal: the one that was there first)
 	list := []
@@ -2758,8 +2830,8 @@ LearnArrangeNow(c)
 	;(nothing would move, nothing leave: it'd only go in a free slot out of order with your pinned ones - LearnSlotFor
 	;said no to that)
 	if (!moved && !IsObject(victim))
-		return 0
-	return LearnLayout(c, place, victim)
+		return V1Obj({why: "", place: "", victim: ""})
+	return V1Obj({why: "", place: place, victim: victim})
 	}
 
 ;Sorts list (of {value}) weakest first, keeping the order of equals
@@ -2928,6 +3000,18 @@ LearnLayout(c, place, victim)
 		edits.Push([kk, kk ":" occ.value "   `; " note])
 		edits.Push([kk "pips", kk "pips:" occ.pips])
 		edits.Push([kk "target", occ.hasTarget ? kk "target:" occ.target : ""])
+		;(and its heads by school - <school>.hitN<head's school>, KillCalc.ahk HitHeadsFind's for a slot with no learned
+		;card in it: one moved takes its lines to its new slot - your own cut Hydra in hit3, moved to hit2, was counted one
+		;Balance head there, its hit3 lines left behind; c's as LearnStats writes them)
+		lyHh := (occ.from = 0 && occ.value != "" && V1IsFunc("LearnHitHeads")) ? LearnHitHeads.Call(c) : ""
+		lyMany := IsObject(lyHh) && lyHh.sure && lyHh.total = occ.value && !(lyHh.heads.Count = 1 && lyHh.heads.Has(c.sch))
+		for lyI, lyS in ["balance", "death", "fire", "ice", "life", "myth", "storm"]
+			{
+			if (occ.from = 0)
+				edits.Push([kk lyS, (lyMany && lyHh.heads.Has(lyS)) ? kk lyS ":" lyHh.heads[lyS] : ""])
+			else
+				edits.Push([kk lyS, (before[sch ".hit" occ.from lyS] = "-") ? "" : RegExReplace(before[sch ".hit" occ.from lyS], "i)^\s*\Q" sch ".hit" occ.from lyS "\E", kk lyS)])
+			}
 		}
 	if (!LearnStatsWrite(edits))
 		{
@@ -3082,6 +3166,13 @@ LearnUndoLayout(c, why)
 	;(their numbers changed since - not just a comment: then the pictures stay too, or pictures and numbers wouldn't
 	;match; only this card comes out of its slot)
 	keys := LearnHitKeys(sch), now := LearnStatLines(keys), aft := LearnReadLines(snap "\after_stats.txt"), old := LearnReadLines(snap "\stats.txt")
+	;(a snapshot from before the heads went into it - v1.14.6 and older: its heads' lines in neither file - neither checked
+	;nor put back, as then)
+	ulKeys := []
+	for i, kk in keys
+		if (aft.Has(kk) || old.Has(kk) || !RegExMatch(kk, "\.hit\d(balance|death|fire|ice|life|myth|storm)$"))
+			ulKeys.Push(kk)
+	keys := ulKeys
 	for i, kk in keys
 		if (!aft.Has(kk) || LearnStatValue(now[kk]) != LearnStatValue(aft[kk]))
 			{
@@ -3129,47 +3220,78 @@ LearnSameState(after, cur)
 	return !LearnRealPic(cur ".png")
 	}
 
-;PlayerStats.txt's keys for school sch's hit1-3 (damage, pips, target, keep)
+;PlayerStats.txt's keys for school sch's hit1-3 (damage, pips, target, keep, and its heads by school: <school>.hitN<head's
+;school> - LearnLayout moves them with the hit, LearnUndoLayout puts them back)
 LearnHitKeys(sch)
 	{
 	out := []
 	Loop 3
 		{
 		n := A_Index
-		for i, sfx in ["", "pips", "target", "keep"]
+		for i, sfx in ["", "pips", "target", "keep", "balance", "death", "fire", "ice", "life", "myth", "storm"]
 			out.Push(sch ".hit" n sfx)
 		}
 	return out
 	}
 
 ;Slot pictures an arrangement wrote (rel paths in the AutoFarmer folder, one a line), kept in learned\slots_written.txt
-;so an update never puts the release's picture over them (Updater.ahk UpIsMine). add false: taken off it (put back)
+;so an update never puts the release's picture over them (Updater.ahk UpIsMine). add false: taken off it (put back).
+;paths "": only what waits written (LearnOutOfBattle). The file there but not read - held by another program a moment:
+;tried twice more, then never written over (read as empty, the slots in it were lost) - the change waits, in order
+;(LearnWrittenWait), for the next time it's written: the next arrangement, or between battles
 LearnWritten(paths, add)
 	{
+	global LearnWrittenWait ; (v1 globals it sets)
+	static lwSaid := 0
+	if (!IsObject(LearnWrittenWait))
+		LearnWrittenWait := []
+	if (paths != "")
+		LearnWrittenWait.Push(V1Obj({paths: paths, add: add}))
+	if (!LearnWrittenWait.Length)
+		return
 	file := A_WorkingDir "\learned\slots_written.txt"
-	have := V1FileRead(file)
+	;(ErrorLevel kept at once: Sleep lets another thread set it. paths "" - the retry between battles: one try, no Sleep)
+	Loop (paths = "" ? 1 : 3)
+		{
+		if (A_Index > 1)
+			Sleep(150)
+		have := V1FileRead(file), failed := ErrorLevel
+		if (!failed || !FileExist(file))
+			break
+		}
+	if (failed && FileExist(file))
+		{
+		;(said once while it can't be read - the retries between battles say nothing more)
+		if (paths != "" || !lwSaid)
+			lwSaid := 1, DebugLog("  couldn't read learned\slots_written.txt - not written over (the slots in it would be lost); the change is written when it can be read")
+		return
+		}
+	lwSaid := 0
 	list := V1Obj(), order := []
 	Loop Parse, have, "`n", "`r"
 		if (A_LoopField != "" && !list.Has(A_LoopField))
 			list[A_LoopField] := 1, order.Push(A_LoopField)
-	Loop Parse, paths, "`n", "`r"
-		{
-		if (A_LoopField = "")
-			continue
-		if (add && !list.Has(A_LoopField))
-			list[A_LoopField] := 1, order.Push(A_LoopField)
-		else if (!add)
-			list.Delete(A_LoopField)
-		}
-	out := ""
+	for i, job in LearnWrittenWait
+		Loop Parse, job.paths, "`n", "`r"
+			{
+			if (A_LoopField = "")
+				continue
+			if (job.add && !list.Has(A_LoopField))
+				list[A_LoopField] := 1, order.Push(A_LoopField)
+			else if (!job.add)
+				list.Delete(A_LoopField)
+			}
+	out := "", seen := V1Obj()
 	for i, p in order
-		if (list.Has(p))
-			out .= p "`r`n"
+		if (list.Has(p) && !seen.Has(p))
+			seen[p] := 1, out .= p "`r`n"
 	V1Do(DirCreate, A_WorkingDir "\learned")
 	;(written whole or not at all - LearnFileReplace: a cut list would let an update put the release's pictures over slots
 	;an arrangement wrote)
-	if (!LearnFileReplace(file, out))
-		DebugLog("  couldn't write learned\slots_written.txt (the disk full?) - the file kept as it was")
+	if (LearnFileReplace(file, out))
+		LearnWrittenWait := []
+	else if (paths != "")
+		DebugLog("  couldn't write learned\slots_written.txt (the disk full?) - the file kept as it was; the change is written with the next try")
 	}
 
 ;---- The Spells tab's (Spells.ahk) - call on the main thread, out of battle ----
@@ -3791,12 +3913,20 @@ LearnReadLines(file)
 	return out
 	}
 
-;s with everything but letters, digits and -_.~ as %XX (for a request's query string)
+;s with everything but letters, digits and -_.~ as %XX (for a request's query string) - its UTF-8 bytes, as the helper's
+;parse_qs reads them (Vision.ahk NavUri's way): a character's own number went out before - C:\Users\José's é as %E9, read
+;as a broken character, so /hand's thumbs= and /cut's out= weren't in the bot's folder and were turned down
 LearnUri(s)
 	{
+	luBuf := Buffer(StrPut(s, "UTF-8"), 0)
+	luLen := StrPut(s, luBuf.Ptr, "UTF-8") - 1
 	out := ""
-	Loop Parse, s
-		out .= RegExMatch(A_LoopField, "[A-Za-z0-9_.~-]") ? A_LoopField : "%" Format("{:02X}", Ord(A_LoopField))
+	Loop luLen
+		{
+		luB := NumGet(luBuf, A_Index - 1, "UChar")
+		out .= ((luB >= 48 && luB <= 57) || (luB >= 65 && luB <= 90) || (luB >= 97 && luB <= 122) || luB = 45 || luB = 46 || luB = 95 || luB = 126)
+			? Chr(luB) : "%" Format("{:02X}", luB)
+		}
 	return out
 	}
 
@@ -3806,7 +3936,7 @@ CardLearnBlank()
 	{
 	global LearnedThisRound := "", LearnMemWait := "", LearnedCards := "", LearnFreeCache := "", LastHandAnswer := "", LearnAll := ""
 	global LearnAllFrom := "", LearnAllRounds := "", LearnAllIdle := "", LearnAllEmpty := "", LearnAllSeen := "", DiscardedUnused := ""
-	global LearnArrangeQueue := "", LearnRunDone := "", LearnRereadsLeft := "", LearnHitFails := "", Discards := "", hit1 := "", hit1X := ""
+	global LearnArrangeQueue := "", LearnWrittenWait := "", LearnRunDone := "", LearnRereadsLeft := "", LearnHitFails := "", Discards := "", hit1 := "", hit1X := ""
 	global hit2 := "", hit2X := "", hit3 := "", hit3X := "", hit4 := "", hit4X := "", wand := "", wandX := "", heal1 := "", heal1X := "", heal2 := ""
 	global heal2X := "", blade := "", BladeX := "", blade3 := "", Blade3X := "", blade4 := "", Blade4X := "", sharpen := "", SharpX := ""
 	global potent := "", PotentX := "", trap := "", trapX := "", trap3 := "", trap3X := "", aura := "", auraX := "", tower := "", towerX := ""

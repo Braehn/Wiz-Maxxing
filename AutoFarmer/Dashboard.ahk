@@ -1737,8 +1737,10 @@ DashRefresh()
 		doing := StatusText
 	else
 		doing := "Watching"
+	;(the game's memory readers a game patch broke, when any are - Vision.ahk VisionReadersSay)
+	dashMem := VisionReadersSay()
 	;(the window's title says "Wizard101 bot")
-	DashSet("DashHead", BotVersion() "  |  up " upText "  |  vision " VisionStatus() "  |  " SubStr(doing, 1, 70))
+	DashSet("DashHead", BotVersion() "  |  up " upText "  |  vision " VisionStatus() (dashMem != "" ? " - " dashMem : "") "  |  " SubStr(doing, 1, 70))
 	;The version, and whether a newer one is out (the last look-up: UpdState) - the menu bar's "Update to vX" too
 	;(DashMenuTicks)
 	upd := UpdState()
@@ -2311,6 +2313,32 @@ DashUsage()
 			seen += 1
 			}
 		out[name] := seen ? DashUsageNum(cpu) "%" Chr(183) DashBytes(ram) : "-"
+		}
+	;(a process no longer looked at - the game closed and started again by the reconnect, a crash, the helper
+	;restarted: its handle closed and its times let go. GetProcessTimes still works on a handle to one that has
+	;exited, so it was kept open for good - one handle and one exited process held per restart). Only one that has
+	;exited (its exit code no longer STILL_ACTIVE, 259): carry mode's game PID swaps between the two clients every
+	;turn, and a live one not looked at this time keeps its handle and its times - else each swap showed it at 0%
+	looked := V1Obj()
+	for name, pids in who
+		for each, pid in pids
+			if (pid)
+				looked[pid] := 1
+	gone := []
+	for pid, h in procs
+		if (!looked.Has(pid))
+			{
+			code := 259
+			if (!h || (DllCall("GetExitCodeProcess", "Ptr", h, "UInt*", &code) && code != 259))
+				gone.Push(pid)
+			}
+	for each, pid in gone
+		{
+		if (procs[pid])
+			DllCall("CloseHandle", "Ptr", procs[pid])
+		procs.Delete(pid)
+		if (last.Has(pid))
+			last.Delete(pid)
 		}
 	;the whole PC: busy share of all cores since the last look, and RAM in use
 	st := Buffer(24, 0)

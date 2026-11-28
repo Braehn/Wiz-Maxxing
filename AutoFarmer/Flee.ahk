@@ -94,6 +94,9 @@ FleeCheck()
 		MouseMove(fx, fy + Px(70), MouseSpeedNow())
 		Sleep(150)
 		MouseMove(fx, fy, MouseSpeedNow())
+		;(another program's window over Wizard101 there - GameUnderMouse, Autofarmer.ahk: not clicked - as ClickAt)
+		if (!GameInTray && !GameUnderMouse("the Flee button again"))
+			return false
 		Sleep(80)
 		if (GameInTray)
 			return false
@@ -111,8 +114,13 @@ FleeCheck()
 	;fled - not taken for one: the counts kept, no "Fled" tip)
 	if (GameInTray)
 		return false
-	;(out of mana as well: a potion after it, whatever else it fled for)
-	FleeWhy := (InStr(why, "mana") || FleeNoMana >= 2) ? "mana" : "cards", FleeNoCards := 0, FleeNoMana := 0, FleeNoHits := 0
+	;(out of mana as well: a potion after it, whatever else it fled for. Carry mode, the carry's round (Carry.ahk CarryTurn):
+	;the carry fled - out of battle it's the main's window that's up (FleeAfter), so no potion, run or hold for the carry's
+	;mana there: said, nothing after it)
+	FleeWhy := (CarryOn && CarryTurn) ? "" : (InStr(why, "mana") || FleeNoMana >= 2) ? "mana" : "cards"
+	if (CarryOn && CarryTurn)
+		DebugLog("  the carry fled" ((InStr(why, "mana") || FleeNoMana >= 2) ? " (out of mana too)" : "") " - nothing done after it on the main's window (no potion for the carry's mana there)")
+	FleeNoCards := 0, FleeNoMana := 0, FleeNoHits := 0
 	TrayTip("Fled the battle: " why ". " (FleeWhy = "mana" ? "Drinking a potion (or buying some), then trying again." : "Trying again with a full deck."), "Wizard101 bot", 1)
 	return true
 	}
@@ -312,6 +320,13 @@ FleeRefillMana(why)
 	DebugLog(why ": no potion left - going to buy some")
 	if (PotionRun())
 		{
+		;(bought, but the run's drink held - the bot turned off or you playing: PotionRunCut, Potions.ahk. No Ctrl+O now
+		;either; whether there's mana isn't known - no hold, no alert: checkmana looks again, as for the tray)
+		if (PotionRunCut)
+			{
+			DebugLog(why ": bought potions - not drinking one now (the bot's off or you're playing): looked at again later")
+			return true
+			}
 		now := PotionGlobes().mana
 		if ((before != "" && now != "" && now > before) || FleeDrinkForMana(now))
 			{

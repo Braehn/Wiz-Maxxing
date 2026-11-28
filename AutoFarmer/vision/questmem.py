@@ -130,13 +130,9 @@ def get_types(img, name, lim=GET_TYPE_LIM):
 
 
 def class_props(img, name):
-    """handmem.class_props with get_types' longer prologue: ({property: (offset, adder rva)}, GetType, [vtables])"""
-    orig = img.get_types
-    img.get_types = lambda n: get_types(img, n)
-    try:
-        return H.class_props(img, name)
-    finally:
-        img.get_types = orig
+    """handmem.class_props with get_types' longer prologue: ({property: (offset, adder rva)}, GetType, [vtables]) - img
+    left as it is (a handmem.shared_image other readers' threads read at the same time)"""
+    return H.class_props(img, name, get_types=lambda n: get_types(img, n))
 
 
 def read_enum_run(img, gt, first, prop):
@@ -216,7 +212,7 @@ def madlib_arg_kinds(img, st, P):
     out = {}
     base = st.m.base
     r0 = img.secs[".rdata"][0]
-    for sa in img.strings("m_madlibArgument"):
+    for sa in img.strings("m_madlibArgument") + img.strings("m_madlibArgument", loose=True):   # (H.find_types' loose)
         for la in img.lea_at[img.lea_tgt == sa]:
             la = int(la)
             code = img.code_at(la - 0x40, 0x80)
@@ -406,7 +402,7 @@ class QuestMem:
         t0 = time.perf_counter()
         self.st, self.p = st, st.p
         self.build = st.m.build
-        img = H.Image(st)
+        img = H.shared_image(st)
         classes = sorted(set(NEED) | {c for c, _ in KIND_REF.values()})
         self.P = P = {c: class_props(img, c)[0] for c in classes}
         missing = [c + "." + k for c, ks in NEED.items() for k in ks if k not in P[c]]

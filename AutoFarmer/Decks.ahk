@@ -1224,10 +1224,10 @@ DeckValSetClear(thisLabel)
 		DeckSay("Pick a setting in the list first")
 		return
 		}
-	;(yours from now on: never changed by learning from the game again - DeckUnlearn)
-	DeckUnlearn(DeckEdit, DeckKey, thisLabel = "DeckValClear")
+	;(yours from now on: never changed by learning from the game again - DeckUnlearn; a value turned down below isn't set, so it
+	;stays a learned one)
 	if (thisLabel = "DeckValClear")
-		DeckEdit.vals.Delete(DeckKey), DeckSay(DeckKey ": not set by this deck - Save to keep it")
+		DeckUnlearn(DeckEdit, DeckKey, true), DeckEdit.vals.Delete(DeckKey), DeckSay(DeckKey ": not set by this deck - Save to keep it")
 	else
 		{
 		DeckV := Dash["DeckFVal"].Value
@@ -1239,6 +1239,7 @@ DeckValSetClear(thisLabel)
 			DeckSay(DeckS.label ": " (DeckS.kind = "check" ? "1 (on) or 0 (off)" : DeckLo " to " DeckHi))
 			return
 			}
+		DeckUnlearn(DeckEdit, DeckKey, false)
 		DeckEdit.vals[DeckKey] := DeckNum(DeckV), DeckSay(DeckKey " " DeckNum(DeckV) " for this deck - Save to keep it")
 		}
 	DeckListFill(DeckEdit)
@@ -1313,10 +1314,14 @@ DeckDelClick(A_GuiEvent := "", A_GuiControl := "", Info := "", *)
 	local v1KeepG := V1Thread(), msgResult  ; (v1: a g-label - its own thread and ErrorLevel)
 	if (!IsObject(DeckEdit))
 		return
-	msgResult := MsgBox("Delete the deck '" DeckEdit.name "'? Its file goes (" DeckEdit.file "); your Settings aren't touched.", "Decks", 262180)
+	msgResult := MsgBox("Delete the deck '" DeckEdit.name "'? Its file goes (" DeckEdit.file "); your Settings aren't touched."
+		. (DeckEdit.game != "" ? " Learned from the game, it isn't made again by itself - the From game button makes it again." : ""), "Decks", 262180)
 	if (msgResult = "No")
 		return
 	V1Do(FileDelete, DeckEdit.file)
+	;(learned from the game: not made again by itself every 30 minutes - DeckGone)
+	if (DeckEdit.game != "")
+		DeckGone(DeckEdit.game, 1)
 	DeckPinWas := IniRead(A_ScriptDir "\dashboard.ini", "decks", "pin", A_Space)
 	if (DeckPinWas = DeckEdit.id)
 		V1Do(IniDelete, A_ScriptDir "\dashboard.ini", "decks", "pin")
@@ -1357,7 +1362,10 @@ DeckLearnGame(manual := false)
 			DebugLog(DeckLearnSaid)
 		return ""
 		}
-	;(a fresh read - paced by the helper, refused in a battle; the first one reads every card's effects: a few seconds)
+	;(a fresh read - paced by the helper, refused in a battle; the first one reads every card's effects: a few seconds. The
+	;wizard stood first, the speed kept: the read holds this thread up to 9 s, and W held meanwhile ran it on blind)
+	if (KeysDown || HeldW)
+		ReleaseKeys(true)
 	dlgAns := VisionGet("/decks?fresh=1&ob=1", 9000, true)
 	if (dlgAns = "" || SubStr(dlgAns, 1, 5) = "none|")
 		{
@@ -1366,7 +1374,25 @@ DeckLearnGame(manual := false)
 			DebugLog(DeckLearnSaid)
 		return ""
 		}
-	dlgOut := "", dlgN := 0, dlgMade := 0, dlgChanged := 0, dlgFull := ""
+	dlgOut := "", dlgN := 0, dlgMade := 0, dlgChanged := 0, dlgFull := "", dlgGone := ""
+	;(each in-game deck's Equipment Sets by the game's memory - its deck| line: {gid: ",1,3,"}, ",," one the reading lists in
+	;none - the backpack's too, this character's only. Trusted only when the sets were read whole: some deck in one, and no
+	;"couldn't be read whole" said - else none known, and a linked deck keeps its set)
+	dlgSets := V1Obj(), dlgSetsOk := false
+	Loop Parse, dlgAns, "`n", "`r"
+		{
+		dlgF := StrSplit(A_LoopField, "|")
+		if (V1At(dlgF, 1) = "deck" && dlgF.Length >= 5 && RegExMatch(Trim(dlgF[2]), "i)^[0-9a-f]{1,16}$"))
+			{
+			dlgSets[StrLower(Trim(dlgF[2]))] := "," Trim(dlgF[5]) ","
+			if (Trim(dlgF[5]) != "")
+				dlgSetsOk := true
+			}
+		}
+	if (!dlgSetsOk || InStr(dlgAns, "couldn't be read whole"))
+		dlgSets := V1Obj()
+	;(the in-game decks a learn line came for)
+	dlgDone := V1Obj()
 	Loop Parse, dlgAns, "`n", "`r"
 		{
 		dlgF := StrSplit(A_LoopField, "|")
@@ -1377,14 +1403,20 @@ DeckLearnGame(manual := false)
 			, eqset: RegExMatch(Trim(dlgF[5]), "^[1-9]$") ? Trim(dlgF[5]) + 0 : 0, when: Trim(dlgF[6]), vals: V1Obj(), why: Trim(dlgF[8])})
 		if (!RegExMatch(dlgL.gid, "^[0-9a-f]{1,16}$"))
 			continue
+		dlgDone[dlgL.gid] := 1
 		Loop Parse, dlgF[7], ","
 			if (RegExMatch(A_LoopField, "^(\w+)=(-?\d+(?:\.\d+)?)$", &dlgM))
 				dlgL.vals[StrLower(dlgM[1])] := dlgM[2] + 0
 		dlgNew := false
-		dlgSaid := DeckLearnOne(dlgL, &dlgNew)
+		dlgSaid := DeckLearnOne(dlgL, &dlgNew, dlgSets, manual)
 		if (dlgSaid = "full")
 			{
 			dlgFull .= (dlgFull = "" ? "" : ", ") dlgL.name
+			continue
+			}
+		if (dlgSaid = "gone")
+			{
+			dlgGone .= (dlgGone = "" ? "" : ", ") dlgL.name
 			continue
 			}
 		if (dlgNew)
@@ -1397,10 +1429,24 @@ DeckLearnGame(manual := false)
 			dlgOut .= dlgSaid "`n"
 			}
 		}
+	;(a linked deck whose in-game deck the reading lists, with no learn line for it - taken out of its Equipment Set, in the
+	;backpack - and not in that set now: its set follows the game's (its first, else none). Kept, a press of the old set's key
+	;put another in-game deck on under this deck's settings)
+	for dlgI, dlgD in DeckList
+		{
+		if (dlgD.game = "" || !dlgD.eqset || dlgDone.Has(dlgD.game) || !dlgSets.Has(dlgD.game) || InStr(dlgSets[dlgD.game], "," dlgD.eqset ","))
+			continue
+		dlgC := DeckCopy(dlgD), dlgC.eqset := RegExMatch(dlgSets[dlgD.game], "^,([1-9]),", &dlgM) ? dlgM[1] + 0 : 0
+		if (!DeckSave(dlgC))
+			continue
+		dlgSaid := dlgC.name "'s Equipment Set " dlgD.eqset " -> " (dlgC.eqset ? dlgC.eqset : "none") " (its in-game deck is in " (dlgC.eqset ? "that one" : "none") " now)"
+		DebugLog("Decks from the game: " dlgSaid)
+		dlgOut .= dlgSaid "`n", dlgChanged += 1
+		}
 	if (dlgFull != "")
 		DebugLog("Decks from the game: no room for " dlgFull " (six decks at most on the Cards tab - delete one to make room)")
 	DeckLearnSaid := "Decks from the game: " dlgN " in an Equipment Set read" (dlgMade ? ", " dlgMade " made" : "") (dlgChanged ? ", " dlgChanged " brought up to date" : "")
-		. (!dlgMade && !dlgChanged ? " - nothing new" : "") (dlgFull != "" ? " (no room for " dlgFull ")" : "")
+		. (!dlgMade && !dlgChanged ? " - nothing new" : "") (dlgFull != "" ? " (no room for " dlgFull ")" : "") (dlgGone != "" ? " (" dlgGone ": deleted by you, not made again)" : "")
 	if (manual || dlgMade || dlgChanged)
 		DebugLog(DeckLearnSaid)
 	if (dlgMade || dlgChanged)
@@ -1413,8 +1459,11 @@ DeckLearnGame(manual := false)
 	}
 
 ;One learned in-game deck L ({gid, name, school, eqset, when, vals, why}) into a deck here (see DeckLearnGame) - what
-;changed in words ("" nothing), or "full" (a new one needed, six there already); isNew: it was made
-DeckLearnOne(L, &isNew := false)
+;changed in words ("" nothing), "full" (a new one needed, six there already) or "gone" (its deck here deleted by you - not
+;made again by itself: DeckGone; a deck of yours with no link on its Equipment Set is still linked to it); isNew: it was made. sets: each in-game deck's Equipment Sets by the game's
+;memory ({gid: ",1,3,"} - DeckLearnGame's; none known: a linked deck keeps its set on a reading of none). manual: the Cards
+;tab's From game button - a deck you deleted is made again then
+DeckLearnOne(L, &isNew := false, sets := "", manual := false)
 	{
 	isNew := false
 	dloD := ""
@@ -1428,9 +1477,13 @@ DeckLearnOne(L, &isNew := false)
 				dloD := dloX
 				break
 				}
-	dloSay := []
+	dloSay := [], dloLink := false
 	if (!IsObject(dloD))
 		{
+		;(deleted by you: not made again by itself - a deck of yours on its Equipment Set is still linked to it, above; the
+		;From game button makes it, and it leaves the gone list only once made or linked, below - "full" keeps it there)
+		if (!manual && DeckGone(L.gid))
+			return "gone"
 		if (DeckList.Length >= 6)
 			return "full"
 		dloId := DeckNewId()
@@ -1446,9 +1499,13 @@ DeckLearnOne(L, &isNew := false)
 		;(work on a copy: the deck in use is only swapped for it by DeckLoadAll)
 		dloD := DeckCopy(dloD)
 		if (dloD.game != L.gid)
-			dloD.game := L.gid, dloSay.Push(dloD.name " linked to the in-game deck " L.name)
+			dloD.game := L.gid, dloLink := true, dloSay.Push(dloD.name " linked to the in-game deck " L.name)
 		if (L.eqset && dloD.eqset != L.eqset)
 			dloSay.Push(dloD.name "'s Equipment Set " dloD.eqset " -> " L.eqset " (the one that puts " L.name " on)"), dloD.eqset := L.eqset
+		;(read in none - the worn one, out of its set - and the game's memory's sets read whole saying so: none here too. Kept, a
+		;press of the old set's key put another in-game deck on under this deck's settings)
+		else if (!L.eqset && dloD.eqset && IsObject(sets) && sets.Has(L.gid) && !InStr(sets[L.gid], "," dloD.eqset ","))
+			dloSay.Push(dloD.name "'s Equipment Set " dloD.eqset " -> none (" L.name " is in none now)"), dloD.eqset := 0
 		if (dloD.school = "any" && L.school != "" && L.school != "any")
 			dloD.school := L.school, dloSay.Push(dloD.name " is for " L.school)
 		}
@@ -1491,7 +1548,9 @@ DeckLearnOne(L, &isNew := false)
 	dloD.learned := dloList
 	if (!dloSay.Length)
 		return ""
-	DeckSave(dloD)
+	;(made or linked, saved: off the gone list - a deck here for it again)
+	if (DeckSave(dloD) && (isNew || dloLink))
+		DeckGone(L.gid, -1)
 	dloText := ""
 	for dloI, dloT in dloSay
 		dloText .= (dloText = "" ? "" : "; ") dloT
@@ -1509,6 +1568,39 @@ DeckUnlearn(d, key, cleared)
 	if (cleared && d.game != "")
 		duOut .= (duOut = "" ? "" : ",") "!" key
 	d.learned := duOut
+	}
+
+;The in-game decks whose deck here you deleted on the Cards tab (dashboard.ini [decks] gone: their ids, a comma between - the
+;last 40): not made again by themselves every 30 minutes (DeckLearnOne), so a deck you deleted stays deleted and its slot of the
+;six stays yours; the From game button makes it again. change 1: gid put on the list, -1: taken off. True when it was on it
+DeckGone(gid, change := 0)
+	{
+	if (gid = "")
+		return false
+	dgWas := Trim(IniRead(A_ScriptDir "\dashboard.ini", "decks", "gone", A_Space))
+	dgHas := InStr("," dgWas ",", "," gid ",") ? true : false
+	if (change > 0 && !dgHas)
+		{
+		dgL := StrSplit(dgWas = "" ? gid : dgWas "," gid, ",")
+		while (dgL.Length > 40)
+			dgL.RemoveAt(1)
+		dgOut := ""
+		for dgI, dgG in dgL
+			dgOut .= (dgOut = "" ? "" : ",") dgG
+		V1Do(IniWrite, dgOut, A_ScriptDir "\dashboard.ini", "decks", "gone")
+		}
+	else if (change < 0 && dgHas)
+		{
+		dgOut := ""
+		Loop Parse, dgWas, ","
+			if (A_LoopField != "" && A_LoopField != gid)
+				dgOut .= (dgOut = "" ? "" : ",") A_LoopField
+		if (dgOut = "")
+			V1Do(IniDelete, A_ScriptDir "\dashboard.ini", "decks", "gone")
+		else
+			V1Do(IniWrite, dgOut, A_ScriptDir "\dashboard.ini", "decks", "gone")
+		}
+	return dgHas
 	}
 
 ;Out of battle (DeckTick): the decks learned from the game once a while after the bot starts, then every 30 minutes - the
@@ -1567,6 +1659,10 @@ DeckBeat(d, foes, &why := "")
 		, ["crit", DeckStatFor(d, sch, "critical")], ["block", DeckStatFor(d, sch, "block")], ["acc", DeckStatFor(d, sch, "accuracy")]]
 		if (dbK[2] != "" && dbK[2] != 0)
 			dbQ .= "&" dbK[1] "=" NavUri(dbK[2] "")
+	;(out of battle the wizard stood first, the speed kept: 300 battles simulated hold this thread up to 5 s a deck - a boss
+	;ahead seen while walking, W held meanwhile ran it on blind into mobs or past the way)
+	if (inbattle != 1 && (KeysDown || HeldW))
+		ReleaseKeys(true)
 	dbAns := VisionGet(dbQ, 5000, true)
 	if (dbAns = "" || SubStr(dbAns, 1, 5) = "none|")
 		{
@@ -1661,7 +1757,7 @@ DeckBeatLine(d)
 ;enemy groups fought most in this zone (the helper's /deckfor - vision\battlesim.py best_decks: each in-game deck in an
 ;Equipment Set fought against the battles recorded there, each with its deck profile's settings over yours
 ;- DeckSimVals; one with no profile: yours and the ones its cards call for): of your decks
-;linked to an in-game deck (game| - the Cards tab's From game), for this school, for a use the one picked is for too
+;linked to an in-game deck (game| - the Cards tab's From game) with an Equipment Set, for this school, for a use the one picked is for too
 ;(collect, farming, dungeon, anything else - none picked: any of those; never a boss's), the one that wins most often
 ;(1 point at least, else as often in a round fewer) - and only when it wins 5 points more than the one picked, or as
 ;often in a round fewer (the one picked not simulated: it's taken). Not: the setting off, the bot off, a boss ahead,
@@ -1735,9 +1831,11 @@ DeckForZone(p, inBattle := false)
 		}
 	dfzCur := (IsObject(p.deck) && p.deck.game != "" && dfzRes.Has(p.deck.game)) ? dfzRes[p.deck.game] : ""
 	dfzPick := "", dfzPickR := ""
+	;(never one with no Equipment Set: nothing puts its in-game deck on, and every battle turns it down - below - so out of battle
+	;it was the deck in use and in each battle not, twice a battle, its settings never in a round)
 	for dfzI, dfzD in DeckList
 		{
-		if (dfzD.game = "" || !dfzRes.Has(dfzD.game) || !DeckFits(dfzD, dfzSch))
+		if (dfzD.game = "" || !dfzD.eqset || !dfzRes.Has(dfzD.game) || !DeckFits(dfzD, dfzSch))
 			continue
 		dfzSame := false
 		for dfzJ, dfzU in ["collect", "farm", "dungeon", "default"]

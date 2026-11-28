@@ -710,12 +710,15 @@ KoLoad()
 			continue
 		klKeep .= A_LoopField "`n"
 		}
+	;(written whole or not at all: to knockouts.txt.tmp first, moved over it only once all of it got there - deleted and
+	;then written again, a crash in between lost the KO guard's counts. Not: the file kept as it was, cut another time)
 	if (StrLen(klText) > 32768)
-		try
-			{
-			FileDelete(KoFile())
-			FileAppend(klKeep, KoFile(), "UTF-8")
-			}
+		{
+		klPath := KoFile()
+		V1Do(FileDelete, klPath ".tmp")
+		if (V1Do(FileAppend, klKeep, klPath ".tmp", "UTF-8") || !FileExist(klPath ".tmp") || V1Do(FileMove, klPath ".tmp", klPath, 1))
+			V1Do(FileDelete, klPath ".tmp")
+		}
 	return klOut
 	}
 

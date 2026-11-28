@@ -4,7 +4,9 @@ the bot's side. python3 -m unittest test_speedhack  (from AutoFarmer\\vision)
 
 The scenarios run the real script with Lua 5.3 (Cheat Engine's own Lua) through lupa: pip install lupa. Without it
 they're skipped; the static pins need nothing. WIZ_MAXXING_LUA=<file> runs both on another copy of the script (v1.10.0's
-fails most scenarios: it follows the newest game and speeds whatever is open).
+fails most scenarios: it follows the newest game and speeds whatever is open). WIZ_MAXXING_NEED_LUA=1 makes a missing
+lupa a failure, not a skip (a release check: wiz-maxxing.lua is the one part that changes the game - its scenarios
+must have run; 2026-11-27 review: all 37 skipped on the dev PC, and nothing else ran them).
 
 The rule (TODO.md section 2, "The speedhack on the bot's own game window when two or more are open"):
 - the walking key speeds the Wizard101 window in front - the old one back to 1x first, only if Cheat Engine has it
@@ -52,6 +54,8 @@ try:
     from lupa import lua53
 except ImportError:
     lua53 = None
+NEED_LUA = os.environ.get('WIZ_MAXXING_NEED_LUA', '').strip() not in ('', '0')
+NO_LUPA = "needs lupa (pip install lupa) - Lua 5.3, Cheat Engine's own"
 
 GAME = 'WizardGraphicalClient.exe'
 F13, F14, F16, F17 = 0x7C, 0x7D, 0x7F, 0x80      # the bot's defaults: F14 the walking key, F13 the 1x key
@@ -649,11 +653,17 @@ class Rig:
         tc.assertEqual(stray, set(), "Cheat Engine's speedhack put into a process never walked\n" + self.tail())
 
 
-@unittest.skipUnless(lua53 is not None, "needs lupa (pip install lupa) - Lua 5.3, Cheat Engine's own")
+@unittest.skipUnless(lua53 is not None or NEED_LUA, NO_LUPA)
 class Scenarios(unittest.TestCase):
     """every order of events with one or two clients, and what the script must do in each. M = the bot's game, O =
     the other account's, M2 / O2 = each started again. Each ends with assert_clean: no print(), no Lua Engine window,
     no box, no speedhack_* from the timer or the load, no activation in a process the bot never walked"""
+
+    @classmethod
+    def setUpClass(cls):
+        # (WIZ_MAXXING_NEED_LUA=1 and no lupa: one error for the class, never 37 quiet skips)
+        if lua53 is None:
+            raise AssertionError(NO_LUPA + ' - WIZ_MAXXING_NEED_LUA is set: the scenarios must run')
 
     def rig(self, games=(), front=EXPLORER, **kw):
         return Rig(self, games, front, **kw)
@@ -1192,22 +1202,22 @@ class Scenarios(unittest.TestCase):
         r.assert_clean()
 
     def test_settings_speed_and_keys(self):
-        r = self.rig([M], M, stats='speedfactor:3\r\nspeedkeyfast:5 ; F17\r\nspeedkeynormal:4\r\n')
+        r = self.rig([M], M, stats='speedhack:1\r\nspeedfactor:3\r\nspeedkeyfast:5 ; F17\r\nspeedkeynormal:4\r\n')
         r.factor = 3
         self.assertEqual(r.walk(M, key=F17), 1)
         r.assert_speeds({M: 3})
         self.assertEqual(r.onex(key=F16), 1)
         r.assert_speeds({M: 1})
         self.assertEqual(r.walk(M, key=F14), 0, 'the default walking key, not bound')
-        r.set_stats('speedfactor:1.5\r\nspeedkeyfast:5\r\nspeedkeynormal:4\r\n')
+        r.set_stats('speedhack:1\r\nspeedfactor:1.5\r\nspeedkeyfast:5\r\nspeedkeynormal:4\r\n')
         r.tick()
         r.walk(M, key=F17)
         r.assert_speeds({M: 1.5}, 'a Settings change within 2 s')
-        r.set_stats('speedfactor:99\r\nspeedkeyfast:5\r\nspeedkeynormal:4\r\n')
+        r.set_stats('speedhack:1\r\nspeedfactor:99\r\nspeedkeyfast:5\r\nspeedkeynormal:4\r\n')
         r.tick()
         r.walk(M, key=F17)
         r.assert_speeds({M: 50}, 'at most 50')
-        r.set_stats('speedfactor:3\r\nspeedkeyfast:4\r\nspeedkeynormal:4\r\n')
+        r.set_stats('speedhack:1\r\nspeedfactor:3\r\nspeedkeyfast:4\r\nspeedkeynormal:4\r\n')
         r.tick()
         self.assertEqual(r.walk(M, key=F16), 1, 'one key for both: the 1x key')
         r.assert_speeds({M: 1}, 'never stuck sped up')

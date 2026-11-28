@@ -11,14 +11,27 @@ here); collecting a fight goal the memory has in another zone - or, taken up wit
 follows the way there."""
 import os
 import re
+import sys
 import unittest
+
+if os.path.dirname(os.path.abspath(__file__)) not in sys.path:
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from test_tray import ahk_code  # noqa: E402  (AutoHotkey lines without their comments)
 
 WALKER = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "AutoQuester", "Walker.ahk"))
 
 
+def code(src):
+    """src's AutoHotkey code (test_tray's ahk_code): comment lines and /* */ blocks gone, each line cut at its ' ;' - a
+    pinned line commented out is gone, not still there for assertIn and index (fix2, x-tests-2)"""
+    return "".join(ln.rstrip() + "\n" for ln in ahk_code(src.split("\n")) if ln.strip())
+
+
 def read():
+    """Walker.ahk's code (code: its comments gone)"""
     with open(WALKER, encoding="utf-8-sig") as f:
-        return f.read().replace("\r\n", "\n")
+        return code(f.read().replace("\r\n", "\n"))
 
 
 def func(src, name):
@@ -84,7 +97,7 @@ class CollectElsewhere(unittest.TestCase):
         # (after the goal-changed check, before any monster is walked into or the area roamed)
         self.assertLess(cs.index("if (CollectGoalChanged(text))"), m.start())
         self.assertLess(m.start(), cs.index("CollectItemStep"))
-        self.assertLess(m.start(), cs.index("No progress for CollectStall"))
+        self.assertLess(m.start(), cs.index("A_TickCount - WkCollect.progressAt > CollectStall"))
 
     def test_knockouts_counted_at_the_last_goal_line(self):
         """(review 2026-11-21: the knockout guard keyed a knockout with the goal line blank - a battle, a loading screen - by
@@ -92,7 +105,7 @@ class CollectElsewhere(unittest.TestCase):
         wasn't blank then"""
         gl = func(self.w, "WalkGoalLine")
         self.assertRegex(gl, r'WkGoalLine := text\n\tif \(text != ""\)\n\t\tWkGoalSeen := text\n\treturn text')
-        self.assertIn("WkGoalSeen ; (v1 globals it sets)", gl)
+        self.assertIn("\tglobal WkGoalLineAt, WkGoalFrom, WkGoalLine, WkGoalSeen\n", gl)
         self.assertRegex(self.w, r"(?m)^global WkGoalSeen$")
         self.assertRegex(self.w, r'(?m)^\tglobal WkGoalSeen := ""$')
         es = os.path.join(os.path.dirname(WALKER), "..", "AutoFarmer", "EnemySpells.ahk")

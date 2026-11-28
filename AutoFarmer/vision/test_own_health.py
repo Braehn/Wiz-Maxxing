@@ -14,14 +14,31 @@ import re
 import unittest
 
 from test_blades import func, read
+from test_tray import ahk_code
+
+
+def code(src):
+    """src's AutoHotkey code (test_tray's ahk_code): comment lines and /* */ blocks gone, each line cut at its ' ;' - a
+    pinned line commented out is gone, not still there for assertIn and index"""
+    return "".join(ln.rstrip() + "\n" for ln in ahk_code(src.split("\n")) if ln.strip())
+
+
+def ahk_expr(e):
+    """one of PotionCheck's plain AutoHotkey expressions as Python: a ? b : c, !, ||, && (nothing else - a line that
+    grows more fails to evaluate, and the test with it)"""
+    m = re.fullmatch(r"(.+?) \? (.+) : (.+)", e)
+    if m:
+        return "(%s) if (%s) else (%s)" % (ahk_expr(m.group(2)), ahk_expr(m.group(1)), ahk_expr(m.group(3)))
+    return re.sub(r"!(?!=)", " not ", e.replace("||", " or ").replace("&&", " and "))
 
 
 class OwnHealth(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.af = read("Autofarmer.ahk")
-        cls.es = read("EnemySpells.ahk")
-        cls.po = read("Potions.ahk")
+        # (comments gone: a pinned line commented out fails its pin)
+        cls.af = code(read("Autofarmer.ahk"))
+        cls.es = code(read("EnemySpells.ahk"))
+        cls.po = code(read("Potions.ahk"))
 
     def test_memory_first_plate_when_found(self):
         b = func(self.af, "OwnHealthLow")
@@ -40,7 +57,7 @@ class OwnHealth(unittest.TestCase):
         self.assertEqual(len(re.findall(r"PotionNoteMax\(", b)), 1)
 
     def test_party_healer_waits_only_for_a_castable_own_heal(self):
-        b = func(read("Party.ahk"), "PartyHealAlly")
+        b = func(code(read("Party.ahk")), "PartyHealAlly")
         self.assertIn("if (OwnHpRound = roundnumber && OwnHpPct != \"\" && OwnHpPct <= PartyLowPct && V1Ge(OwnHpVotes, 3) && player == 1 && playerX != \"\")\n", b)
 
     def test_asked_every_round(self):
@@ -99,14 +116,39 @@ class OwnHealth(unittest.TestCase):
         self.assertRegex(loop, r"if \(!PotionDrink\(pcHp\)\)\n\t*break")
 
     def test_drink_model(self):
-        """PotionCheck's arithmetic with the most known from memory - the case that was a silent 100% before"""
-        def check(hp, most, limit=40):
-            pct = 100 * hp / most if most else 100
-            return bool(most) and pct < limit
-        self.assertTrue(check(1, 3525))
-        self.assertTrue(check(349, 3525))
-        self.assertFalse(check(3000, 3525))
-        self.assertFalse(check(1, ""))
+        """PotionCheck's own arithmetic - its lines read out of Potions.ahk and worked through, not a copy kept here: with
+        the most known from memory 1 and 349 of 3525 drink (the case that was a silent 100% before), 3000 doesn't, and a
+        most never learned (blank) takes the health read as the most - 100%, no drink"""
+        b = func(self.po, "PotionCheck")
+        self.assertIn('\n\tlimit := Stats.Has("potionat") ? Stats["potionat"] : 40\n', b)
+        # (a health over the most - or the most blank, v1's text compare - is the most from then on)
+        self.assertRegex(b, r"\n\tif \(V1Gt\(hp, most\)\)\n\t\tPotionNoteMax\(hp, false\), most := hp\n")
+        pct = re.search(r"\n\tpct := ([^\n]+)\n", b)
+        fine = re.search(r"\n\tif \(([^\n]+)\)\n\t\t\{\n\t\tif \(most\)\n\t\t\tPotionStuckSince := 0\n\t\treturn\n\t\t\}\n", b)
+        self.assertIsNotNone(pct, "PotionCheck's pct line")
+        self.assertIsNotNone(fine, "PotionCheck's 'health fine: return' block")
+        # (in that order, and the only way on to the drink: pct, the most taken, then the check, then PotionDrink)
+        self.assertLess(b.index("most := hp\n"), pct.start())
+        self.assertLess(pct.start(), fine.start())
+        self.assertLess(fine.end(), b.index("PotionDrink(hp)"))
+        self.assertEqual(b[:fine.end()].count("PotionDrink("), 0)
+        pct_py, fine_py = ahk_expr(pct.group(1)), ahk_expr(fine.group(1))
+
+        def drinks(hp, most, limit=40):
+            if most == "" or hp > most:
+                most = hp
+            env = {"hp": hp, "most": most, "limit": limit}
+            env["pct"] = eval(pct_py, {}, env)
+            return not eval(fine_py, {}, env)
+        self.assertTrue(drinks(1, 3525))
+        self.assertTrue(drinks(349, 3525))
+        self.assertTrue(drinks(1409, 3525))     # (39.97%)
+        self.assertFalse(drinks(1410, 3525))    # (40% - not under the limit)
+        self.assertFalse(drinks(3000, 3525))
+        self.assertFalse(drinks(1, ""))
+        self.assertFalse(drinks(1, 0))
+        self.assertTrue(drinks(700, 3525, 25))
+        self.assertFalse(drinks(1000, 3525, 25))
 
 
 if __name__ == "__main__":

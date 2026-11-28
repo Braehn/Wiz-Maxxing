@@ -5,7 +5,8 @@ never the game's memory, never the game's log.
 
     GET /bhist?list=1     the battles recorded today and yesterday, newest first (50 at most), one a line:
                             b<TAB>id<TAB>HH:MM<TAB>result<TAB>rounds<TAB>enemies
-    GET /bhist?b=cur      the battle in progress, else the last one recorded
+    GET /bhist?b=cur      the battle in progress (current.json written in the last CUR_FRESH_S), else the last one
+                          recorded
     GET /bhist?b=<id>     one recorded battle (an id from the list)
   A battle's answer: a heading line, then one line a cast (and a line for the effects over time and the knockouts of a
   round), in the order the game played them:
@@ -32,6 +33,10 @@ LIST_MAX = 50
 _LOCK = threading.Lock()
 _DAYS = {}      # path: {"size", "mtime", "pos", "items": [summary + "off"/"len"]}
 _CUR = {"key": None, "duel": None}
+# (current.json's open duel is the battle in progress only while the recorder keeps writing it - each round: one not
+# written for this long is a battle the recorder stopped following (recording switched off mid-battle, off after an
+# error, the helper stopped in it) - "cur" is then the last battle recorded, not that one "in progress" for hours)
+CUR_FRESH_S = 600
 _NAMES = {"key": None, "map": {}}
 
 # (an effect's words: the game's effect name -> (a word for it, the param is a percent))
@@ -297,12 +302,15 @@ def duel_answer(s, names):
 
 
 # ---------------------------------------------------------------------------------------------------- the files
-def current_duel(base):
-    """the open duel (battlerec's saved Parser state) in current.json, else None"""
+def current_duel(base, now=None):
+    """the open duel (battlerec's saved Parser state) in current.json, else None - None too when current.json wasn't
+    written for CUR_FRESH_S (now: the time, None the clock's)"""
     p = os.path.join(base, "current.json")
     try:
         st = os.stat(p)
     except OSError:
+        return None
+    if (time.time() if now is None else now) - st.st_mtime > CUR_FRESH_S:
         return None
     key = (st.st_size, st.st_mtime_ns)
     if _CUR["key"] != key:
@@ -392,7 +400,7 @@ def list_answer(base, now=None):
 def battle_answer(base, which, now=None):
     names = card_names(base)
     if which in ("", "cur"):
-        d = current_duel(base)
+        d = current_duel(base, now)
         if d is not None and d.get("rounds"):
             return duel_answer(d, names)
     items = recent(base, now)

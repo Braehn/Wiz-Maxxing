@@ -215,8 +215,12 @@ PHASE_B = frozenset()
 TAIL_S = 0.5                 # the log looked at this often
 READ_MAX = 1 << 20           # at most this much read a look
 BEHIND_MAX = 4 << 20         # further behind: jump to the end minus this (the open duel marked partial)
+# (the game's own last line of a log it rotates while it keeps running - WizardClient.log full at about 2 GB: renamed
+# WizardClient.<yymmdd_hhmm>.log, a new one started; 2026-11-24's ended so)
+ROTATED = b"Current log file has reached the maximum size"
 BACKSCAN = 8 << 20           # the first start looks this far back for the zone, the CharID and a duel in progress
 DAY_MAX = 32 << 20           # a day file this big: the next goes to -2
+DUP_TAIL = 2 << 20           # a battle whose id is in the last this-many bytes of its day's files isn't written again
 CAP_MB = 1024                # learned\battles over this: months zipped, then paused
 QUEUE_MAX = 64
 POST_WAIT_MS = 10000         # a bot post waits this long for its round in the log
@@ -1281,14 +1285,40 @@ def hidden_names(d, own):
     return out
 
 
-def scrub(lines, names):
-    """a bot round's lines with those names put as "(ally <name_h>)" """
-    if not names:
+def hidden_hashes(d):
+    """the name_h of each of the duel's names kept only as its hash ('#h:<name_h>' - a stranger's, as current.json
+    saved it: after a reload its plain name is back only when the game logs the duel's names again)"""
+    return {nm[3:] for nm in d["names"].values() if isinstance(nm, str) and nm.startswith("#h:")}
+
+
+# (a run of 1-3 capitalised words - a wizard's name as the game shows it: "Ryan", "Ryan Stormbane")
+NAME_WORD = re.compile(r"[A-Z][A-Za-z]*")
+
+
+def _hashed_in(t, hashes):
+    """the names in text t whose name_h is one of hashes - each run of 1-3 capitalised words (one space between)
+    tried, the longest first"""
+    ws = [(m.start(), m.end()) for m in NAME_WORD.finditer(t)]
+    found = set()
+    for i in range(len(ws)):
+        for j in range(i, min(i + 3, len(ws))):
+            if j > i and t[ws[j - 1][1]:ws[j][0]] != " ":
+                break
+            nm = t[ws[i][0]:ws[j][1]]
+            if len(nm) >= 3 and name_h(nm) in hashes:
+                found.add(nm)
+    return sorted(found, key=len, reverse=True)
+
+
+def scrub(lines, names, hashes=()):
+    """a bot round's lines with those names put as "(ally <name_h>)" - and any name whose name_h is one of hashes
+    (hidden_hashes: a stranger's name kept only hashed, its plain one not known since a reload)"""
+    if not names and not hashes:
         return lines
     out = []
     for ms, t in lines:
         if isinstance(t, str):
-            for nm in names:
+            for nm in list(names) + (_hashed_in(t, hashes) if hashes else []):
                 if nm in t:
                     t = t.replace(nm, "(ally %s)" % name_h(nm))
         out.append([ms, t])
@@ -1301,6 +1331,7 @@ def build_record(d, env):
     notes = list(d["notes"])
     own = set(env.get("own") or ())
     hide = hidden_names(d, own)
+    hashes = hidden_hashes(d)
     me_sc = d["me_sc"]
     rounds_out, who = [], {"bot": [], "user": [], "none": [], "unknown": []}
     posts = sorted(env.get("posts") or [], key=lambda p: p["at"])
@@ -1347,7 +1378,8 @@ def build_record(d, env):
             f = post["f"]
             lock = next((float(m.group(1)) for _, t in post["lines"] for m in [LOCKED.search(t or "")] if m), None)
             opened = post.get("open")
-            bot = {"rule": rule, "rule_v": RULE_V, "plan": plan, "casts": casts, "lines": scrub(post["lines"], hide),
+            bot = {"rule": rule, "rule_v": RULE_V, "plan": plan, "casts": casts,
+                   "lines": scrub(post["lines"], hide, hashes),
                    "seen_s": secs(r["plan_tk"], opened) if opened is not None else None, "lock_s": lock,
                    "flags": {k: _b(f.get(k)) for k in ("bot", "acting", "took", "left", "again", "pfm")},
                    "role": f.get("role") or None, "hitschool": f.get("hitschool") or None,
@@ -1639,7 +1671,9 @@ def charms_now(duel, facts=None):
     an enemy's spell, a card never seen in a hand: it fits every school); each hit (a cast with damage on another sc -
     ModifyHealth's, or a ProcessTargets damage effect's - DAMAGE_FX -, not missed) uses up the caster's charms out and
     each target's wards in that fit its schools (the spell's heads in the facts; not known: every one - KillCalc.ahk
-    ConsumeBoosts' rule), absorbs taken off by the damage; a REMOVED line (not seen in a log yet) takes its own off.
+    ConsumeBoosts' rule), absorbs worn down by the damage they soaked (health lost: each one on the target used up -
+    the hit got past them; none lost: by the hit's damage as its ProcessWards / ProcessTargets line gives it, less the
+    target's resist its StatRebalance line gives - _raw_hit); a REMOVED line (not seen in a log yet) takes its own off.
     Identical blades on one wizard don't stack (the game's - one of a spell's name kept); traps and shields do.
     -> {by: {sc: {blades, traps, shields, weak, absorb: [{pct (an absorb's: the damage it still soaks), schools, spell
     (the log's - the template's name), name (the card's display in the facts, else the spell), by (the caster's sc),
@@ -1697,14 +1731,20 @@ def charms_now(duel, facts=None):
                             if t in by:
                                 for k in ("traps", "shields"):
                                     by[t][k] = [x for x in by[t][k] if not _fits(x, heads)]
-                                left = dmg.get(t, 0)
-                                keep = []
-                                for a in by[t]["absorb"]:
-                                    take = min(a["pct"], left)
-                                    left -= take
-                                    if a["pct"] - take > 0:
-                                        keep.append(dict(a, pct=a["pct"] - take))
-                                by[t]["absorb"] = keep
+                                # (ModifyHealth's delta is the health lost after the absorbs took their share:
+                                # some lost - every absorb on it soaked all it had; none - it soaked the hit itself,
+                                # the hit's own number - not known: left as it was)
+                                if by[t]["absorb"] and dmg.get(t, 0) > 0:
+                                    by[t]["absorb"] = []
+                                elif by[t]["absorb"]:
+                                    left = _raw_hit(c, t)
+                                    keep = []
+                                    for a in by[t]["absorb"]:
+                                        take = min(a["pct"], left)
+                                        left -= take
+                                        if a["pct"] - take > 0:
+                                            keep.append(dict(a, pct=a["pct"] - take))
+                                    by[t]["absorb"] = keep
                 for e in c.get("hang") or []:
                     if not (isinstance(e, (list, tuple)) and len(e) >= 4 and isinstance(e[3], (int, float))):
                         continue
@@ -1714,8 +1754,12 @@ def charms_now(duel, facts=None):
                     k = kinds[0] if e[3] > 0 else kinds[1]
                     sch = None
                     if f:
+                        # (its boosts' schools; a full fact - a hand's - with no boosts text: its own school. A brief
+                        # one - a deck read's, no kind and no boosts - not known: every school (a Tri Blade's brief
+                        # line says Balance, its boosts are ice, storm and fire))
                         sch = _schools_of(f.get("boosts"))
-                        if sch is None and not f.get("boosts") and f.get("school"):
+                        if sch is None and not f.get("boosts") and f.get("school") and f.get("kind") is not None \
+                                and f.get("full") is not False:
                             sch = _schools_of(str(f.get("school")) + ":1")
                     else:
                         unknown += 1
@@ -1738,6 +1782,30 @@ def charms_now(duel, facts=None):
     except Exception as e:  # noqa: BLE001 - what it got to
         out["why"].append("the charms couldn't all be read (%r)" % (e,))
     return out
+
+
+def _raw_hit(c, t):
+    """cast c's damage on target t as an absorb takes it: its last ProcessWards damage line on t (after the traps and
+    shields on it), else its biggest ProcessTargets one (a damage over time's not: its ticks come later) - both before
+    t's resist, so times t's resist multiplier when the cast logged one (its StatRebalance Target line - res [sc,
+    resist, mult]: ProcessWards 721, x0.62, 447 the health the game took) - 0 not known"""
+    v = 0
+    for e in c.get("wards") or []:
+        if isinstance(e, (list, tuple)) and len(e) >= 4 and e[1] == t and _fx_name(e[2]) in DAMAGE_FX \
+                and isinstance(e[3], (int, float)) and not isinstance(e[3], bool) and e[3] > 0:
+            v = e[3]
+    if not v:
+        for e in c.get("fx") or []:
+            if isinstance(e, (list, tuple)) and len(e) >= 3 and e[0] == t and _fx_name(e[1]) in DAMAGE_FX \
+                    and _fx_name(e[1]) != "damageovertime" and isinstance(e[2], (int, float)) \
+                    and not isinstance(e[2], bool) and e[2] > v:
+                v = e[2]
+    m = None
+    for e in c.get("res") or []:
+        if isinstance(e, (list, tuple)) and len(e) >= 3 and e[0] == t and isinstance(e[2], (int, float)) \
+                and not isinstance(e[2], bool) and e[2] >= 0:
+            m = e[2]
+    return int(v * m + 1e-6) if v and m is not None else v       # (+1e-6: 100 x 0.29 is 28.999.. in floats - still 29)
 
 
 def _charm_off(by, e):
@@ -1859,7 +1927,35 @@ class Store:
             p = os.path.join(mdir, "%s-%d.jsonl" % (day, k))
 
     def add(self, rec):
+        """a battle to write - one already waiting (its id) not twice: a re-begin's checkpoint pending again"""
+        rid = rec.get("id") if isinstance(rec, dict) else None
+        if rid is not None and any(isinstance(it[0], dict) and it[0].get("id") == rid for it in self.pending):
+            return
         self.pending.append([rec, 0, 0])
+
+    def written_already(self, rec):
+        """whether rec's id is in the last DUP_TAIL bytes of one of its day's files: written before - current.json's
+        pending one after a restart (the checkpoint taken before the write), the same duel parsed again from an older
+        checkpoint. False when that can't be read"""
+        rid, t0 = rec.get("id"), rec.get("t0")
+        if not rid or not isinstance(t0, str):
+            return False
+        pat = b'"id":' + json.dumps(rid, ensure_ascii=True).encode("ascii")
+        day = t0[:10]
+        mdir = os.path.join(self.dir, day[:7])
+        p, k = os.path.join(mdir, day + ".jsonl"), 1
+        while k < 100:
+            try:
+                size = os.path.getsize(p)
+                with open(p, "rb") as f:
+                    f.seek(max(0, size - DUP_TAIL))
+                    if pat in f.read(DUP_TAIL):
+                        return True
+            except OSError:
+                return False
+            k += 1
+            p = os.path.join(mdir, "%s-%d.jsonl" % (day, k))
+        return False
 
     def note_card(self, fact):
         tid = fact.get("tid")
@@ -1890,6 +1986,9 @@ class Store:
             rec, tries, due = item
             if now < due:
                 keep.append(item)
+                continue
+            if self.written_already(rec):
+                self.log("battlerec: battle %s is in its day file already - not written again" % (rec.get("id"),))
                 continue
             try:
                 line = (dumps(rec) + "\n").encode("ascii")
@@ -2061,6 +2160,7 @@ class Tail:
         self.path = path
         self.pos = None
         self.head = None
+        self.was = None         # (head, pos) of the log left at the last 'new' - rotated_rest's
 
     def look(self):
         """(head, size) now - None when it can't be read"""
@@ -2080,7 +2180,13 @@ class Tail:
                 head = f.read(17)
                 size = os.fstat(f.fileno()).st_size
                 state = "ok"
+                if self.head is not None and len(head) < 17 and (head != self.head or size < (self.pos or 0)):
+                    # (another log, its first stamp not all written yet - the game just made it: 'new' on a later
+                    # look, with its whole head - else that look would see it 'new' again, from this part head, and
+                    # rotated_rest find no log left with it: the battle going on closed)
+                    return state, self.pos or 0, b""
                 if self.head is not None and (head != self.head or (self.pos is not None and size < self.pos)):
+                    self.was = (self.head, self.pos)
                     state, self.pos = "new", 0
                 self.head = head
                 if self.pos is None:
@@ -2101,6 +2207,45 @@ class Tail:
         base = self.pos
         self.pos += cut + 1
         return state, base, data[:cut + 1]
+
+    def rotated_rest(self):
+        """after a 'new': (base, data) - the rest of the log left, when the game rotated it (it keeps running: its log
+        full, renamed WizardClient.<stamp>.log ending with ROTATED, a new WizardClient.log started) - from where it was
+        read to, whole lines, BEHIND_MAX at most; None when it wasn't a rotation (the game restarted: it writes its log
+        over, no renamed file with the old head)"""
+        was, self.was = self.was, None
+        if not was or not was[0]:
+            return None
+        head0, pos0 = was
+        folder, name = os.path.split(self.path)
+        stem, ext = os.path.splitext(name.lower())
+        try:
+            names = os.listdir(folder or ".")
+        except OSError:
+            return None
+        for nm in names:
+            low = nm.lower()
+            if low == name.lower() or not (low.startswith(stem + ".") and low.endswith(ext)):
+                continue
+            try:
+                with open(os.path.join(folder, nm), "rb") as f:
+                    if f.read(17) != head0:
+                        continue
+                    size = os.fstat(f.fileno()).st_size
+                    f.seek(max(0, size - 4096))
+                    if ROTATED not in f.read():
+                        continue
+                    start = size if pos0 is None else max(pos0, size - BEHIND_MAX)
+                    f.seek(start)
+                    if pos0 is not None and start != pos0:
+                        f.readline()                  # (to the next whole line)
+                    start = f.tell()
+                    data = f.read(max(0, size - start))
+            except OSError:
+                continue
+            cut = data.rfind(b"\n")
+            return start, (data[:cut + 1] if cut >= 0 else b"")
+        return None
 
 
 def back_scan(path, size, pace=None):
@@ -2156,6 +2301,13 @@ def back_scan(path, size, pace=None):
                     continue
                 n = int(md.group(1))
                 w2 = md.group(2)
+                if n in over and w2.startswith("MSG_CombatAdd"):
+                    # (the circle's number used again - the game's, a circle farmed - an add after that number's end
+                    # opens a new battle, as Parser._get's done: its own start, not the earlier one's, and not over)
+                    over.discard(n)
+                    mine.discard(n)
+                    first.pop(n, None)
+                    last_phase.pop(n, None)
                 if n not in first and w2.startswith(("MSG_CombatAdd", "MSG_CombatPhase", "Local Player")):
                     first[n] = lp
                 if w2.startswith(("MSG_CombatAdd(Local", "MSG_CombatMoveSelection(Local", "Local Player",
@@ -2356,8 +2508,9 @@ class Recorder:
                 self._broke(e)
         try:
             if self.on and not self.broken:
-                self._checkpoint()
+                # (written first, then current.json - its pending list then only what's still not written)
                 self.store.flush()
+                self._checkpoint()
         except Exception:  # noqa: BLE001
             pass
 
@@ -2680,14 +2833,25 @@ class Recorder:
             return
         state, base, data = got
         if state == "new":
-            self.parser.close_all("left", "the game's log started again (the game closed)")
+            # (the game rotated its full log while it keeps running - the battle goes on: the old file's rest read,
+            # nothing closed. Else the game restarted: every duel open is over)
+            rest = self.tail.rotated_rest()
+            if rest is None:
+                self.parser.close_all("left", "the game's log started again (the game closed)")
+            else:
+                self._log("battlerec: the game's log was full - it started a new one; followed on")
+                if rest[1]:
+                    self._lines(rest[0], rest[1], now)
         elif state == "skip":
             d = self.parser.duel
             if d is not None and d["skipped_from"] is None:
                 d["skipped_from"] = (self.parser.cur(d)["n"] + 1) if d["rounds"] else 1
             self._log("battlerec: fell behind the game's log - jumped to its last 4 MB")
-        if not data:
-            return
+        if data:
+            self._lines(base, data, now)
+
+    def _lines(self, base, data, now):
+        """the log's whole lines data (bytes) from byte base on, fed to the parser"""
         wall = self.clock.wall()
         off = 0
         g = self.gate
@@ -2937,11 +3101,13 @@ class Recorder:
         own = set(self.state.get("own") or ())
         lo = ((d["tk0"] or 0) - 2000) if d else None
         hide = hidden_names(d, own) if d else []
+        hashes = hidden_hashes(d) if d else ()
         D = self.deck
         ck = {"v": 1, "path": self.tail.path if self.tail else None,
               "head": self.tail.head.hex() if self.tail and self.tail.head else None,
               "pos": self.tail.pos if self.tail else None, "parser": self.parser.save(own),
-              "posts": [dict(x, lines=scrub(x["lines"], hide)) for x in self.attached.get(d["num"], [])] if d else [],
+              "posts": [dict(x, lines=scrub(x["lines"], hide, hashes)) for x in self.attached.get(d["num"], [])]
+              if d else [],
               "hands": [h for h in self.hands if lo is not None and h["tk"] >= lo],
               "battles": [b for b in self.battles if lo is not None and b["tk"] >= lo],
               "mobinfo": self.mobinfo.get(d["num"], {}) if d else {},
@@ -2952,9 +3118,9 @@ class Recorder:
         return replace_text(os.path.join(self.dir, "current.json"), dumps(ck))
 
     def _flush(self, now):
-        if self.ckpt_due:
-            if self._checkpoint():
-                self.ckpt_due = False
+        # (the battles written first, then current.json in the same pass: a record written is off its pending list at
+        # once - a checkpoint taken before the write listed it pending till the next idle pass, and a restart in
+        # between wrote it twice)
         if self.store.pending or self.store.cards_new or self.store.dirty_today:
             n0 = len(self.store.pending)
             self.store.flush(now)
@@ -2962,6 +3128,9 @@ class Recorder:
                 self.ckpt_due = True
             if self.store.pending:
                 self.ckpt_due = True
+        if self.ckpt_due:
+            if self._checkpoint():
+                self.ckpt_due = False
         if now >= self.store.next_maintain and self.parser.duel is None:
             self.store.next_maintain = now + MAINTAIN_MS
             try:

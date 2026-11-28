@@ -8,8 +8,9 @@
 ; The script, CheatEngine\wiz-maxxing.lua (its own lines say what it does): Cheat Engine runs it every time it starts -
 ; it attaches itself to Wizard101 (again after the game exits) and the bot's two speedhack keys set the speed, read
 ; from the bot's PlayerStats.txt. The walking key speeds up the Wizard101 window in front - the one the bot walks: Cheat
-; Engine moves to it, the window it leaves back to 1x first - so another account's window is never sped up. Nobody sets
-; up Cheat Engine's hotkeys or attaches it by hand any more.
+; Engine moves to it, the window it leaves back to 1x first - so another account's window is never sped up. Only while
+; the bot's speedhack setting is on: off, the walking key does nothing and no game is attached. Nobody sets up Cheat
+; Engine's hotkeys or attaches it by hand any more.
 
 ;Cheat Engine's folder, "" if it isn't installed: its uninstall entry (Inno Setup's "Cheat Engine 7.x_is1") with
 ;Cheat Engine in it, else the usual places (Program Files, yours) - the newest name when there are several
@@ -61,7 +62,9 @@ CeScriptPath(dir)
 
 ;The bot's script as Setup puts it there: root's CheatEngine\wiz-maxxing.lua (root: the bot's folder - Setup's own,
 ;AutoFarmer's parent) with root's AutoFarmer\PlayerStats.txt written in - its short (8.3) path when the path has letters
-;beyond plain English (Cheat Engine's Lua opens files by the old code page). "" if the file isn't there
+;beyond plain English (Cheat Engine's Lua opens files by the old code page). "" if the file isn't there. Still letters
+;beyond plain English in the text (the script itself is plain ASCII): a folder with no short name (8.3 names off on
+;that drive) - Cheat Engine can't open that PlayerStats.txt, so Setup doesn't put it in (SuInstallCe)
 CeScriptText(root)
 	{
 	cstText := V1FileRead(root "\CheatEngine\wiz-maxxing.lua", "UTF-8")

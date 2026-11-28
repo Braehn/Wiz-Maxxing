@@ -85,6 +85,7 @@ CollectItemStep(goal)
 	{
 	global CiGid, CiSkip, CiFrom, CiOnAt, CiStillAt, CiXAt, CiStepAt, CiAskAt, CiItems, CiLine, CiLineAt, CiTries, CiStillX ; (v1 globals it sets)
 	global CiStillY, CiPromptAt, CiXn, WkLastX ; (v1 globals it sets)
+	static ciNoXSaid := 0   ; (the last "on it, no X" said - every 10 s at most)
 	if ((Stats.Has("collectmem") && !Stats["collectmem"]) || !VisionOn)
 		{
 		CiGid := ""
@@ -115,14 +116,20 @@ CollectItemStep(goal)
 			}
 		}
 	;(only what lies there now - the game's memory's, never a zone file's spot: a picked-up one stays in the file - and never an
-	;NPC or a mob a newer helper's key says it is)
-	it := ""
+	;NPC or a mob a newer helper's key says it is. The one walked to kept while it's still there, as UseStep keeps its thing: /items'
+	;nearest is by a straight line, so round a wall another can come nearer and go again - a swap each time started its minute
+	;again and the minute never ran out. Another first only once it's right by the wizard: within 200 and under half as far)
+	it := "", ciNow := ""
 	for i, x in CiItems
 		if (x.quest && x.src != "file" && x.kind != "npc" && x.kind != "mob" && !(CiSkip.Has(x.gid) && A_TickCount < CiSkip[x.gid]))
 			{
-			it := x
-			break
+			if (!IsObject(it))
+				it := x
+			if (CiGid != "" && x.gid = CiGid)
+				ciNow := x
 			}
+	if (IsObject(ciNow) && !(V1IsNum(it.dist) && V1IsNum(ciNow.dist) && it.dist <= 200 && it.dist < ciNow.dist / 2))
+		it := ciNow
 	if (!IsObject(it))
 		{
 		if (CiGid != "")
@@ -163,13 +170,14 @@ CollectItemStep(goal)
 	;Savannah (0 of 3)", the wizard on its mount by a pile, "WELL STONES - Press X to Interact" up, no X. The walker's own look
 	;X's a prompt once a minute by its title (Walker.ahk WalkPromptFree) - all six piles carry the same one. Not in the quiet time
 	;after a dialogue (WkQuietUntil - as the walker's own X); X'd twice and still there: another one first, this one again in 3
-	;minutes (the minute on an item, above, as ever)
+	;minutes (the minute on an item, above, as ever). ciSaw: this step's look at the prompt (CollectPromptRead's; "-" none)
+	ciSaw := "-"
 	if (it.src != "file" && d <= 300 && (nav.z = "" || it.z = "" || Abs(nav.z - it.z) < 150) && A_TickCount - V1N(CiPromptAt) >= 700
 		&& (!CiXAt || A_TickCount - CiXAt > 4000) && A_TickCount >= V1N(WkQuietUntil))
 		{
 		CiPromptAt := A_TickCount
-		if (InteractPrompt() = "press" && !RegExMatch(WkPromptDest " " WkPromptText, "i)teleport") && !WalkPromptCrowns()
-			&& !RegExMatch(WkPromptVerb, "i)^(talk|speak|chat|shop|trade|buy|sell|browse|craft|learn|train|ride|mount|board|join|enter)")
+		ciSaw := CollectPromptRead()
+		if (ciSaw = "press" && CollectPromptSafe()
 			&& (WalkUseNames(WkPromptDest, goal) || UseOwnPrompt(V1Obj({x: nav.x, y: nav.y}), d, goal, it, CiItems)))
 			{
 			ReleaseKeys()
@@ -189,16 +197,30 @@ CollectItemStep(goal)
 			}
 		}
 	;Standing on it (at its height - not under it on a ledge): picked up on contact - still there after 1.5 s: X pressed
-	;(again after 4 s)
-	if (d <= 45 && (nav.z = "" || Abs(nav.z - it.z) < 120))
+	;(again after 4 s) - only with no prompt up (a good read that found none), or a plain one by the rules above (no teleport,
+	;no Crowns, not a talk / shop / ride / enter one) that isn't a place's ("TO NEMEAN ROCK") nor a World Gate's: never into a
+	;sigil's, a teleport stone's, an NPC's prompt up by it - nor on a read that failed, nor in the quiet time after a dialogue
+	if (d <= 45 && (nav.z = "" || it.z = "" || Abs(nav.z - it.z) < 120))
 		{
 		ReleaseKeys()
 		CiOnAt := CiOnAt ? CiOnAt : A_TickCount
-		if (A_TickCount - CiOnAt > 1500 && (!CiXAt || A_TickCount - CiXAt > 4000))
+		if (A_TickCount - CiOnAt > 1500 && (!CiXAt || A_TickCount - CiXAt > 4000) && A_TickCount >= V1N(WkQuietUntil))
 			{
-			CiXAt := A_TickCount
-			WalkLog("collect: on " it.name " and it's still there - pressing X")
-			PressKey("x")
+			if (ciSaw = "-" && A_TickCount - V1N(CiPromptAt) >= 700)
+				CiPromptAt := A_TickCount, ciSaw := CollectPromptRead()
+			if ((ciSaw = "" && !WalkPromptCrowns()) || (ciSaw = "press" && CollectPromptSafe() && !RegExMatch(WkPromptText, "m)^\s*TO\s+[A-Z]")
+				&& !RegExMatch(WkPromptText, "i)w[o0]rld\s*gate|spiral")))
+				{
+				CiXAt := A_TickCount
+				WalkLog("collect: on " it.name " and it's still there - pressing X" (ciSaw = "press" ? " (the prompt up: '" SubStr(WkPromptDest, 1, 30) "')" : ""))
+				PressKey("x")
+				}
+			else if (ciSaw != "-" && A_TickCount - ciNoXSaid >= 10000)
+				{
+				ciNoXSaid := A_TickCount
+				WalkLog("collect: on " it.name " and it's still there - no X: " (ciSaw = "?" ? "the prompt couldn't be read" : "the prompt up ('"
+					. SubStr(WkPromptDest, 1, 30) "'" (WkPromptVerb != "" ? " - to " WkPromptVerb : "") ") isn't one to X"))
+				}
 			}
 		SetStatus("collecting - at " it.name)
 		Sleep(150)
@@ -243,6 +265,22 @@ CollectItemsWaiting()
 		if (x.quest && CiSkip.Has(x.gid) && A_TickCount < CiSkip[x.gid])
 			return true
 	return false
+	}
+
+;The prompt up now (Walker.ahk InteractPrompt - its WkPromptDest, WkPromptVerb, WkPromptText): its answer, or "?" when the screen's
+;text couldn't be read (OcrRect's ErrorLevel - InteractPrompt's "" then isn't "no prompt up": no X in case is pressed on it)
+CollectPromptRead()
+	{
+	cprP := InteractPrompt()
+	return (cprP = "" && ErrorLevel) ? "?" : cprP
+	}
+
+;The "Press X" prompt just read (CollectPromptRead's) is one an item's X may go into: no teleport on it, no Crowns (Walker.ahk
+;WalkPromptCrowns - the quest's own line naming a crown doesn't count), not a talk / shop / ride / enter one
+CollectPromptSafe()
+	{
+	return (!RegExMatch(WkPromptDest " " WkPromptText, "i)teleport") && !WalkPromptCrowns()
+		&& !RegExMatch(WkPromptVerb, "i)^(talk|speak|chat|shop|trade|buy|sell|browse|craft|learn|train|ride|mount|board|join|enter)")) ? true : false
 	}
 
 ;---- Goals the game shows no way to, by the game's memory's kind: using things, going to a place, talking to an NPC ----
@@ -437,8 +475,10 @@ UseX(it, why, key)
 		UsFrom := A_TickCount, UsBudget := 60000, UsXs := 0, UsBlind := 0
 		}
 	UsIt := it
-	;(Crowns on the prompt: never an X - left, not gone for again for this goal nor looked at again here)
-	if (RegExMatch(WkPromptText, "i)cr[o0]wn"))
+	;(Crowns on the prompt: never an X - left, not gone for again for this goal nor looked at again here. Walker.ahk WalkPromptCrowns:
+	;the quest's own line over the prompt doesn't count when the goal names a crown - "Collect Crown Shards in ...", every goal in
+	;Baobab Crown - else each of its things was left for good at the first look)
+	if (WalkPromptCrowns())
 		return UseLeave("Crowns on its prompt - never an X there", true)
 	ReleaseKeys()
 	UsCount0 := UseCount(), UsGoalX := WkGoalId
@@ -707,7 +747,8 @@ UseStep(goal)
 	if (usDist <= 400 && (!UsPromptAt || A_TickCount - UsPromptAt >= 700))
 		{
 		UsPromptAt := A_TickCount
-		UsPrompt := InteractPrompt()
+		;("?": the screen's text not read - not "no prompt": no X in case on it, below)
+		UsPrompt := CollectPromptRead()
 		if (UsPrompt = "press" && WalkUseNames(WkPromptDest, goal))
 			return UseX(UsIt, "its prompt '" SubStr(WkPromptDest, 1, 30) "', " Round(usDist) " off", usKey)
 		;(its title misread - 2026-11-14 Dulin's Hammer as "DTNTRSHANNER": 8 prompts in 33 s and no X, given up "570 off", 5 times
@@ -739,7 +780,8 @@ UseStep(goal)
 			return UseX(UsIt, "no prompt at it in 3 s - one X in case", usKey)
 			}
 		if (A_TickCount - UsBareAt >= 6000)
-			return UseLeave("another prompt by it all the while ('" SubStr(WkPromptDest, 1, 30) "'), not its own")
+			return UseLeave(UsPrompt = "?" ? "its prompt couldn't be read (the screen's text) - no X in case"
+				: "another prompt by it all the while ('" SubStr(WkPromptDest, 1, 30) "'), not its own")
 		SetStatus("using - by " UsIt.name)
 		Sleep(150)
 		return true
@@ -996,7 +1038,8 @@ UseTalkTries()
 UseTalkX(d, why)
 	{
 	global UsBareAt ; (v1 globals it sets)
-	if (RegExMatch(WkPromptText, "i)cr[o0]wn"))
+	;(the quest's own line naming a crown - "Talk to the Crown Prince" - doesn't count: Walker.ahk WalkPromptCrowns)
+	if (WalkPromptCrowns())
 		return UseLeave("Crowns on its prompt - never an X there")
 	UsTalkXs.Push(A_TickCount)
 	UsBareAt := 0
@@ -1094,7 +1137,8 @@ TalkStep(goal)
 	if (tsD <= TalkReach && (!UsPromptAt || A_TickCount - UsPromptAt >= 700))
 		{
 		UsPromptAt := A_TickCount
-		UsPrompt := InteractPrompt()
+		;("?": the screen's text not read - not "no prompt": no X from here on it, below)
+		UsPrompt := CollectPromptRead()
 		if (UsPrompt = "press" && WalkUseNames(WkPromptDest, goal))
 			return UseTalkX(Round(tsD), "its prompt '" SubStr(WkPromptDest, 1, 30) "', " Round(tsD) " off")
 		}

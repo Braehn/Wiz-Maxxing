@@ -8,14 +8,28 @@ outlined quest text read "'Cullet} 'Cil D Of 5)", "'Cil%9 Of 3)" (1x), "'CoJlzcr
 of 3)" (3x): no word shared, no count - no collect mode, "NEEDS YOU - No quest arrow" for 3 hours (08:51-11:3x)."""
 import os
 import re
+import sys
 import unittest
+
+if os.path.dirname(os.path.abspath(__file__)) not in sys.path:
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from test_tray import ahk_code  # noqa: E402  (AutoHotkey lines without their comments)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 
+def code(src):
+    """src's AutoHotkey code (test_tray's ahk_code): comment lines and /* */ blocks gone, each line cut at its ' ;' - a
+    pinned line commented out is gone, not still there for assertIn and index (fix2, x-tests-2)"""
+    return "".join(ln.rstrip() + "\n" for ln in ahk_code(src.split("\n")) if ln.strip())
+
+
 def read(*parts):
+    """the file's text - an AutoHotkey file's code only (code: its comments gone)"""
     with open(os.path.join(HERE, *parts), encoding="utf-8-sig") as f:
-        return f.read().replace("\r\n", "\n")
+        text = f.read().replace("\r\n", "\n")
+    return code(text) if parts[-1].lower().endswith(".ahk") else text
 
 
 def func(src, name):
